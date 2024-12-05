@@ -1,0 +1,42 @@
+<Project>
+  <ItemGroup>
+    <Compile Remove="build\**" />
+    <Content Remove="build\**" />
+    <EmbeddedResource Remove="build\**" />
+    <None Remove="build\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Programming -->
+    <PackageReference Include="morelinq" />
+    <PackageReference Include="Enums.NET" />
+    <!-- IDisposable -->
+    <PackageReference Include="Fody">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>
+        runtime; build; native; contentfiles; analyzers; buildtransitive
+      </IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Janitor.fody">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <!-- Logging -->
+    <PackageReference Include="Serilog" />
+    <PackageReference Include="Serilog.Settings.Configuration" />
+    <PackageReference Include="Serilog.Sinks.File" />
+    <PackageReference Include="Serilog.Sinks.Console" />
+    <PackageReference Include="Serilog.Enrichers.Environment" />
+    <PackageReference
+      Condition="'$(UsingMicrosoftNETSdkWeb)' == 'True'"
+      Include="Serilog.AspNetCore"
+    />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <!-- prettier settings -->
+  <Import
+    Project="$(MSBuildThisFileDirectory)tools/prettier/prettier.targets"
+  />
+  <!-- csharpier settings -->
+  <Import Project="$(MSBuildThisFileDirectory)tools/csharpier.targets" />
+</Project>
