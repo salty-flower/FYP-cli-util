@@ -69,7 +69,7 @@
 
     <Exec
       Command="pnpm add $(PrettierPackages)"
-      Condition="'$(ShouldRestorePrettier)' == 'true'"
+      Condition="'$(ShouldRestorePrettier.Trim())' == 'true'"
       WorkingDirectory="$(PrettierDir)"
     />
   </Target>
