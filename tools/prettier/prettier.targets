@@ -19,7 +19,7 @@
   </PropertyGroup>
 
   <!-- Generate .prettierignore file -->
-  <Target BeforeTargets="FormatXml" Name="GeneratePrettierIgnore">
+  <Target Name="GeneratePrettierIgnore">
     <ItemGroup>
       <!-- Split and create items, then transform paths -->
       <_RawIgnoreLines Include="$(IgnoreGlob.Split(';'))" />
@@ -100,7 +100,7 @@
 
   <Target
     BeforeTargets="Restore"
-    DependsOnTargets="RestorePrettierTools"
+    DependsOnTargets="RestorePrettierTools;GeneratePrettierIgnore"
     Name="FormatPrettier"
   >
     <Exec
