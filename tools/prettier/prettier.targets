@@ -3,6 +3,7 @@
   <PropertyGroup>
     <PrettierDir>$(MSBuildThisFileDirectory)</PrettierDir>
     <NodeModulesDir>$(PrettierDir)/node_modules</NodeModulesDir>
+    <PrettierIgnorePath>$(PrettierDir)/.prettierignore</PrettierIgnorePath>
     <PrettierPackages>prettier @prettier/plugin-xml</PrettierPackages>
     <Extensions>
       csproj,props,targets,config,json,yaml,yml,xml,html,js,ts,svg,xaml,axaml,resx,css,scss,sass,less
@@ -10,7 +11,30 @@
     <WriteGlob>
       $(MSBuildThisFileDirectory)../../**/*.{$(Extensions.Trim())}
     </WriteGlob>
+    <IgnoreGlob>
+      $([MSBuild]::MakeRelative($(PrettierDir), $(ArtifactsPath)));
+        **/bin/**;
+        **/obj/**
+    </IgnoreGlob>
   </PropertyGroup>
+
+  <!-- Generate .prettierignore file -->
+  <Target BeforeTargets="FormatXml" Name="GeneratePrettierIgnore">
+    <ItemGroup>
+      <!-- Split and create items, then transform paths -->
+      <_RawIgnoreLines Include="$(IgnoreGlob.Split(';'))" />
+      <IgnoreLines
+        Include="@(_RawIgnoreLines)"
+        NormalizedPath="$([System.String]::new('%(Identity)').Replace('\', '/'))"
+      />
+    </ItemGroup>
+
+    <WriteLinesToFile
+      File="$(PrettierIgnorePath)"
+      Lines="@(IgnoreLines->'%(NormalizedPath)')"
+      Overwrite="true"
+    />
+  </Target>
 
   <!-- Ensure pnpm is installed -->
   <Target Name="EnsurePnpm">
@@ -80,7 +104,7 @@
     Name="FormatPrettier"
   >
     <Exec
-      Command="pnpm prettier --config .prettierrc.yaml --write &quot;$(WriteGlob.Trim())&quot;"
+      Command="pnpm prettier --config .prettierrc.yaml --write &quot;$(WriteGlob.Trim())&quot; --ignore-path $(PrettierIgnorePath)"
       StandardErrorImportance="high"
       StandardOutputImportance="low"
       WorkingDirectory="$(PrettierDir)"
