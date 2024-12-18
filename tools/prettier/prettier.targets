@@ -75,9 +75,9 @@
   </Target>
 
   <Target
-    BeforeTargets="Build"
+    BeforeTargets="Restore"
     DependsOnTargets="RestorePrettierTools"
-    Name="FormatXml"
+    Name="FormatPrettier"
   >
     <Exec
       Command="pnpm prettier --config .prettierrc.yaml --write &quot;$(WriteGlob.Trim())&quot;"

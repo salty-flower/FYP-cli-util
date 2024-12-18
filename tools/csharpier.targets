@@ -20,9 +20,9 @@
   </Target>
 
   <Target
-    BeforeTargets="Build"
+    BeforeTargets="Restore"
     DependsOnTargets="EnsureCSharpier"
-    Name="FormatCSharp"
+    Name="FormatCSharpier"
   >
     <Exec
       Command="dotnet csharpier $(CsharpSourceDir)"
