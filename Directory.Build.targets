@@ -1,7 +1,4 @@
 <Project>
-  <!-- Import props if not already imported -->
-  <Import Project="$(MSBuildThisFileDirectory)Directory.Build.props" />
-
   <ItemGroup>
     <Compile Remove="build\**" />
     <Content Remove="build\**" />
