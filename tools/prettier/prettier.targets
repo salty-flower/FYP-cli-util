@@ -13,6 +13,7 @@
     </WriteGlob>
     <IgnoreGlob>
       $(ArtifactsPath);
+      **/.vs/**;
       **/bin/**;
       **/obj/**
     </IgnoreGlob>
