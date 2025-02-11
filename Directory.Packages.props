@@ -7,6 +7,8 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Functional programming -->
+    <PackageVersion Include="ConsoleAppFramework" Version="5.4.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.1" />
     <PackageVersion Include="morelinq" Version="4.3.0" />
     <PackageVersion Include="Enums.NET" Version="5.0.0" />
     <!-- IDisposable -->
@@ -19,8 +21,10 @@
     <PackageVersion Include="Janitor.fody" Version="1.9.0">
       <PrivateAssets>all</PrivateAssets>
     </PackageVersion>
+    <PackageVersion Include="pythonnet" Version="3.0.5" />
     <!-- Logging -->
     <PackageVersion Include="Serilog" Version="4.2.0-dev-02328" />
+    <PackageVersion Include="Serilog.Extensions.Hosting" Version="9.0.0" />
     <PackageVersion
       Include="Serilog.Settings.Configuration"
       Version="9.0.0-dev-02304"
