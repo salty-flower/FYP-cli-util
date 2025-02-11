@@ -10,16 +10,6 @@
     <!-- Programming -->
     <PackageReference Include="morelinq" />
     <PackageReference Include="Enums.NET" />
-    <!-- IDisposable -->
-    <PackageReference Include="Fody">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>
-        runtime; build; native; contentfiles; analyzers; buildtransitive
-      </IncludeAssets>
-    </PackageReference>
-    <PackageReference Include="Janitor.fody">
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
     <!-- Logging -->
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Settings.Configuration" />

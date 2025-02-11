@@ -26,9 +26,7 @@
   <!-- Weaver settings -->
   <PropertyGroup>
     <WeaverConfiguration>
-      <Weavers>
-        <Janitor />
-      </Weavers>
+      <Weavers />
     </WeaverConfiguration>
   </PropertyGroup>
 </Project>
