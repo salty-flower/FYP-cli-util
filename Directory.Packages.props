@@ -8,7 +8,9 @@
   <ItemGroup>
     <!-- Functional programming -->
     <PackageVersion Include="ConsoleAppFramework" Version="5.4.0" />
+    <PackageVersion Include="HtmlAgilityPack" Version="1.11.72" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="9.0.2" />
     <PackageVersion Include="morelinq" Version="4.3.0" />
     <PackageVersion Include="Enums.NET" Version="5.0.0" />
     <!-- IDisposable -->
