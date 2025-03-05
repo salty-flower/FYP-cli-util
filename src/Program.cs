@@ -43,7 +43,6 @@ var app = builder.ConfigureServices(
         );
 
         services.AddSingleton<AcmScraper>();
-        services.AddSingleton<PaperAnalyzer>();
     }
 );
 

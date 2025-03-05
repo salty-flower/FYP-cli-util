@@ -9,21 +9,29 @@ using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 using System.Web;
 using DataCollection.Models;
+using DataCollection.Options;
 using HtmlAgilityPack;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DataCollection.Services;
 
-class AcmScraper(IHttpClientFactory httpClientFactory, IConfiguration configuration)
+public class AcmScraper
 {
-    private readonly int _sectionParallelism = configuration.GetValue<int>(
-        "Scraper:Parallelism:SectionProcessing",
-        3
-    );
-    private readonly int _downloadParallelism = configuration.GetValue<int>(
-        "Scraper:Parallelism:Downloads",
-        5
-    );
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<AcmScraper> _logger;
+    private readonly ScraperOptions _options;
+
+    public AcmScraper(
+        IHttpClientFactory httpClientFactory,
+        IOptions<ScraperOptions> options,
+        ILogger<AcmScraper> logger
+    )
+    {
+        _httpClientFactory = httpClientFactory;
+        _logger = logger;
+        _options = options.Value;
+    }
 
     // Keep the original method for backward compatibility
     public async Task<List<Paper>> GetSectionPapers(string proceedingDOI = "10.1145/3597503")
@@ -42,8 +50,10 @@ class AcmScraper(IHttpClientFactory httpClientFactory, IConfiguration configurat
         [EnumeratorCancellation] CancellationToken cancellationToken = default
     )
     {
-        using var httpClient = httpClientFactory.CreateClient("acm-scraper");
+        using var httpClient = _httpClientFactory.CreateClient("acm-scraper");
         var proceedingUrl = $"/doi/proceedings/{proceedingDOI}";
+
+        _logger.LogInformation("Fetching proceedings from {Url}", proceedingUrl);
         var rootHtml = await httpClient.GetStringAsync(proceedingUrl, cancellationToken);
         var rootDoc = new HtmlDocument();
         rootDoc.LoadHtml(rootHtml);
@@ -57,6 +67,8 @@ class AcmScraper(IHttpClientFactory httpClientFactory, IConfiguration configurat
         var sectionNodes = tocWrapperNode.SelectNodes(
             "//div[@class = 'toc__section accordion-tabbed__tab']"
         );
+
+        _logger.LogInformation("Found {Count} sections to process", sectionNodes?.Count ?? 0);
 
         // Create a DataFlow pipeline for processing sections in parallel with controlled throughput
         var sectionBuffer = new BufferBlock<HtmlNode>(
@@ -78,6 +90,13 @@ class AcmScraper(IHttpClientFactory httpClientFactory, IConfiguration configurat
                         )
                         .Attributes["id"]
                         .Value;
+
+                    _logger.LogDebug(
+                        "Processing section {SectionId} with DOI {SectionDoi}",
+                        sectionHeadingId,
+                        sectionDoi
+                    );
+
                     var sectionHtml = await GetSectionAsync(
                         sectionHeadingId,
                         sectionDoi,
@@ -86,17 +105,24 @@ class AcmScraper(IHttpClientFactory httpClientFactory, IConfiguration configurat
                         cancellationToken
                     );
                     var papers = await GetPapersFromSection(sectionHtml, cancellationToken);
+
+                    _logger.LogInformation(
+                        "Found {Count} papers in section {SectionId}",
+                        papers.Count,
+                        sectionHeadingId
+                    );
+
                     return (sectionNode, papers);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error processing section: {ex.Message}");
+                    _logger.LogError(ex, "Error processing section");
                     return (sectionNode, new List<Paper>());
                 }
             },
             new ExecutionDataflowBlockOptions
             {
-                MaxDegreeOfParallelism = _sectionParallelism,
+                MaxDegreeOfParallelism = _options.Parallelism.SectionProcessing,
                 CancellationToken = cancellationToken,
             }
         );
@@ -131,7 +157,7 @@ class AcmScraper(IHttpClientFactory httpClientFactory, IConfiguration configurat
         CancellationToken cancellationToken = default
     )
     {
-        using var httpClient = httpClientFactory.CreateClient("acm-scraper");
+        using var httpClient = _httpClientFactory.CreateClient("acm-scraper");
         // ensure directory exists
         var dir = new DirectoryInfo(baseDir);
         if (!dir.Exists)
@@ -148,31 +174,45 @@ class AcmScraper(IHttpClientFactory httpClientFactory, IConfiguration configurat
             .Where(p => !File.Exists(p.Path) || new FileInfo(p.Path).Length == 0)
             .ToList();
 
+        _logger.LogInformation(
+            "Downloading {Count} papers to {Directory}",
+            filteredPapers.Count,
+            baseDir
+        );
+
         // Use SemaphoreSlim to limit concurrent downloads
-        using var semaphore = new SemaphoreSlim(_downloadParallelism);
+        using var semaphore = new SemaphoreSlim(_options.Parallelism.Downloads);
 
         await Parallel.ForEachAsync(
             filteredPapers,
             new ParallelOptions
             {
                 CancellationToken = cancellationToken,
-                MaxDegreeOfParallelism = _downloadParallelism,
+                MaxDegreeOfParallelism = _options.Parallelism.Downloads,
             },
             async (p, ct) =>
             {
                 try
                 {
                     await semaphore.WaitAsync(ct);
-                    Console.WriteLine($"Downloading: {p.Paper.Title} ({Path.GetFileName(p.Path)})");
+                    _logger.LogInformation(
+                        "Downloading: {Title} ({FileName})",
+                        p.Paper.Title,
+                        Path.GetFileName(p.Path)
+                    );
+
                     var pdfStream = await httpClient.GetStreamAsync(p.Link, ct);
                     using var fileStream = File.Create(p.Path);
                     await pdfStream.CopyToAsync(fileStream, ct);
+
+                    _logger.LogDebug(
+                        "Successfully downloaded {FileName}",
+                        Path.GetFileName(p.Path)
+                    );
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine(
-                        $"Error downloading {Path.GetFileName(p.Path)}: {ex.Message}"
-                    );
+                    _logger.LogError(ex, "Error downloading {FileName}", Path.GetFileName(p.Path));
                 }
                 finally
                 {
@@ -190,7 +230,7 @@ class AcmScraper(IHttpClientFactory httpClientFactory, IConfiguration configurat
         CancellationToken cancellationToken = default
     )
     {
-        using var httpClient = httpClientFactory.CreateClient("acm-scraper");
+        using var httpClient = _httpClientFactory.CreateClient("acm-scraper");
         var sectionUrl =
             $"/pb/widgets/lazyLoadTOC?tocHeading={sectionTocHeading}&widgetId={rootDataWidgetId}&doi={HttpUtility.UrlEncode(sectionDoi)}&pbContext=%3Btaxonomy%3Ataxonomy%3Aconference-collections%3Bissue%3Aissue%3Adoi%5C%3A{HttpUtility.UrlEncode(proceedingDOI)}%3Bwgroup%3Astring%3AACM%20Publication%20Websites%3BgroupTopic%3Atopic%3Aacm-pubtype%3Eproceeding%3Bcsubtype%3Astring%3AConference%20Proceedings%3Bpage%3Astring%3ABook%20Page%3Bwebsite%3Awebsite%3Adl-site%3Bctype%3Astring%3ABook%20Content%3Btopic%3Atopic%3Aconference-collections%3Eicse%3Barticle%3Aarticle%3Adoi%5C%3A{HttpUtility.UrlEncode(proceedingDOI)}%3Bjournal%3Ajournal%3Aacmconferences%3BpageGroup%3Astring%3APublication%20Pages";
         var sectionHtml = await httpClient.GetStringAsync(sectionUrl, cancellationToken);
@@ -202,7 +242,7 @@ class AcmScraper(IHttpClientFactory httpClientFactory, IConfiguration configurat
         CancellationToken cancellationToken = default
     )
     {
-        using var httpClient = httpClientFactory.CreateClient("acm-scraper");
+        using var httpClient = _httpClientFactory.CreateClient("acm-scraper");
         var paperUrl = $"/doi/{paperDoi}";
         var paperHtml = await httpClient.GetStringAsync(paperUrl, cancellationToken);
         var paperDoc = new HtmlDocument();
@@ -259,7 +299,7 @@ class AcmScraper(IHttpClientFactory httpClientFactory, IConfiguration configurat
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error extracting paper data: {ex.Message}");
+                _logger.LogError(ex, "Error extracting paper data");
             }
         }
         return papers;

@@ -1,12 +1,11 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
-using DataCollection.Utils;
 
-namespace DataCollection;
+namespace DataCollection.Utils;
 
-public class PaperAnalyzer
+public static class PaperAnalyzer
 {
-    public Dictionary<string, int> CountKeywordsInText(string text, string[] keywords)
+    public static Dictionary<string, int> CountKeywordsInText(string text, string[] keywords)
     {
         var result = new Dictionary<string, int>();
         var lowerText = text.ToLower();
@@ -20,7 +19,7 @@ public class PaperAnalyzer
         return result;
     }
 
-    public Dictionary<string, int> CountKeywordsInTexts(
+    public static Dictionary<string, int> CountKeywordsInTexts(
         IEnumerable<string> texts,
         string[] keywords
     )

@@ -1,26 +1,31 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ConsoleAppFramework;
 using DataCollection.Models;
+using DataCollection.Options;
 using DataCollection.Services;
+using DataCollection.Utils;
 using MemoryPack;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Python.Runtime;
 
-namespace DataCollection;
+namespace DataCollection.Commands;
 
 [RegisterCommands]
-class PaperCommands(
+public class PaperCommands(
     AcmScraper scraper,
-    IConfiguration configuration,
     ILogger<PaperCommands> logger,
-    PaperAnalyzer analyzer
+    IOptions<PathsOptions> pathsOptions,
+    IOptions<KeywordsOptions> keywordsOptions
 )
 {
+    private readonly PathsOptions _pathsOptions = pathsOptions.Value;
+    private readonly KeywordsOptions _keywordsOptions = keywordsOptions.Value;
+
     /// <summary>
     /// Scrape paper metadata from ACM
     /// </summary>
@@ -31,8 +36,7 @@ class PaperCommands(
         CancellationToken cancellationToken = default
     )
     {
-        var paperMetadataDirPath = configuration.GetValue<string>("Paths:PaperMetadataDir");
-        var paperMetadataDir = new DirectoryInfo(paperMetadataDirPath);
+        var paperMetadataDir = new DirectoryInfo(_pathsOptions.PaperMetadataDir);
         if (!paperMetadataDir.Exists)
             paperMetadataDir.Create();
 
@@ -57,11 +61,8 @@ class PaperCommands(
     /// <param name="cancellationToken">Cancellation token</param>
     public async Task DownloadAsync(CancellationToken cancellationToken = default)
     {
-        var paperMetadataDirPath = configuration.GetValue<string>("Paths:PaperMetadataDir");
-        var paperBinDirPath = configuration.GetValue<string>("Paths:PaperBinDir");
-
-        var paperMetadataDir = new DirectoryInfo(paperMetadataDirPath);
-        var paperBinDir = new DirectoryInfo(paperBinDirPath);
+        var paperMetadataDir = new DirectoryInfo(_pathsOptions.PaperMetadataDir);
+        var paperBinDir = new DirectoryInfo(_pathsOptions.PaperBinDir);
 
         if (!paperBinDir.Exists)
             paperBinDir.Create();
@@ -80,7 +81,7 @@ class PaperCommands(
         }
 
         logger.LogInformation("Found {Count} papers to download", papers.Count);
-        await scraper.DownloadPapersAsync(papers, paperBinDirPath, cancellationToken);
+        await scraper.DownloadPapersAsync(papers, paperBinDir.FullName, cancellationToken);
         logger.LogInformation("Downloads completed");
     }
 
@@ -88,52 +89,66 @@ class PaperCommands(
     /// Analyze paper metadata for keywords
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task AnalyzeMetadataAsync(CancellationToken cancellationToken = default)
+    public void AnalyzeMetadata(CancellationToken cancellationToken = default)
     {
-        var paperMetadataDirPath = configuration.GetValue<string>("Paths:PaperMetadataDir");
-        var keywordsConfig = configuration.GetSection("Keywords");
-
-        var paperMetadataDir = new DirectoryInfo(paperMetadataDirPath);
-        var mustExistKeywords =
-            keywordsConfig.GetSection("MustExist").Get<string[]>()
-            ?? new[] { "bug", "test", "confirm", "develop", "detect" };
+        var paperMetadataDir = new DirectoryInfo(_pathsOptions.PaperMetadataDir);
 
         logger.LogInformation("Analyzing paper metadata...");
-        var validDois = new List<string>();
 
-        foreach (var file in paperMetadataDir.GetFiles("*.bin"))
+        var papers = paperMetadataDir
+            .GetFiles("*.bin")
+            .Select(async file =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var bin = await File.ReadAllBytesAsync(file.FullName, cancellationToken);
+                return (file.Name, MemoryPackSerializer.Deserialize<Paper>(bin));
+            })
+            .Select(t => t.Result)
+            .Where(t => t.Item2 != null)
+            .Select(t =>
+            {
+                if (t.Item2 == null)
+                {
+                    logger.LogWarning("Null paper {FileName}, skip", t.Name);
+                    return null;
+                }
+                return t.Item2;
+            })
+            .Where(p => p != null)
+            .Cast<Paper>();
+
+        foreach (var paper in papers)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            var keywordCounts = PaperAnalyzer.CountKeywordsInText(
+                paper.Abstract,
+                _keywordsOptions.MustExist
+            );
 
-            var bin = await File.ReadAllBytesAsync(file.FullName, cancellationToken);
-            var paper = MemoryPackSerializer.Deserialize<Paper>(bin);
+            var messagePrefix = $"Processing {paper.Doi} - ";
+            var messageSuffix = $" - {paper.Title}";
 
-            if (paper == null)
+            if (!keywordCounts.Any(k => k.Value > 0))
             {
-                logger.LogWarning("Null paper {FileName}, skip", file.Name);
-                continue;
-            }
-
-            // Analyze and print keyword statistics
-            var keywordCounts = analyzer.CountKeywordsInText(paper.Abstract, mustExistKeywords);
-            string infoString = "";
-
-            if (keywordCounts.Values.Sum() > 0)
-            {
-                validDois.Add(paper.SanitizedDoi);
-                infoString =
-                    string.Join(", ", keywordCounts.Select(kvp => $"{kvp.Key}*{kvp.Value}")) + "\n";
+                logger.LogInformation(
+                    "{prefix} No keywords found in abstract {suffix}",
+                    messagePrefix,
+                    messageSuffix
+                );
             }
             else
             {
-                infoString = "No keywords found\n";
+                logger.LogInformation(
+                    "{prefix} - Keywords: {KeywordCounts} {suffix}",
+                    messagePrefix,
+                    string.Join(
+                        ", ",
+                        keywordCounts
+                            .Where(k => k.Value > 0)
+                            .Select(kvp => $"{kvp.Key}*{kvp.Value}")
+                    ),
+                    messageSuffix
+                );
             }
-            logger.LogInformation(
-                "Processing {title} {doi}\n{info}",
-                paper.Title,
-                paper.SanitizedDoi,
-                infoString
-            );
         }
 
         logger.LogInformation("Metadata analysis completed");
@@ -145,29 +160,22 @@ class PaperCommands(
     /// <param name="cancellationToken">Cancellation token</param>
     public async Task AnalyzePdfsAsync(CancellationToken cancellationToken = default)
     {
-        var pdfDataDirPath = configuration.GetValue<string>("Paths:PdfDataDir");
-        var paperBinDirPath = configuration.GetValue<string>("Paths:PaperBinDir");
-        var pythonDllPath = configuration.GetValue<string>("Paths:PythonDLL");
-        var keywordsConfig = configuration.GetSection("Keywords");
+        var pdfDataDir = new DirectoryInfo(_pathsOptions.PdfDataDir);
+        var paperBinDir = new DirectoryInfo(_pathsOptions.PaperBinDir);
 
-        var pdfDataDir = new DirectoryInfo(pdfDataDirPath);
         if (!pdfDataDir.Exists)
             pdfDataDir.Create();
 
         // Configure Python environment
-        Runtime.PythonDLL = pythonDllPath;
+        Runtime.PythonDLL = _pathsOptions.PythonDLL;
         PythonEngine.Initialize();
         PythonEngine.BeginAllowThreads();
 
-        var filter = new Filter(new DirectoryInfo(paperBinDirPath));
+        var filter = new Filter(paperBinDir);
 
         // Get already processed files
         var alreadyDumped = pdfDataDir.GetFiles("*.bin").Select(f => f.Name.Replace(".bin", ""));
         var alreadyDumpedDict = alreadyDumped.ToDictionary(p => p, _ => true).AsReadOnly();
-
-        var analysisKeywords =
-            keywordsConfig.GetSection("Analysis").Get<string[]>()
-            ?? new[] { "bug", "develop", "acknowledge", "maintain", "confirm" };
 
         logger.LogInformation("Processing PDF files...");
         var processedCount = 0;
@@ -182,7 +190,10 @@ class PaperCommands(
             logger.LogInformation("Processing {FileName}", pdfData.FileName);
 
             // Analyze keywords in PDF
-            var keywordCounts = analyzer.CountKeywordsInTexts(pdfData.Texts, analysisKeywords);
+            var keywordCounts = PaperAnalyzer.CountKeywordsInTexts(
+                pdfData.Texts,
+                _keywordsOptions.Analysis
+            );
 
             logger.LogInformation(
                 "Keywords: {KeywordCounts}",
@@ -190,7 +201,7 @@ class PaperCommands(
             );
 
             // Serialize and save the PDF data
-            var bin = MemoryPackSerializer.Serialize(pdfData);
+            var bin = MemoryPackSerializer.Serialize<PdfData>(pdfData);
             var binPath = Path.Combine(pdfDataDir.FullName, $"{pdfData.FileName}.bin");
             await File.WriteAllBytesAsync(binPath, bin, cancellationToken);
         }
@@ -212,7 +223,7 @@ class PaperCommands(
 
         await ScrapeAsync(proceedingDOI, cancellationToken);
         await DownloadAsync(cancellationToken);
-        await AnalyzeMetadataAsync(cancellationToken);
+        AnalyzeMetadata(cancellationToken);
         await AnalyzePdfsAsync(cancellationToken);
 
         logger.LogInformation("Pipeline completed successfully");
