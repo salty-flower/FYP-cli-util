@@ -1,62 +1,50 @@
 ﻿using System;
-using System.IO;
 using ConsoleAppFramework;
-using DataCollection;
+using DataCollection.Options;
 using DataCollection.Services;
-using Microsoft.Extensions.Configuration;
+using DataCollection.Utils;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Serilog;
 
-ConsoleApp.ConsoleAppBuilder builder = ConsoleApp.Create();
+var builder = ConsoleApp.Create().ConfigureDefaultConfiguration();
 
 builder.ConfigureLogging(
     (config, logging) =>
     {
         logging.ClearProviders();
-        logging.AddSerilog(
-            new LoggerConfiguration()
-                .WriteTo.Console()
-                .ReadFrom.Configuration(config)
-                .CreateLogger()
-        );
+        logging.AddSerilog(new LoggerConfiguration().ReadFrom.Configuration(config).CreateLogger());
     }
 );
 
-var app = builder.ConfigureServices(services =>
-{
-    // Add configuration
-    services.AddSingleton<IConfiguration>(sp =>
+var app = builder.ConfigureServices(
+    (config, services) =>
     {
-        var builder = new ConfigurationBuilder()
-            .SetBasePath(Directory.GetCurrentDirectory())
-            .AddJsonFile("appsettings.json", optional: false);
-        return builder.Build();
-    });
+        services.AddOptionsFromOwnSectionAndValidateOnStart<ScraperOptions>(config);
+        services.AddOptionsFromOwnSectionAndValidateOnStart<PathsOptions>(config);
+        services.AddOptionsFromOwnSectionAndValidateOnStart<KeywordsOptions>(config);
 
-    // Configure HTTP client
-    services.AddHttpClient(
-        "acm-scraper",
-        (sp, client) =>
-        {
-            var config = sp.GetRequiredService<IConfiguration>();
-            var baseUrl = config.GetValue<string>("Scraper:AcmBaseUrl");
-            client.BaseAddress = new Uri(baseUrl);
+        services.AddHttpClient(
+            "acm-scraper",
+            (sp, client) =>
+            {
+                var config = sp.GetRequiredService<IOptionsSnapshot<ScraperOptions>>().Value;
+                var baseUrl = config.AcmBaseUrl;
+                client.BaseAddress = new Uri(baseUrl);
 
-            // Add cookies from configuration
-            var cookiesSection = config.GetSection("Scraper:Cookies");
-            foreach (var cookie in cookiesSection.GetChildren())
-                client.DefaultRequestHeaders.TryAddWithoutValidation(
-                    "Cookie",
-                    $"{cookie.Key}={cookie.Value}"
-                );
-        }
-    );
+                // Add cookies from configuration
+                foreach (var cookie in config.Cookies)
+                    client.DefaultRequestHeaders.TryAddWithoutValidation(
+                        "Cookie",
+                        $"{cookie.Key}={cookie.Value}"
+                    );
+            }
+        );
 
-    // Register services
-    services.AddSingleton<AcmScraper>();
-    services.AddSingleton<PaperAnalyzer>();
-});
+        services.AddSingleton<AcmScraper>();
+        services.AddSingleton<PaperAnalyzer>();
+    }
+);
 
-// Run the application
 await app.RunAsync(args);

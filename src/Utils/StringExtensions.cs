@@ -16,6 +16,21 @@ public static class StringExtensions
     // Threshold for using stack allocation
     private const int StackAllocThreshold = 256;
 
+    public static string RemoveSuffix(
+        this string source,
+        string suffix,
+        StringComparison comparisonType = StringComparison.Ordinal
+    )
+    {
+        if (string.IsNullOrEmpty(source) || string.IsNullOrEmpty(suffix))
+            return source;
+
+        if (source.EndsWith(suffix, comparisonType))
+            return source.Substring(0, source.Length - suffix.Length);
+
+        return source;
+    }
+
     public static int CountSubstring(this string text, string value)
     {
         if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(value))
