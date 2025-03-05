@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-
 namespace DataCollection.Options;
 
 public class KeywordsOptions
@@ -29,6 +27,10 @@ public class KeywordsOptions
             "acknowledged",
             "detect",
         };
+
+    // New property for expression-based rules
+    public string[] ExpressionRules { get; set; } =
+        new[] { "bug > 0", "test >= 3 OR confirm > 0", "(develop > 0 AND detect > 0) OR bug > 5" };
 }
 
 public class KeywordBound
