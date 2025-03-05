@@ -10,6 +10,10 @@
     <PackageVersion Include="ConsoleAppFramework" Version="5.4.0" />
     <PackageVersion Include="HtmlAgilityPack" Version="1.11.72" />
     <PackageVersion Include="MemoryPack" Version="1.21.3" />
+    <PackageVersion
+      Include="Microsoft.Extensions.Configuration.Json"
+      Version="9.0.2"
+    />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.1" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="9.0.2" />
     <PackageVersion Include="morelinq" Version="4.3.0" />
