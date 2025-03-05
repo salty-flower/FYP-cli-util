@@ -10,11 +10,7 @@ namespace PdfPlumber
         }
     }
 
-    public class StructTreeMissing : Exception
-    {
-        public StructTreeMissing(string message)
-            : base(message) { }
-    }
+    public class StructTreeMissing(string message) : Exception(message) { }
 
     public class PDFStructTree : Findable
     {

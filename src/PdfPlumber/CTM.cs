@@ -1,5 +1,3 @@
-using System;
-
 namespace PdfPlumber
 {
     public class CTM
