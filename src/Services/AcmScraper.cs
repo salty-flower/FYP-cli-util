@@ -51,7 +51,7 @@ class AcmScraper(IHttpClientFactory httpClientFactory)
                     rootDataWidgetId,
                     proceedingDOI
                 );
-                return GetPapersFromSection(sectionHtml);
+                return await GetPapersFromSection(sectionHtml);
             });
 
         return [.. (await Task.WhenAll(results)).SelectMany(papers => papers)];
@@ -65,15 +65,19 @@ class AcmScraper(IHttpClientFactory httpClientFactory)
         if (!dir.Exists)
             dir.Create();
 
+        // skip existing
+
+        var filteredPapers = papers
+            .Select(paper => new
+            {
+                Link = paper.DownloadLink,
+                Path = Path.Combine(dir.FullName, paper.SanitizedDoi + ".pdf"),
+            })
+            // if non-existent and non-empty, skip
+            .Where(p => !File.Exists(p.Path) || new FileInfo(p.Path).Length == 0)
+            .ToList();
         await Parallel.ForEachAsync(
-            papers
-                .Select(paper => new
-                {
-                    Link = paper.DownloadLink,
-                    Path = Path.Combine(dir.FullName, paper.SanitizedDoi + ".pdf")
-                })
-                // if non-existent and non-empty, skip
-                .Where(p => !File.Exists(p.Path) && new FileInfo(p.Path).Length > 0),
+            filteredPapers,
             async (p, ct) =>
             {
                 var pdfStream = await httpClient.GetStreamAsync(p.Link, ct);
@@ -97,7 +101,20 @@ class AcmScraper(IHttpClientFactory httpClientFactory)
         return sectionHtml;
     }
 
-    private static List<Paper> GetPapersFromSection(string sectionHtml)
+    private async Task<string> GetPaperAbstractAsync(string paperDoi)
+    {
+        using var httpClient = httpClientFactory.CreateClient("acm-scraper");
+        var paperUrl = $"/doi/{paperDoi}";
+        var paperHtml = await httpClient.GetStringAsync(paperUrl);
+        var paperDoc = new HtmlDocument();
+        paperDoc.LoadHtml(paperHtml);
+        var abstractNode = paperDoc.DocumentNode.SelectSingleNode(
+            "//div[contains(@id, 'abstracts')]//section//div"
+        );
+        return abstractNode.InnerText;
+    }
+
+    private async Task<List<Paper>> GetPapersFromSection(string sectionHtml)
     {
         var sectionDoc = new HtmlDocument();
         sectionDoc.LoadHtml(sectionHtml);
@@ -117,7 +134,7 @@ class AcmScraper(IHttpClientFactory httpClientFactory)
                 .SelectNodes(".//li")
                 .Select(li => li.InnerText.TrimEnd(','))
                 .ToArray();
-            var @abstract = paperNode.SelectSingleNode(".//p").InnerText;
+            var @abstract = await GetPaperAbstractAsync(doi);
             var url = paperNode.SelectSingleNode(".//a").Attributes["href"].Value;
             papers.Add(
                 new Paper
@@ -126,7 +143,7 @@ class AcmScraper(IHttpClientFactory httpClientFactory)
                     Authors = authors,
                     Abstract = @abstract,
                     Url = url,
-                    Doi = doi
+                    Doi = doi,
                 }
             );
         }
