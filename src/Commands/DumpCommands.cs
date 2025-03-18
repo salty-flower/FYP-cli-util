@@ -117,7 +117,6 @@ public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions>
 
             yield return result;
 
-            po?.close();
             po?.Dispose();
         }
     }

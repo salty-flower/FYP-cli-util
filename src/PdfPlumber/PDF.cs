@@ -32,18 +32,12 @@ public class PDF : Container, IDisposable
 
     public static PDF open(string path)
     {
-        PythonEngine.Initialize();
         using (Py.GIL())
         {
             dynamic pdfplumber = Py.Import("pdfplumber");
             var pyPdf = pdfplumber.open(path);
             return new PDF(pyPdf);
         }
-    }
-
-    public void close()
-    {
-        Dispose();
     }
 
     public void Dispose()
