@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,10 +14,11 @@ public static class BuilderHelpers
     public static bool IsNonEmpty(this IConfigurationSection section) =>
         section.Value != null || section.GetChildren().Any();
 
-    public static OptionsBuilder<TOptions> AddOptionsFromOwnSectionAndValidateOnStart<TOptions>(
-        this IServiceCollection services,
-        IConfiguration configuration
-    )
+    [RequiresDynamicCode("")]
+    [RequiresUnreferencedCode("")]
+    public static OptionsBuilder<TOptions> AddOptionsFromOwnSectionAndValidateOnStart<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TOptions
+    >(this IServiceCollection services, IConfiguration configuration)
         where TOptions : class =>
         services
             .AddOptionsWithValidateOnStart<TOptions>()
@@ -31,8 +33,10 @@ public static class BuilderHelpers
                     .First()
             );
 
-    public static TOptions GetOptions<TOptions>(this IServiceProvider sp) =>
-        sp.GetRequiredService<IOptionsMonitor<TOptions>>().CurrentValue;
+    public static TOptions GetOptions<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+            TOptions
+    >(this IServiceProvider sp) => sp.GetRequiredService<IOptionsMonitor<TOptions>>().CurrentValue;
 
     /// <summary>
     /// Get <typeparamref name="TOptions"/> from <see cref="IConfigurationManager"/> if specified,
@@ -40,6 +44,8 @@ public static class BuilderHelpers
     /// <br/>
     /// Use only if app hasn't been built yet. Otherwise, use <see cref="GetOptions{TOptions}(IServiceProvider)"/>.
     /// </summary>
+    [RequiresUnreferencedCode("")]
+    [RequiresDynamicCode("")]
     public static TOptions GetOptions<TOptions>(this IConfigurationManager cm)
         where TOptions : new() =>
         cm.GetSection(typeof(TOptions).Name).Exists()
