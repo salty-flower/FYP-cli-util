@@ -1,7 +1,6 @@
-namespace PdfPlumber
+namespace DataCollection.PdfPlumber;
+
+public class Container
 {
-    public class Container
-    {
-        // Base class for PDF and Page
-    }
+    // Base class for PDF and Page
 }

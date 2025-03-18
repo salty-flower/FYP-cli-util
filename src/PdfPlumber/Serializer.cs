@@ -1,12 +1,11 @@
 using System;
 
-namespace PdfPlumber
+namespace DataCollection.PdfPlumber;
+
+public class Serializer
 {
-    public class Serializer
+    public void serialize()
     {
-        public void serialize()
-        {
-            throw new NotImplementedException();
-        }
+        throw new NotImplementedException();
     }
 }

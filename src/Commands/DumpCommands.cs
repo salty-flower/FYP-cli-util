@@ -8,12 +8,12 @@ using System.Threading.Tasks;
 using ConsoleAppFramework;
 using DataCollection.Models;
 using DataCollection.Options;
+using DataCollection.PdfPlumber;
 using DataCollection.Services;
 using DataCollection.Utils;
 using MemoryPack;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using PdfPlumber;
 using Python.Runtime;
 using Serilog.Data;
 

@@ -1,25 +1,24 @@
 using System;
 
-namespace PdfPlumber
+namespace DataCollection.PdfPlumber;
+
+public class COLORS
 {
-    public class COLORS
+    // Color constants would go here
+}
+
+public class PageImage
+{
+    public int Width { get; set; }
+    public int Height { get; set; }
+
+    public void draw()
     {
-        // Color constants would go here
+        throw new NotImplementedException();
     }
 
-    public class PageImage
+    public void save(string path)
     {
-        public int Width { get; set; }
-        public int Height { get; set; }
-
-        public void draw()
-        {
-            throw new NotImplementedException();
-        }
-
-        public void save(string path)
-        {
-            throw new NotImplementedException();
-        }
+        throw new NotImplementedException();
     }
 }

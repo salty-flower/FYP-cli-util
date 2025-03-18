@@ -1,32 +1,31 @@
 using System;
 
-namespace PdfPlumber.Utils
+namespace DataCollection.PdfPlumber.Utils;
+
+public class TextMap
 {
-    public class TextMap
-    {
-        public string[] Text { get; set; }
+    public string[] Text { get; set; }
 
-        public object extract()
-        {
-            throw new NotImplementedException();
-        }
+    public object extract()
+    {
+        throw new NotImplementedException();
     }
+}
 
-    public class WordMap
+public class WordMap
+{
+    public string[] Words { get; set; }
+
+    public object extract()
     {
-        public string[] Words { get; set; }
-
-        public object extract()
-        {
-            throw new NotImplementedException();
-        }
+        throw new NotImplementedException();
     }
+}
 
-    public class WordExtractor
+public class WordExtractor
+{
+    public WordMap extract()
     {
-        public WordMap extract()
-        {
-            throw new NotImplementedException();
-        }
+        throw new NotImplementedException();
     }
 }

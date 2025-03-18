@@ -1,25 +1,24 @@
 using System;
 
-namespace PdfPlumber
+namespace DataCollection.PdfPlumber;
+
+public class Findable
 {
-    public class Findable
+    public object find(string query)
     {
-        public object find(string query)
-        {
-            throw new NotImplementedException();
-        }
+        throw new NotImplementedException();
     }
+}
 
-    public class StructTreeMissing(string message) : Exception(message) { }
+public class StructTreeMissing(string message) : Exception(message) { }
 
-    public class PDFStructTree : Findable
-    {
-        public PDFStructElement[] Children { get; set; }
-    }
+public class PDFStructTree : Findable
+{
+    public PDFStructElement[] Children { get; set; }
+}
 
-    public class PDFStructElement : Findable
-    {
-        public string Type { get; set; }
-        public PDFStructElement[] Children { get; set; }
-    }
+public class PDFStructElement : Findable
+{
+    public string Type { get; set; }
+    public PDFStructElement[] Children { get; set; }
 }
