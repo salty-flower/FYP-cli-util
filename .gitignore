@@ -417,3 +417,6 @@ build/
 *.Designer.cs
 
 *.sqlite.db*
+
+
+data/
