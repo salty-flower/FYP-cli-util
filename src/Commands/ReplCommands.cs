@@ -6,7 +6,6 @@ using System.Threading;
 using ConsoleAppFramework;
 using DataCollection.Models;
 using DataCollection.Options;
-using DataCollection.Services;
 using DataCollection.Utils;
 using MemoryPack;
 using Microsoft.Extensions.Logging;

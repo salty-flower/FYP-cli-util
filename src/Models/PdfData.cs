@@ -1,5 +1,4 @@
-﻿using System.Collections.ObjectModel;
-using DataCollection.PdfPlumber;
+﻿using DataCollection.PdfPlumber;
 using MemoryPack;
 
 namespace DataCollection.Models;
