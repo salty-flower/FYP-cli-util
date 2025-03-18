@@ -6,6 +6,7 @@ using System.Threading;
 using ConsoleAppFramework;
 using DataCollection.Models;
 using DataCollection.Options;
+using DataCollection.Services;
 using DataCollection.Utils;
 using MemoryPack;
 using Microsoft.Extensions.Logging;
@@ -18,7 +19,7 @@ namespace DataCollection.Commands;
 /// </summary>
 [RegisterCommands("repl")]
 public class ReplCommands(
-    ILogger<PaperCommands> logger,
+    ILogger<ScrapeCommands> logger,
     IOptions<PathsOptions> pathsOptions,
     IOptions<KeywordsOptions> keywordsOptions
 )
@@ -30,8 +31,7 @@ public class ReplCommands(
     /// Interactive REPL for testing keyword expressions against paper abstract and title
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
-    [Command("metadata")]
-    public void MetadataRepl(CancellationToken cancellationToken = default)
+    public void Metadata(CancellationToken cancellationToken = default)
     {
         var paperMetadataDir = new DirectoryInfo(_pathsOptions.PaperMetadataDir);
 
@@ -61,8 +61,7 @@ public class ReplCommands(
     /// Interactive REPL for testing keyword expressions against PDF content
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
-    [Command("pdf")]
-    public void PdfRepl(CancellationToken cancellationToken = default)
+    public void PDF(CancellationToken cancellationToken = default)
     {
         var pdfDataDir = new DirectoryInfo(_pathsOptions.PdfDataDir);
 
@@ -257,7 +256,7 @@ public class ReplCommands(
     }
 
     // Helper method to count a keyword in an item
-    private int CountKeywordInItem<T>(T item, string keyword)
+    private static int CountKeywordInItem<T>(T item, string keyword)
     {
         return item switch
         {

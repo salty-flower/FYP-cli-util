@@ -16,10 +16,10 @@ namespace DataCollection.Commands;
 /// <summary>
 /// Commands for scraping and downloading papers
 /// </summary>
-[RegisterCommands("paper")]
-public class PaperCommands(
+[RegisterCommands("scrape")]
+public class ScrapeCommands(
     AcmScraper scraper,
-    ILogger<PaperCommands> logger,
+    ILogger<ScrapeCommands> logger,
     IOptions<PathsOptions> pathsOptions,
     IOptions<KeywordsOptions> keywordsOptions
 )
@@ -32,7 +32,7 @@ public class PaperCommands(
     /// </summary>
     /// <param name="proceedingDOI">-p, The DOI of the proceedings to scrape</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task ScrapeAsync(
+    public async Task Metadata(
         string proceedingDOI = "10.1145/3597503",
         CancellationToken cancellationToken = default
     )
@@ -60,7 +60,7 @@ public class PaperCommands(
     /// Download PDF papers from scraped metadata
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task DownloadAsync(CancellationToken cancellationToken = default)
+    public async Task Download(CancellationToken cancellationToken = default)
     {
         var paperMetadataDir = new DirectoryInfo(_pathsOptions.PaperMetadataDir);
         var paperBinDir = new DirectoryInfo(_pathsOptions.PaperBinDir);
@@ -69,7 +69,7 @@ public class PaperCommands(
             paperBinDir.Create();
 
         logger.LogInformation("Loading papers from metadata...");
-        var papers = LoadPapersFromMetadata(paperMetadataDir, cancellationToken);
+        var papers = await LoadPapersFromMetadataAsync(paperMetadataDir, cancellationToken);
 
         logger.LogInformation("Found {Count} papers to download", papers.Count);
         await scraper.DownloadPapersAsync(papers, paperBinDir.FullName, cancellationToken);
@@ -77,30 +77,29 @@ public class PaperCommands(
     }
 
     /// <summary>
-    /// Run the entire pipeline: scrape, download, and analyze
+    /// Run the entire pipeline: scrape, download, and dump
     /// </summary>
     /// <param name="proceedingDOI">-p, The DOI of the proceedings to scrape</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task RunPipelineAsync(
+    public async Task Pipeline(
         string proceedingDOI = "10.1145/3597503",
         CancellationToken cancellationToken = default
     )
     {
         logger.LogInformation("Starting full pipeline...");
 
-        await ScrapeAsync(proceedingDOI, cancellationToken);
-        await DownloadAsync(cancellationToken);
+        await Metadata(proceedingDOI, cancellationToken);
+        await Download(cancellationToken);
 
         // Use the analysis commands
-        var analysisCommands = new AnalysisCommands(logger, pathsOptions, keywordsOptions);
-        analysisCommands.AnalyzeMetadata(cancellationToken);
-        await analysisCommands.AnalyzePdfsAsync(cancellationToken);
+        var dumpCmd = new DumpCommands(logger, pathsOptions);
+        await dumpCmd.PDF(cancellationToken);
 
         logger.LogInformation("Pipeline completed successfully");
     }
 
     // Helper method to load papers from metadata directory
-    private List<Paper> LoadPapersFromMetadata(
+    private async Task<List<Paper>> LoadPapersFromMetadataAsync(
         DirectoryInfo metadataDir,
         CancellationToken cancellationToken = default
     )
@@ -109,9 +108,11 @@ public class PaperCommands(
 
         foreach (var file in metadataDir.GetFiles("*.bin"))
         {
+            if (cancellationToken.IsCancellationRequested)
+                break;
             try
             {
-                var bin = File.ReadAllBytes(file.FullName);
+                var bin = await File.ReadAllBytesAsync(file.FullName, cancellationToken);
                 var paper = MemoryPackSerializer.Deserialize<Paper>(bin);
                 if (paper != null)
                 {
