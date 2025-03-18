@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using DataCollection.Models;
 using PdfPlumber;
 using Python.Runtime;
@@ -38,6 +39,7 @@ class Filter(DirectoryInfo paperDir)
                                     .ToArray()
                             )
                             .ToArray(),
+                        TextLines = po.Pages.Select(p => p.extractTextLines()).ToArray(),
                     };
                     po.close();
 
@@ -67,51 +69,46 @@ class Filter(DirectoryInfo paperDir)
 
         foreach (var pdfFile in pdfFiles)
         {
-            PdfData result = null;
-            PDF po = null;
+            PDF? po = null;
             try
             {
                 po = PDF.open(pdfFile.FullName);
-
-                // Process pages in parallel but within each file
-                var pages = po.Pages.ToList(); // Materialize pages once
-
-                //var tables = pages.Select(p => p.extractTables()).ToList();
-                var texts = pages.Select(p => p.extractText()).ToArray();
-
-                result = new PdfData
-                {
-                    FileName = pdfFile.Name,
-                    Texts = texts,
-                    Tables = [],
-                    //Tables = tables.Select(t =>
-                    //    t.Select(tt =>
-                    //        tt.Cells.Select(ccc =>
-                    //            ccc.Cast<PlainCell>().ToArray()
-                    //        ).ToArray()
-                    //    ).ToArray()
-                    //).ToArray()
-                };
-
-                Console.WriteLine($"Dumped {pdfFile.Name}");
             }
             catch (PythonException e)
             {
                 Console.WriteLine($"Error dumping {pdfFile.Name}: {e.Message}");
                 continue;
             }
-            finally
-            {
-                if (po != null)
-                {
-                    po.close();
-                }
-            }
+            var pages = po.Pages.ToList(); // Materialize pages once
 
-            if (result != null)
+            var tables = pages.Select(p => p.extractTables()).ToList();
+            var texts = pages.Select(p => p.extractText()).ToArray();
+            var textLines = pages.Select(p => p.extractTextLines()).ToArray();
+
+            var result = new PdfData
             {
-                yield return result;
-            }
+                FileName = pdfFile.Name,
+                Texts = texts,
+                Tables = tables
+                    .Select(t =>
+                        t.Select(tt =>
+                                tt.Cells.Select(ccc => ccc.Select(c => (PlainCell)c).ToArray())
+                                    .ToArray()
+                            )
+                            .ToArray()
+                    )
+                    .ToArray(),
+                TextLines = textLines,
+            };
+
+            Console.WriteLine($"Dumped {pdfFile.Name}");
+
+            // Allow other async operations to proceed
+            await Task.Delay(1);
+
+            yield return result;
+
+            po?.close();
         }
     }
 }
