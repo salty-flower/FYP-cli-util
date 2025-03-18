@@ -43,15 +43,14 @@ public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions>
         var alreadyDumped = pdfDataDir.GetFiles("*.bin").Select(f => f.Name.Replace(".bin", ""));
         var alreadyDumpedDict = alreadyDumped.ToDictionary(p => p, _ => true).AsReadOnly();
 
-        await foreach (
-            var pdfData in FilterPapersAsync(paperBinDir, alreadyDumpedDict)
-                .WithCancellation(cancellationToken)
-        )
+        foreach (var pdfData in FilterPapers(paperBinDir, alreadyDumpedDict))
         {
             // Serialize and save the PDF data
             var bin = MemoryPackSerializer.Serialize(pdfData);
             var binPath = Path.Combine(pdfDataDir.FullName, $"{pdfData.FileName}.bin");
             await File.WriteAllBytesAsync(binPath, bin, cancellationToken);
+
+            GC.Collect();
         }
 
         logger.LogInformation("PDFPlumber dump completed");
@@ -64,7 +63,7 @@ public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions>
         PythonEngine.BeginAllowThreads();
     }
 
-    private async IAsyncEnumerable<PdfData> FilterPapersAsync(
+    private IEnumerable<PdfData> FilterPapers(
         DirectoryInfo paperDir,
         ReadOnlyDictionary<string, bool>? skipMap
     )
@@ -114,10 +113,9 @@ public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions>
             };
 
             logger.LogInformation("Extracted {FileName}", pdfFile.Name);
+            po?.Dispose();
 
             yield return result;
-
-            po?.Dispose();
         }
     }
 }
