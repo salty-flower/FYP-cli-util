@@ -1,8 +1,11 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
+using DataCollection.Models;
 using Python.Runtime;
 
 namespace PdfPlumber
 {
+    [RequiresUnreferencedCode("Wrapper of Python")]
     public class Page : Container
     {
         private readonly dynamic _pyPage;
@@ -32,6 +35,27 @@ namespace PdfPlumber
             {
                 var filteredPyPage = _pyPage.filter(predicate);
                 return new FilteredPage(filteredPyPage);
+            }
+        }
+
+        public MatchObject[] extractTextLines()
+        {
+            using (Py.GIL())
+            {
+                var pyDictList = _pyPage.extract_text_lines();
+                var mos = new MatchObject[pyDictList.__len__()];
+
+                for (int i = 0; i < mos.Length; i++)
+                    mos[i] = new MatchObject(
+                        pyDictList[i]["text"].As<string>(),
+                        pyDictList[i]["x0"].As<float>(),
+                        pyDictList[i]["top"].As<float>(),
+                        pyDictList[i]["x1"].As<float>(),
+                        pyDictList[i]["bottom"].As<float>()
+                    );
+                ;
+
+                return mos;
             }
         }
 
