@@ -1,5 +1,6 @@
 ﻿using System;
 using ConsoleAppFramework;
+using DataCollection.Commands.Repl;
 using DataCollection.Options;
 using DataCollection.Services;
 using DataCollection.Utils;
@@ -47,6 +48,13 @@ var app = builder.ConfigureServices(
         );
 
         services.AddSingleton<AcmScraper>();
+        services.AddSingleton<PdfDescriptionService>();
+        services.AddSingleton<ConsoleRenderingService>();
+        services.AddSingleton<PdfSearchService>();
+        services.AddSingleton<DataLoadingService>();
+        services.AddSingleton<TextLinesReplCommand>();
+        services.AddSingleton<PdfReplCommand>();
+        services.AddSingleton<MetadataReplCommand>();
     }
 );
 
