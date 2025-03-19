@@ -419,4 +419,4 @@ build/
 *.sqlite.db*
 
 
-data/
+data*/
