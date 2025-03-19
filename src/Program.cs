@@ -4,6 +4,7 @@ using DataCollection.Commands.Repl;
 using DataCollection.Options;
 using DataCollection.Services;
 using DataCollection.Utils;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -11,7 +12,9 @@ using Serilog;
 using Serilog.Settings.Configuration;
 
 var options = new ConfigurationReaderOptions(typeof(ConsoleLoggerConfigurationExtensions).Assembly);
-var builder = ConsoleApp.Create().ConfigureDefaultConfiguration();
+var builder = ConsoleApp
+    .Create()
+    .ConfigureDefaultConfiguration(cfg => cfg.AddEnvironmentVariables());
 
 builder.ConfigureLogging(
     (config, logging) =>
