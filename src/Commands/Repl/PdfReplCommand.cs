@@ -23,8 +23,17 @@ public class PdfReplCommand(
     PdfDescriptionService pdfDescriptionService,
     ConsoleRenderingService renderingService,
     PdfSearchService searchService,
-    DataLoadingService dataLoadingService
-) : BaseReplCommand(logger)
+    DataLoadingService dataLoadingService,
+    JsonExportService jsonExportService
+)
+    : BaseReplCommand(
+        logger,
+        pdfDescriptionService,
+        renderingService,
+        searchService,
+        dataLoadingService,
+        jsonExportService
+    )
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
     private readonly KeywordsOptions _keywordsOptions = keywordsOptions.Value;
@@ -817,5 +826,303 @@ public class PdfReplCommand(
         AnsiConsole.MarkupLine(
             $"Show all results: [{(ShowAllResults ? "green" : "red")}]{ShowAllResults}[/]"
         );
+    }
+
+    /// <summary>
+    /// Run non-interactive search across all PDFs and optionally export results
+    /// </summary>
+    /// <param name="pattern">Search pattern (regex supported)</param>
+    /// <param name="exportPath">Optional path to export results</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Number of results found</returns>
+    public int RunNonInteractiveSearch(
+        string pattern,
+        string exportPath = null,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var pdfDataList = dataLoadingService.LoadPdfDataFromDirectory(
+            _pathsOptions.PdfDataDir,
+            _pathsOptions.PaperMetadataDir
+        );
+
+        if (pdfDataList.Count == 0)
+        {
+            logger.LogWarning(
+                "No PDF data could be loaded. Please run the analyze pdfs command first."
+            );
+            return 0;
+        }
+
+        logger.LogInformation(
+            "Searching for pattern '{Pattern}' across {Count} PDFs...",
+            pattern,
+            pdfDataList.Count
+        );
+
+        try
+        {
+            var regex = new Regex(pattern, RegexOptions.IgnoreCase);
+            int totalMatches = 0;
+
+            var allResults = new List<dynamic>();
+
+            foreach (var pdf in pdfDataList)
+            {
+                try
+                {
+                    // Skip invalid PDFs
+                    if (pdf == null || pdf.Texts == null)
+                        continue;
+
+                    var results = new List<(int PageIdx, string Text, string Match)>();
+
+                    // Search in full text
+                    for (int i = 0; i < pdf.Texts.Length; i++)
+                    {
+                        var text = pdf.Texts[i];
+                        if (string.IsNullOrEmpty(text))
+                            continue;
+
+                        var matches = regex.Matches(text);
+                        foreach (Match match in matches)
+                        {
+                            // Get some context around the match
+                            int start = Math.Max(0, match.Index - 40);
+                            int length = Math.Min(text.Length - start, match.Length + 80);
+                            string context = text.Substring(start, length);
+
+                            results.Add((i, context, match.Value));
+                        }
+                    }
+
+                    if (results.Count > 0)
+                    {
+                        // Add this PDF's results to the collection
+                        allResults.Add(
+                            new
+                            {
+                                PDF = pdfDescriptionService.GetItemDescription(pdf),
+                                FileName = pdf.FileName,
+                                ResultCount = results.Count,
+                                Results = results
+                                    .Select(r => new
+                                    {
+                                        Page = r.PageIdx + 1,
+                                        Context = r.Text,
+                                        Match = r.Match,
+                                    })
+                                    .ToList(),
+                            }
+                        );
+
+                        totalMatches += results.Count;
+
+                        logger.LogInformation(
+                            "Found {Count} matches in {Pdf}",
+                            results.Count,
+                            pdfDescriptionService.GetItemDescription(pdf)
+                        );
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(
+                        "Error searching PDF {FileName}: {Error}",
+                        pdf?.FileName ?? "unknown",
+                        ex.Message
+                    );
+                }
+            }
+
+            // Create export data
+            var exportData = new
+            {
+                Pattern = pattern,
+                TotalMatches = totalMatches,
+                PDFCount = pdfDataList.Count,
+                PDFsWithMatches = allResults.Count,
+                Timestamp = DateTime.Now,
+                Results = allResults,
+            };
+
+            // Export if path is provided or log the results
+            if (!string.IsNullOrEmpty(exportPath))
+            {
+                if (jsonExportService.ExportToJson(exportData, exportPath))
+                {
+                    logger.LogInformation(
+                        "Exported {Count} matches to {Path}",
+                        totalMatches,
+                        exportPath
+                    );
+                }
+                else
+                {
+                    logger.LogError("Failed to export results to {Path}", exportPath);
+                }
+            }
+            else
+            {
+                if (totalMatches > 0)
+                {
+                    logger.LogInformation(
+                        "Found {Count} matches in {PdfCount} PDFs. No export path provided.",
+                        totalMatches,
+                        allResults.Count
+                    );
+                }
+                else
+                {
+                    logger.LogInformation("No matches found for pattern '{Pattern}'", pattern);
+                }
+            }
+
+            return totalMatches;
+        }
+        catch (RegexParseException ex)
+        {
+            logger.LogError("Invalid regex pattern: {Error}", ex.Message);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error during non-interactive search: {Error}", ex.Message);
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Run non-interactive evaluation of an expression across all PDFs
+    /// </summary>
+    /// <param name="expression">Keyword expression to evaluate</param>
+    /// <param name="exportPath">Optional path to export results</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Number of PDFs matching the expression</returns>
+    public int RunNonInteractiveEvaluation(
+        string expression,
+        string exportPath = null,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var pdfDataList = dataLoadingService.LoadPdfDataFromDirectory(
+            _pathsOptions.PdfDataDir,
+            _pathsOptions.PaperMetadataDir
+        );
+
+        if (pdfDataList.Count == 0)
+        {
+            logger.LogWarning(
+                "No PDF data could be loaded. Please run the analyze pdfs command first."
+            );
+            return 0;
+        }
+
+        logger.LogInformation(
+            "Evaluating expression '{Expression}' across {Count} PDFs...",
+            expression,
+            pdfDataList.Count
+        );
+
+        try
+        {
+            // Get all keywords used in the expression
+            var keywords = _keywordsOptions.Analysis;
+
+            // Parse the expression
+            var expressionFunc = KeywordExpressionParser.ParseExpression(expression);
+
+            // Filter PDFs
+            var matchingPdfs = new List<(PdfData Pdf, Dictionary<string, int> Counts)>();
+
+            foreach (var pdf in pdfDataList)
+            {
+                var counts = CountKeywords(pdf, keywords);
+                if (expressionFunc(counts))
+                {
+                    matchingPdfs.Add((pdf, counts));
+                }
+            }
+
+            // Create export data
+            var exportData = new
+            {
+                Expression = expression,
+                TotalMatches = matchingPdfs.Count,
+                Timestamp = DateTime.Now,
+                MatchingPDFs = matchingPdfs
+                    .Select(p => new
+                    {
+                        PDF = pdfDescriptionService.GetItemDescription(p.Pdf),
+                        FileName = p.Pdf.FileName,
+                        KeywordCounts = p.Counts,
+                    })
+                    .ToList(),
+            };
+
+            // Export if path is provided or log the results
+            if (!string.IsNullOrEmpty(exportPath))
+            {
+                if (jsonExportService.ExportToJson(exportData, exportPath))
+                {
+                    logger.LogInformation(
+                        "Exported {Count} matching PDFs to {Path}",
+                        matchingPdfs.Count,
+                        exportPath
+                    );
+                }
+                else
+                {
+                    logger.LogError("Failed to export results to {Path}", exportPath);
+                }
+            }
+            else
+            {
+                if (matchingPdfs.Count > 0)
+                {
+                    logger.LogInformation(
+                        "Found {Count} PDFs matching expression '{Expression}'. No export path provided.",
+                        matchingPdfs.Count,
+                        expression
+                    );
+
+                    // Log a sample of the results
+                    foreach (var pdf in matchingPdfs.Take(5))
+                    {
+                        logger.LogInformation(
+                            "Matching PDF: {PDF} (keywords: {Keywords})",
+                            pdfDescriptionService.GetItemDescription(pdf.Pdf),
+                            string.Join(
+                                ", ",
+                                pdf.Counts.Where(c => c.Value > 0)
+                                    .Select(c => $"{c.Key}: {c.Value}")
+                            )
+                        );
+                    }
+
+                    if (matchingPdfs.Count > 5)
+                    {
+                        logger.LogInformation(
+                            "... and {Count} more matching PDFs",
+                            matchingPdfs.Count - 5
+                        );
+                    }
+                }
+                else
+                {
+                    logger.LogInformation(
+                        "No PDFs matched the expression '{Expression}'",
+                        expression
+                    );
+                }
+            }
+
+            return matchingPdfs.Count;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error during non-interactive evaluation: {Error}", ex.Message);
+            return 0;
+        }
     }
 }

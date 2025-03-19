@@ -616,4 +616,152 @@ public class TextLinesReplCommand(
             AnsiConsole.MarkupLine("[red]Failed to export search results[/]");
         }
     }
+
+    /// <summary>
+    /// Run non-interactive search across all PDFs and optionally export results
+    /// </summary>
+    /// <param name="pattern">Search pattern (regex supported)</param>
+    /// <param name="exportPath">Optional path to export results</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Number of results found</returns>
+    public int RunNonInteractiveSearch(
+        string pattern,
+        string exportPath = null,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var pdfDataList = dataLoadingService.LoadPdfDataFromDirectory(
+            _pathsOptions.PdfDataDir,
+            _pathsOptions.PaperMetadataDir
+        );
+
+        if (pdfDataList.Count == 0)
+        {
+            logger.LogWarning(
+                "No PDF data could be loaded. Please run the analyze pdfs command first."
+            );
+            return 0;
+        }
+
+        logger.LogInformation(
+            "Searching for pattern '{Pattern}' across {Count} PDFs...",
+            pattern,
+            pdfDataList.Count
+        );
+
+        try
+        {
+            var regex = new Regex(pattern, RegexOptions.IgnoreCase);
+            int total = 0;
+            int pdfsWithMatches = 0;
+            var allResults = new List<dynamic>();
+
+            foreach (var pdf in pdfDataList)
+            {
+                try
+                {
+                    if (pdf == null || pdf.TextLines == null)
+                        continue;
+
+                    var results = searchService.SearchInPdf(pdf, regex);
+
+                    if (results == null || results.Count == 0 || results.All(r => r.Line == null))
+                        continue;
+
+                    // Add to all results - ensure we handle potential null values
+                    var validResults = results
+                        .Where(r => r.Line != null)
+                        .Select(r => new
+                        {
+                            Page = r.PageNum + 1,
+                            Line = r.LineNum + 1,
+                            Text = r.Line?.Text ?? "<null text>",
+                            Position = r.Line == null
+                                ? null
+                                : new
+                                {
+                                    X0 = r.Line.X0,
+                                    Top = r.Line.Top,
+                                    X1 = r.Line.X1,
+                                    Bottom = r.Line.Bottom,
+                                },
+                        })
+                        .ToList();
+
+                    if (validResults.Any())
+                    {
+                        allResults.Add(
+                            new
+                            {
+                                PDF = pdfDescriptionService.GetItemDescription(pdf),
+                                FileName = pdf.FileName,
+                                ResultCount = validResults.Count,
+                                Results = validResults,
+                            }
+                        );
+
+                        total += validResults.Count;
+                        pdfsWithMatches++;
+
+                        logger.LogInformation(
+                            "Found {Count} matches in {Pdf}",
+                            validResults.Count,
+                            pdfDescriptionService.GetItemDescription(pdf)
+                        );
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(
+                        "Error searching PDF {FileName}: {Error}",
+                        pdf?.FileName ?? "unknown",
+                        ex.Message
+                    );
+                }
+            }
+
+            // Create export data
+            var exportData = new
+            {
+                Pattern = pattern,
+                TotalMatches = total,
+                PDFsWithMatches = pdfsWithMatches,
+                Timestamp = DateTime.Now,
+                Results = allResults,
+            };
+
+            // Export if path is provided or log the results
+            if (!string.IsNullOrEmpty(exportPath))
+            {
+                if (jsonExportService.ExportToJson(exportData, exportPath))
+                {
+                    logger.LogInformation("Exported {Count} results to {Path}", total, exportPath);
+                }
+                else
+                {
+                    logger.LogError("Failed to export results to {Path}", exportPath);
+                }
+            }
+            else
+            {
+                logger.LogInformation(
+                    "Found total of {Count} matches in {PdfCount} PDFs. No export path provided.",
+                    total,
+                    pdfsWithMatches
+                );
+            }
+
+            return total;
+        }
+        catch (RegexParseException ex)
+        {
+            logger.LogError("Invalid regex pattern: {Error}", ex.Message);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error during non-interactive search: {Error}", ex.Message);
+            return 0;
+        }
+    }
 }

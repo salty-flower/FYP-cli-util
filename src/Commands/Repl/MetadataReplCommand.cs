@@ -1020,4 +1020,268 @@ public class MetadataReplCommand(
             AnsiConsole.MarkupLine("[red]Failed to export search results[/]");
         }
     }
+
+    /// <summary>
+    /// Run non-interactive search across all papers and optionally export results
+    /// </summary>
+    /// <param name="pattern">Search pattern (regex supported)</param>
+    /// <param name="exportPath">Optional path to export results</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Number of results found</returns>
+    public int RunNonInteractiveSearch(
+        string pattern,
+        string exportPath = null,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var papers = dataLoadingService.LoadPapersFromMetadata(_pathsOptions.PaperMetadataDir);
+
+        if (papers.Count == 0)
+        {
+            logger.LogWarning(
+                "No paper metadata could be loaded. Please run the scrape papers command first."
+            );
+            return 0;
+        }
+
+        logger.LogInformation(
+            "Searching for pattern '{Pattern}' across {Count} papers...",
+            pattern,
+            papers.Count
+        );
+
+        try
+        {
+            var regex = new Regex(pattern, RegexOptions.IgnoreCase);
+            var results = new List<(Paper Paper, string Match, string Context)>();
+
+            foreach (var paper in papers)
+            {
+                // Search in title
+                var titleMatches = regex.Matches(paper.Title);
+                foreach (Match match in titleMatches)
+                {
+                    results.Add((paper, match.Value, $"Title: {paper.Title}"));
+                }
+
+                // Search in abstract
+                var abstractMatches = regex.Matches(paper.Abstract);
+                foreach (Match match in abstractMatches)
+                {
+                    // Get some context around the match
+                    int start = Math.Max(0, match.Index - 40);
+                    int length = Math.Min(paper.Abstract.Length - start, match.Length + 80);
+                    string context = paper.Abstract.Substring(start, length);
+
+                    results.Add((paper, match.Value, $"Abstract: ...{context}..."));
+                }
+            }
+
+            // Create export data
+            var exportData = new
+            {
+                Pattern = pattern,
+                TotalMatches = results.Count,
+                Timestamp = DateTime.Now,
+                Results = results
+                    .Select(r => new
+                    {
+                        Paper = new
+                        {
+                            Title = r.Paper.Title,
+                            DOI = r.Paper.Doi,
+                            Authors = r.Paper.Authors ?? new string[0],
+                        },
+                        Match = r.Match,
+                        Context = r.Context,
+                    })
+                    .ToList(),
+            };
+
+            // Export if path is provided or log the results
+            if (!string.IsNullOrEmpty(exportPath))
+            {
+                if (jsonExportService.ExportToJson(exportData, exportPath))
+                {
+                    logger.LogInformation(
+                        "Exported {Count} results to {Path}",
+                        results.Count,
+                        exportPath
+                    );
+                }
+                else
+                {
+                    logger.LogError("Failed to export results to {Path}", exportPath);
+                }
+            }
+            else
+            {
+                if (results.Count > 0)
+                {
+                    logger.LogInformation(
+                        "Found {Count} matches in paper metadata. No export path provided.",
+                        results.Count
+                    );
+
+                    // Log a sample of the results
+                    foreach (var result in results.Take(5))
+                    {
+                        logger.LogInformation(
+                            "Match in {Paper}: {Match}",
+                            result.Paper.Title,
+                            result.Match
+                        );
+                    }
+
+                    if (results.Count > 5)
+                    {
+                        logger.LogInformation("... and {Count} more matches", results.Count - 5);
+                    }
+                }
+                else
+                {
+                    logger.LogInformation("No matches found for pattern '{Pattern}'", pattern);
+                }
+            }
+
+            return results.Count;
+        }
+        catch (RegexParseException ex)
+        {
+            logger.LogError("Invalid regex pattern: {Error}", ex.Message);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error during non-interactive search: {Error}", ex.Message);
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Run non-interactive evaluation of an expression across all papers
+    /// </summary>
+    /// <param name="expression">Keyword expression to evaluate</param>
+    /// <param name="exportPath">Optional path to export results</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Number of papers matching the expression</returns>
+    public int RunNonInteractiveEvaluation(
+        string expression,
+        string exportPath = null,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var papers = dataLoadingService.LoadPapersFromMetadata(_pathsOptions.PaperMetadataDir);
+
+        if (papers.Count == 0)
+        {
+            logger.LogWarning(
+                "No paper metadata could be loaded. Please run the scrape papers command first."
+            );
+            return 0;
+        }
+
+        logger.LogInformation(
+            "Evaluating expression '{Expression}' across {Count} papers...",
+            expression,
+            papers.Count
+        );
+
+        try
+        {
+            // Get all keywords used in the expression
+            var keywords = _keywordsOptions.Analysis;
+
+            // Parse the expression
+            var expressionFunc = KeywordExpressionParser.ParseExpression(expression);
+
+            // Filter papers
+            var matchingPapers = new List<(Paper Paper, Dictionary<string, int> Counts)>();
+
+            foreach (var paper in papers)
+            {
+                var counts = CountKeywords(paper, keywords);
+                if (expressionFunc(counts))
+                {
+                    matchingPapers.Add((paper, counts));
+                }
+            }
+
+            // Create export data
+            var exportData = new
+            {
+                Expression = expression,
+                TotalMatches = matchingPapers.Count,
+                Timestamp = DateTime.Now,
+                MatchingPapers = matchingPapers
+                    .Select(p => new
+                    {
+                        Paper = new
+                        {
+                            Title = p.Paper.Title,
+                            DOI = p.Paper.Doi,
+                            Authors = p.Paper.Authors ?? new string[0],
+                        },
+                        KeywordCounts = p.Counts,
+                    })
+                    .ToList(),
+            };
+
+            // Export if path is provided or log the results
+            if (!string.IsNullOrEmpty(exportPath))
+            {
+                if (jsonExportService.ExportToJson(exportData, exportPath))
+                {
+                    logger.LogInformation(
+                        "Exported {Count} matching papers to {Path}",
+                        matchingPapers.Count,
+                        exportPath
+                    );
+                }
+                else
+                {
+                    logger.LogError("Failed to export results to {Path}", exportPath);
+                }
+            }
+            else
+            {
+                if (matchingPapers.Count > 0)
+                {
+                    logger.LogInformation(
+                        "Found {Count} papers matching expression '{Expression}'. No export path provided.",
+                        matchingPapers.Count,
+                        expression
+                    );
+
+                    // Log a sample of the results
+                    foreach (var paper in matchingPapers.Take(5))
+                    {
+                        logger.LogInformation("Matching paper: {Paper}", paper.Paper.Title);
+                    }
+
+                    if (matchingPapers.Count > 5)
+                    {
+                        logger.LogInformation(
+                            "... and {Count} more matching papers",
+                            matchingPapers.Count - 5
+                        );
+                    }
+                }
+                else
+                {
+                    logger.LogInformation(
+                        "No papers matched the expression '{Expression}'",
+                        expression
+                    );
+                }
+            }
+
+            return matchingPapers.Count;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error during non-interactive evaluation: {Error}", ex.Message);
+            return 0;
+        }
+    }
 }
