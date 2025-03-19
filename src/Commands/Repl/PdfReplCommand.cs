@@ -25,15 +25,7 @@ public class PdfReplCommand(
     PdfSearchService searchService,
     DataLoadingService dataLoadingService,
     JsonExportService jsonExportService
-)
-    : BaseReplCommand(
-        logger,
-        pdfDescriptionService,
-        renderingService,
-        searchService,
-        dataLoadingService,
-        jsonExportService
-    )
+) : BaseReplCommand(logger, jsonExportService)
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
     private readonly KeywordsOptions _keywordsOptions = keywordsOptions.Value;
@@ -812,23 +804,6 @@ public class PdfReplCommand(
     }
 
     /// <summary>
-    /// Handle the showall command
-    /// </summary>
-    private void HandleShowAllCommand(string[] parts)
-    {
-        if (parts.Length < 2 || !bool.TryParse(parts[1], out bool showAll))
-        {
-            AnsiConsole.MarkupLine("[red]Usage:[/] showall <true|false>");
-            return;
-        }
-
-        ShowAllResults = showAll;
-        AnsiConsole.MarkupLine(
-            $"Show all results: [{(ShowAllResults ? "green" : "red")}]{ShowAllResults}[/]"
-        );
-    }
-
-    /// <summary>
     /// Run non-interactive search across all PDFs and optionally export results
     /// </summary>
     /// <param name="pattern">Search pattern (regex supported)</param>
@@ -837,7 +812,7 @@ public class PdfReplCommand(
     /// <returns>Number of results found</returns>
     public int RunNonInteractiveSearch(
         string pattern,
-        string exportPath = null,
+        string exportPath,
         CancellationToken cancellationToken = default
     )
     {

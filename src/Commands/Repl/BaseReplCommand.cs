@@ -9,14 +9,7 @@ namespace DataCollection.Commands.Repl;
 /// <summary>
 /// Base class for REPL commands
 /// </summary>
-public abstract class BaseReplCommand(
-    ILogger logger,
-    PdfDescriptionService pdfDescriptionService = null,
-    ConsoleRenderingService renderingService = null,
-    PdfSearchService searchService = null,
-    DataLoadingService dataLoadingService = null,
-    JsonExportService jsonExportService = null
-)
+public abstract class BaseReplCommand(ILogger logger, JsonExportService jsonExportService)
 {
     /// <summary>
     /// Controls whether to show all results or limit them
@@ -26,7 +19,7 @@ public abstract class BaseReplCommand(
     /// <summary>
     /// Last search results for exporting
     /// </summary>
-    protected object LastSearchResults { get; set; }
+    protected object? LastSearchResults { get; set; }
 
     /// <summary>
     /// Display a help table for the REPL

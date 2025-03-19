@@ -21,19 +21,9 @@ public class MetadataReplCommand(
     IOptions<PathsOptions> pathsOptions,
     IOptions<KeywordsOptions> keywordsOptions,
     PdfDescriptionService pdfDescriptionService,
-    ConsoleRenderingService renderingService,
-    PdfSearchService searchService,
     DataLoadingService dataLoadingService,
     JsonExportService jsonExportService
-)
-    : BaseReplCommand(
-        logger,
-        pdfDescriptionService,
-        renderingService,
-        searchService,
-        dataLoadingService,
-        jsonExportService
-    )
+) : BaseReplCommand(logger, jsonExportService)
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
     private readonly KeywordsOptions _keywordsOptions = keywordsOptions.Value;

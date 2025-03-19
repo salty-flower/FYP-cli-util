@@ -23,15 +23,7 @@ public class TextLinesReplCommand(
     PdfSearchService searchService,
     DataLoadingService dataLoadingService,
     JsonExportService jsonExportService
-)
-    : BaseReplCommand(
-        logger,
-        pdfDescriptionService,
-        renderingService,
-        searchService,
-        dataLoadingService,
-        jsonExportService
-    )
+) : BaseReplCommand(logger, jsonExportService)
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
 
