@@ -19,14 +19,12 @@ namespace DataCollection.Commands.Repl;
 public class MetadataReplCommand(
     ILogger<MetadataReplCommand> logger,
     IOptions<PathsOptions> pathsOptions,
-    IOptions<KeywordsOptions> keywordsOptions,
     PdfDescriptionService pdfDescriptionService,
     DataLoadingService dataLoadingService,
     JsonExportService jsonExportService
 ) : BaseReplCommand(logger, jsonExportService)
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
-    private readonly KeywordsOptions _keywordsOptions = keywordsOptions.Value;
 
     /// <summary>
     /// Run the Metadata REPL
@@ -97,10 +95,7 @@ public class MetadataReplCommand(
         var commands = new Dictionary<string, string>
         {
             { "count <keyword>", "Count occurrences of a keyword in title and abstract" },
-            { "countall", "Count occurrences of all predefined keywords" },
             { "eval <expression>", "Evaluate a keyword expression against metadata" },
-            { "predefined", "Show predefined expressions from config" },
-            { "evaluate <index>", "Evaluate a predefined expression" },
             { "showall [true|false]", "Toggle showing all results (no result limits)" },
             { "export [filename]", "Export last search results to JSON" },
             { "info", "Show paper information" },
@@ -157,17 +152,8 @@ public class MetadataReplCommand(
                     case "count":
                         HandleCountCommand(paper, parts);
                         break;
-                    case "countall":
-                        HandleCountAllCommand(paper);
-                        break;
                     case "eval":
                         HandleEvalCommand(paper, input.Substring(5));
-                        break;
-                    case "predefined":
-                        DisplayPredefinedExpressions();
-                        break;
-                    case "evaluate":
-                        HandleEvaluatePredefinedCommand(paper, parts);
                         break;
                     case "showall":
                         HandleShowAllCommand(parts);
@@ -453,35 +439,6 @@ public class MetadataReplCommand(
     }
 
     /// <summary>
-    /// Handle the countall command
-    /// </summary>
-    private void HandleCountAllCommand(Paper paper)
-    {
-        // Get all analysis keywords from options
-        var keywords = _keywordsOptions.Analysis;
-
-        if (keywords == null || keywords.Length == 0)
-        {
-            AnsiConsole.MarkupLine("[yellow]No analysis keywords defined in configuration[/]");
-            return;
-        }
-
-        var counts = CountKeywords(paper, keywords);
-
-        var table = new Table();
-        table.AddColumn("Keyword");
-        table.AddColumn("Count");
-
-        foreach (var keyword in keywords.OrderBy(k => k))
-        {
-            table.AddRow(keyword, counts[keyword].ToString());
-        }
-
-        AnsiConsole.Write(new Rule("Keyword counts for all analysis keywords").RuleStyle("green"));
-        AnsiConsole.Write(table);
-    }
-
-    /// <summary>
     /// Handle the eval command
     /// </summary>
     private void HandleEvalCommand(Paper paper, string expression)
@@ -496,11 +453,15 @@ public class MetadataReplCommand(
 
         try
         {
-            // Get all keywords used in the expression
-            // This is a simplified approach - a proper implementation would parse the expression
-            // to extract keywords, but for now we'll just use all analysis keywords
-            var keywords = _keywordsOptions.Analysis;
-            var counts = CountKeywords(paper, keywords);
+            // Extract keywords from the expression
+            var keywords = ExtractKeywordsFromExpression(expression);
+            if (keywords.Count == 0)
+            {
+                AnsiConsole.MarkupLine("[yellow]No keywords found in expression[/]");
+                return;
+            }
+
+            var counts = CountKeywords(paper, keywords.ToArray());
 
             // Parse and evaluate the expression
             var expressionFunc = KeywordExpressionParser.ParseExpression(expression);
@@ -532,428 +493,6 @@ public class MetadataReplCommand(
                 $"[red]Error evaluating expression:[/] {ConsoleRenderingService.SafeMarkup(ex.Message)}"
             );
         }
-    }
-
-    /// <summary>
-    /// Display predefined expressions from configuration
-    /// </summary>
-    private void DisplayPredefinedExpressions()
-    {
-        var expressions = _keywordsOptions.ExpressionRules;
-
-        if (expressions == null || expressions.Length == 0)
-        {
-            AnsiConsole.MarkupLine("[yellow]No expression rules defined in configuration[/]");
-            return;
-        }
-
-        var table = new Table();
-        table.AddColumn("#");
-        table.AddColumn("Expression");
-
-        for (int i = 0; i < expressions.Length; i++)
-        {
-            table.AddRow((i + 1).ToString(), ConsoleRenderingService.SafeMarkup(expressions[i]));
-        }
-
-        AnsiConsole.Write(new Rule("Predefined Expressions").RuleStyle("green"));
-        AnsiConsole.Write(table);
-    }
-
-    /// <summary>
-    /// Handle the evaluate predefined command
-    /// </summary>
-    private void HandleEvaluatePredefinedCommand(Paper paper, string[] parts)
-    {
-        if (parts.Length < 2 || !int.TryParse(parts[1], out int index))
-        {
-            AnsiConsole.MarkupLine("[red]Usage:[/] evaluate <index>");
-            return;
-        }
-
-        var expressions = _keywordsOptions.ExpressionRules;
-
-        if (expressions == null || expressions.Length == 0)
-        {
-            AnsiConsole.MarkupLine("[yellow]No expression rules defined in configuration[/]");
-            return;
-        }
-
-        // Adjust for 1-based indexing
-        index--;
-
-        if (index < 0 || index >= expressions.Length)
-        {
-            AnsiConsole.MarkupLine(
-                $"[red]Invalid expression index.[/] Valid range: 1-{expressions.Length}"
-            );
-            return;
-        }
-
-        string expression = expressions[index];
-        HandleEvalCommand(paper, expression);
-    }
-
-    /// <summary>
-    /// Handle the search command
-    /// </summary>
-    private void HandleSearchCommand(List<Paper> papers, string[] parts)
-    {
-        if (parts.Length < 2)
-        {
-            AnsiConsole.MarkupLine("[red]Usage:[/] search <pattern>");
-            return;
-        }
-
-        string pattern = string.Join(" ", parts.Skip(1));
-
-        try
-        {
-            var regex = new Regex(pattern, RegexOptions.IgnoreCase);
-            var results = new List<(Paper Paper, string Match, string Context)>();
-
-            foreach (var paper in papers)
-            {
-                // Search in title
-                var titleMatches = regex.Matches(paper.Title);
-                foreach (Match match in titleMatches)
-                {
-                    results.Add((paper, match.Value, $"Title: {paper.Title}"));
-                }
-
-                // Search in abstract
-                var abstractMatches = regex.Matches(paper.Abstract);
-                foreach (Match match in abstractMatches)
-                {
-                    // Get some context around the match
-                    int start = Math.Max(0, match.Index - 40);
-                    int length = Math.Min(paper.Abstract.Length - start, match.Length + 80);
-                    string context = paper.Abstract.Substring(start, length);
-
-                    results.Add((paper, match.Value, $"Abstract: ...{context}..."));
-
-                    // Limit the number of results per paper if not showing all
-                    if (!ShowAllResults && results.Count >= 100)
-                        break;
-                }
-
-                // Limit total results if not showing all
-                if (!ShowAllResults && results.Count >= 100)
-                    break;
-            }
-
-            // Store results for potential export
-            LastSearchResults = new
-            {
-                Pattern = pattern,
-                TotalMatches = results.Count,
-                Timestamp = DateTime.Now,
-                Results = results
-                    .Select(r => new
-                    {
-                        Paper = new
-                        {
-                            Title = r.Paper.Title,
-                            DOI = r.Paper.Doi,
-                            Authors = r.Paper.Authors ?? new string[0],
-                        },
-                        Match = r.Match,
-                        Context = r.Context,
-                    })
-                    .ToList(),
-            };
-
-            // Display results
-            if (results.Count == 0)
-            {
-                AnsiConsole.MarkupLine(
-                    $"[yellow]No matches found[/] for '{ConsoleRenderingService.SafeMarkup(pattern)}'"
-                );
-                return;
-            }
-
-            AnsiConsole.Write(
-                new Rule(
-                    $"Found {results.Count} matches for '{ConsoleRenderingService.SafeMarkup(pattern)}'"
-                ).RuleStyle("green")
-            );
-
-            var table = new Table();
-            table.AddColumn("Paper");
-            table.AddColumn("Match");
-            table.AddColumn("Context");
-
-            // Determine how many results to show
-            int showCount = ShowAllResults ? results.Count : Math.Min(50, results.Count);
-
-            foreach (var (paper, match, context) in results.Take(showCount))
-            {
-                table.AddRow(
-                    ConsoleRenderingService.SafeMarkup(paper.Title),
-                    ConsoleRenderingService.SafeMarkup(match),
-                    ConsoleRenderingService.SafeMarkup(context)
-                );
-            }
-
-            AnsiConsole.Write(table);
-
-            if (!ShowAllResults && results.Count > 50)
-            {
-                AnsiConsole.MarkupLine(
-                    $"[grey]... and {results.Count - 50} more matches[/] (use 'showall true' to see all)"
-                );
-            }
-        }
-        catch (RegexParseException ex)
-        {
-            AnsiConsole.MarkupLine(
-                $"[red]Invalid regex pattern:[/] {ConsoleRenderingService.SafeMarkup(ex.Message)}"
-            );
-        }
-    }
-
-    /// <summary>
-    /// Handle the filter command
-    /// </summary>
-    private void HandleFilterCommand(List<Paper> papers, string expression)
-    {
-        if (string.IsNullOrWhiteSpace(expression))
-        {
-            AnsiConsole.MarkupLine("[red]Usage:[/] filter <expression>");
-            return;
-        }
-
-        expression = expression.Trim();
-
-        try
-        {
-            // Get all keywords used in the expression
-            var keywords = _keywordsOptions.Analysis;
-
-            // Parse the expression
-            var expressionFunc = KeywordExpressionParser.ParseExpression(expression);
-
-            // Filter papers
-            var matchingPapers = new List<(Paper Paper, Dictionary<string, int> Counts)>();
-
-            foreach (var paper in papers)
-            {
-                var counts = CountKeywords(paper, keywords);
-                if (expressionFunc(counts))
-                {
-                    matchingPapers.Add((paper, counts));
-                }
-            }
-
-            // Display results
-            if (matchingPapers.Count == 0)
-            {
-                AnsiConsole.MarkupLine(
-                    $"[yellow]No papers match[/] the expression: '{ConsoleRenderingService.SafeMarkup(expression)}'"
-                );
-                return;
-            }
-
-            AnsiConsole.Write(
-                new Rule(
-                    $"Found {matchingPapers.Count} papers matching: '{ConsoleRenderingService.SafeMarkup(expression)}'"
-                ).RuleStyle("green")
-            );
-
-            var table = new Table();
-            table.AddColumn("#");
-            table.AddColumn("Paper Title");
-            table.AddColumn("Key Counts");
-
-            for (int i = 0; i < matchingPapers.Count; i++)
-            {
-                var (paper, counts) = matchingPapers[i];
-
-                // Get the most relevant counts to display
-                var countSummary = string.Join(
-                    ", ",
-                    counts
-                        .Where(c => c.Value > 0)
-                        .OrderByDescending(c => c.Value)
-                        .Take(3)
-                        .Select(c => $"{c.Key}: {c.Value}")
-                );
-
-                table.AddRow(
-                    (i + 1).ToString(),
-                    ConsoleRenderingService.SafeMarkup(paper.Title),
-                    countSummary
-                );
-            }
-
-            AnsiConsole.Write(table);
-        }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine(
-                $"[red]Error filtering papers:[/] {ConsoleRenderingService.SafeMarkup(ex.Message)}"
-            );
-        }
-    }
-
-    /// <summary>
-    /// Handle the stats command
-    /// </summary>
-    private void HandleStatsCommand(List<Paper> papers, string[] parts)
-    {
-        if (parts.Length < 2)
-        {
-            AnsiConsole.MarkupLine("[red]Usage:[/] stats <keyword>");
-            return;
-        }
-
-        string keyword = parts[1].ToLower();
-        var allCounts = new List<(Paper Paper, int Count)>();
-
-        foreach (var paper in papers)
-        {
-            var counts = CountKeywords(paper, keyword);
-            allCounts.Add((paper, counts[keyword]));
-        }
-
-        // Calculate statistics
-        int total = allCounts.Sum(c => c.Count);
-        double average = allCounts.Average(c => c.Count);
-        int max = allCounts.Max(c => c.Count);
-        int min = allCounts.Min(c => c.Count);
-        int median = allCounts.OrderBy(c => c.Count).ElementAt(allCounts.Count / 2).Count;
-        int papersWithKeyword = allCounts.Count(c => c.Count > 0);
-
-        // Display statistics
-        AnsiConsole.Write(
-            new Rule($"Statistics for keyword: [blue]{keyword}[/]").RuleStyle("green")
-        );
-
-        var statsTable = new Table();
-        statsTable.AddColumn("Statistic");
-        statsTable.AddColumn("Value");
-
-        statsTable.AddRow("Total occurrences", total.ToString());
-        statsTable.AddRow("Average per paper", average.ToString("F2"));
-        statsTable.AddRow("Maximum in a paper", max.ToString());
-        statsTable.AddRow("Minimum in a paper", min.ToString());
-        statsTable.AddRow("Median", median.ToString());
-        statsTable.AddRow(
-            "Papers with keyword",
-            $"{papersWithKeyword} ({(double)papersWithKeyword / papers.Count:P0})"
-        );
-
-        AnsiConsole.Write(statsTable);
-    }
-
-    /// <summary>
-    /// Handle the rank command
-    /// </summary>
-    private void HandleRankCommand(List<Paper> papers, string[] parts)
-    {
-        if (parts.Length < 2)
-        {
-            AnsiConsole.MarkupLine("[red]Usage:[/] rank <keyword>");
-            return;
-        }
-
-        string keyword = parts[1].ToLower();
-        var allCounts = new List<(Paper Paper, int Count)>();
-
-        foreach (var paper in papers)
-        {
-            var counts = CountKeywords(paper, keyword);
-            allCounts.Add((paper, counts[keyword]));
-        }
-
-        // Sort by count (descending)
-        allCounts = allCounts.OrderByDescending(c => c.Count).ToList();
-
-        // Display results
-        AnsiConsole.Write(
-            new Rule($"Papers ranked by occurrences of: [blue]{keyword}[/]").RuleStyle("green")
-        );
-
-        if (allCounts.All(c => c.Count == 0))
-        {
-            AnsiConsole.MarkupLine($"[yellow]No occurrences of '{keyword}' found in any paper[/]");
-            return;
-        }
-
-        var table = new Table();
-        table.AddColumn("Rank");
-        table.AddColumn("Paper Title");
-        table.AddColumn("Count");
-
-        for (int i = 0; i < allCounts.Count && i < 20; i++)
-        {
-            var (paper, count) = allCounts[i];
-
-            if (count == 0)
-                continue;
-
-            table.AddRow(
-                (i + 1).ToString(),
-                ConsoleRenderingService.SafeMarkup(paper.Title),
-                count.ToString()
-            );
-        }
-
-        AnsiConsole.Write(table);
-
-        if (allCounts.Count > 20 && allCounts[20].Count > 0)
-        {
-            AnsiConsole.MarkupLine(
-                $"[grey]... and {allCounts.Count(c => c.Count > 0) - 20} more papers with occurrences[/]"
-            );
-        }
-    }
-
-    /// <summary>
-    /// Handle the select command
-    /// </summary>
-    private bool HandleSelectCommand(
-        List<Paper> papers,
-        string[] parts,
-        CancellationToken cancellationToken
-    )
-    {
-        if (parts.Length < 2 || !int.TryParse(parts[1], out int paperIndex))
-        {
-            AnsiConsole.MarkupLine("[red]Usage:[/] select <number>");
-            return false;
-        }
-
-        // Adjust for 1-based indexing that users see
-        paperIndex--;
-
-        if (paperIndex < 0 || paperIndex >= papers.Count)
-        {
-            AnsiConsole.MarkupLine($"[red]Invalid paper number.[/] Valid range: 1-{papers.Count}");
-            return false;
-        }
-
-        var selectedPaper = papers[paperIndex];
-        string safeTitle = ConsoleRenderingService.SafeMarkup(selectedPaper.Title);
-
-        AnsiConsole.MarkupLine($"Selected [yellow]{safeTitle}[/]");
-        var choice = AnsiConsole.Prompt(
-            new SelectionPrompt<string>()
-                .Title("What would you like to do?")
-                .AddChoices(
-                    new[] { "Inspect this paper in detail", "Cancel and return to all papers mode" }
-                )
-        );
-
-        if (choice == "Inspect this paper in detail")
-        {
-            RunSinglePaperRepl(selectedPaper, papers, cancellationToken);
-
-            // Ask if the user wants to return to all papers mode or exit
-            return AnsiConsole.Confirm("Return to all papers mode?");
-        }
-
-        return false;
     }
 
     /// <summary>
@@ -1035,7 +574,7 @@ public class MetadataReplCommand(
         }
 
         logger.LogInformation(
-            "Searching for pattern '{Pattern}' across {Count} papers...",
+            "Searching for pattern '{Pattern}' in {Count} papers...",
             pattern,
             papers.Count
         );
@@ -1179,8 +718,13 @@ public class MetadataReplCommand(
 
         try
         {
-            // Get all keywords used in the expression
-            var keywords = _keywordsOptions.Analysis;
+            // Extract keywords from the expression
+            var keywords = ExtractKeywordsFromExpression(expression);
+            if (keywords.Count == 0)
+            {
+                logger.LogWarning("No keywords found in expression");
+                return 0;
+            }
 
             // Parse the expression
             var expressionFunc = KeywordExpressionParser.ParseExpression(expression);
@@ -1190,7 +734,7 @@ public class MetadataReplCommand(
 
             foreach (var paper in papers)
             {
-                var counts = CountKeywords(paper, keywords);
+                var counts = CountKeywords(paper, keywords.ToArray());
                 if (expressionFunc(counts))
                 {
                     matchingPapers.Add((paper, counts));
@@ -1230,48 +774,422 @@ public class MetadataReplCommand(
                 }
                 else
                 {
-                    logger.LogError("Failed to export results to {Path}", exportPath);
+                    logger.LogWarning("Failed to export results to {Path}", exportPath);
                 }
             }
             else
             {
-                if (matchingPapers.Count > 0)
-                {
-                    logger.LogInformation(
-                        "Found {Count} papers matching expression '{Expression}'. No export path provided.",
-                        matchingPapers.Count,
-                        expression
-                    );
-
-                    // Log a sample of the results
-                    foreach (var paper in matchingPapers.Take(5))
-                    {
-                        logger.LogInformation("Matching paper: {Paper}", paper.Paper.Title);
-                    }
-
-                    if (matchingPapers.Count > 5)
-                    {
-                        logger.LogInformation(
-                            "... and {Count} more matching papers",
-                            matchingPapers.Count - 5
-                        );
-                    }
-                }
-                else
-                {
-                    logger.LogInformation(
-                        "No papers matched the expression '{Expression}'",
-                        expression
-                    );
-                }
+                logger.LogInformation(
+                    "{Count} papers matched the expression",
+                    matchingPapers.Count
+                );
             }
 
             return matchingPapers.Count;
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error during non-interactive evaluation: {Error}", ex.Message);
+            logger.LogError(ex, "Error evaluating expression: {Message}", ex.Message);
             return 0;
         }
+    }
+
+    /// <summary>
+    /// Handle the filter command
+    /// </summary>
+    private void HandleFilterCommand(List<Paper> papers, string expression)
+    {
+        if (string.IsNullOrWhiteSpace(expression))
+        {
+            AnsiConsole.MarkupLine("[red]Usage:[/] filter <expression>");
+            return;
+        }
+
+        expression = expression.Trim();
+
+        try
+        {
+            // Extract keywords from the expression
+            var keywords = ExtractKeywordsFromExpression(expression);
+            if (keywords.Count == 0)
+            {
+                AnsiConsole.MarkupLine("[yellow]No keywords found in expression[/]");
+                return;
+            }
+
+            // Parse the expression
+            var expressionFunc = KeywordExpressionParser.ParseExpression(expression);
+
+            // Filter papers
+            var matchingPapers = new List<(Paper Paper, Dictionary<string, int> Counts)>();
+
+            foreach (var paper in papers)
+            {
+                var counts = CountKeywords(paper, keywords.ToArray());
+                if (expressionFunc(counts))
+                {
+                    matchingPapers.Add((paper, counts));
+                }
+            }
+
+            // Display results
+            if (matchingPapers.Count == 0)
+            {
+                AnsiConsole.MarkupLine(
+                    $"[yellow]No papers match[/] the expression: '{ConsoleRenderingService.SafeMarkup(expression)}'"
+                );
+                return;
+            }
+
+            AnsiConsole.Write(
+                new Rule(
+                    $"Found {matchingPapers.Count} papers matching: '{ConsoleRenderingService.SafeMarkup(expression)}'"
+                ).RuleStyle("green")
+            );
+
+            var table = new Table();
+            table.AddColumn("#");
+            table.AddColumn("Paper Title");
+            table.AddColumn("Key Counts");
+
+            for (int i = 0; i < matchingPapers.Count; i++)
+            {
+                var (paper, counts) = matchingPapers[i];
+
+                // Get the most relevant counts to display
+                var countSummary = string.Join(
+                    ", ",
+                    counts
+                        .Where(c => c.Value > 0)
+                        .OrderByDescending(c => c.Value)
+                        .Take(3)
+                        .Select(c => $"{c.Key}: {c.Value}")
+                );
+
+                table.AddRow(
+                    (i + 1).ToString(),
+                    ConsoleRenderingService.SafeMarkup(paper.Title),
+                    countSummary
+                );
+            }
+
+            AnsiConsole.Write(table);
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Error filtering papers:[/] {ConsoleRenderingService.SafeMarkup(ex.Message)}"
+            );
+        }
+    }
+
+    /// <summary>
+    /// Handle the select command
+    /// </summary>
+    private bool HandleSelectCommand(
+        List<Paper> papers,
+        string[] parts,
+        CancellationToken cancellationToken
+    )
+    {
+        if (parts.Length < 2 || !int.TryParse(parts[1], out int paperIndex))
+        {
+            AnsiConsole.MarkupLine("[red]Usage:[/] select <number>");
+            return false;
+        }
+
+        // Adjust for 1-based indexing that users see
+        paperIndex--;
+
+        if (paperIndex < 0 || paperIndex >= papers.Count)
+        {
+            AnsiConsole.MarkupLine($"[red]Invalid paper number.[/] Valid range: 1-{papers.Count}");
+            return false;
+        }
+
+        var selectedPaper = papers[paperIndex];
+        string safeTitle = ConsoleRenderingService.SafeMarkup(selectedPaper.Title);
+
+        AnsiConsole.MarkupLine($"Selected [yellow]{safeTitle}[/]");
+        var choice = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title("What would you like to do?")
+                .AddChoices(
+                    new[] { "Inspect this paper in detail", "Cancel and return to all papers mode" }
+                )
+        );
+
+        if (choice == "Inspect this paper in detail")
+        {
+            RunSinglePaperRepl(selectedPaper, papers, cancellationToken);
+
+            // Ask if the user wants to return to all papers mode or exit
+            return AnsiConsole.Confirm("Return to all papers mode?");
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Handle the stats command
+    /// </summary>
+    private void HandleStatsCommand(List<Paper> papers, string[] parts)
+    {
+        if (parts.Length < 2)
+        {
+            AnsiConsole.MarkupLine("[red]Usage:[/] stats <keyword>");
+            return;
+        }
+
+        string keyword = parts[1].ToLower();
+        var allCounts = new List<(Paper Paper, int Count)>();
+
+        foreach (var paper in papers)
+        {
+            var counts = CountKeywords(paper, keyword);
+            allCounts.Add((paper, counts[keyword]));
+        }
+
+        // Calculate statistics
+        int total = allCounts.Sum(c => c.Count);
+        double average = allCounts.Average(c => c.Count);
+        int max = allCounts.Max(c => c.Count);
+        int min = allCounts.Min(c => c.Count);
+        int median = allCounts.OrderBy(c => c.Count).ElementAt(allCounts.Count / 2).Count;
+        int papersWithKeyword = allCounts.Count(c => c.Count > 0);
+
+        // Display statistics
+        AnsiConsole.Write(
+            new Rule($"Statistics for keyword: [blue]{keyword}[/]").RuleStyle("green")
+        );
+
+        var statsTable = new Table();
+        statsTable.AddColumn("Statistic");
+        statsTable.AddColumn("Value");
+
+        statsTable.AddRow("Total occurrences", total.ToString());
+        statsTable.AddRow("Average per paper", average.ToString("F2"));
+        statsTable.AddRow("Maximum in a paper", max.ToString());
+        statsTable.AddRow("Minimum in a paper", min.ToString());
+        statsTable.AddRow("Median", median.ToString());
+        statsTable.AddRow(
+            "Papers with keyword",
+            $"{papersWithKeyword} ({(double)papersWithKeyword / papers.Count:P0})"
+        );
+
+        AnsiConsole.Write(statsTable);
+    }
+
+    /// <summary>
+    /// Handle the rank command
+    /// </summary>
+    private void HandleRankCommand(List<Paper> papers, string[] parts)
+    {
+        if (parts.Length < 2)
+        {
+            AnsiConsole.MarkupLine("[red]Usage:[/] rank <keyword>");
+            return;
+        }
+
+        string keyword = parts[1].ToLower();
+        var allCounts = new List<(Paper Paper, int Count)>();
+
+        foreach (var paper in papers)
+        {
+            var counts = CountKeywords(paper, keyword);
+            allCounts.Add((paper, counts[keyword]));
+        }
+
+        // Sort by count (descending)
+        allCounts = allCounts.OrderByDescending(c => c.Count).ToList();
+
+        // Display results
+        AnsiConsole.Write(
+            new Rule($"Papers ranked by occurrences of: [blue]{keyword}[/]").RuleStyle("green")
+        );
+
+        if (allCounts.All(c => c.Count == 0))
+        {
+            AnsiConsole.MarkupLine($"[yellow]No occurrences of '{keyword}' found in any paper[/]");
+            return;
+        }
+
+        var table = new Table();
+        table.AddColumn("Rank");
+        table.AddColumn("Paper Title");
+        table.AddColumn("Count");
+
+        for (int i = 0; i < allCounts.Count && i < 20; i++)
+        {
+            var (paper, count) = allCounts[i];
+
+            if (count == 0)
+                continue;
+
+            table.AddRow(
+                (i + 1).ToString(),
+                ConsoleRenderingService.SafeMarkup(paper.Title),
+                count.ToString()
+            );
+        }
+
+        AnsiConsole.Write(table);
+
+        if (allCounts.Count > 20 && allCounts[20].Count > 0)
+        {
+            AnsiConsole.MarkupLine(
+                $"[grey]... and {allCounts.Count(c => c.Count > 0) - 20} more papers with occurrences[/]"
+            );
+        }
+    }
+
+    /// <summary>
+    /// Handle the search command
+    /// </summary>
+    private void HandleSearchCommand(List<Paper> papers, string[] parts)
+    {
+        if (parts.Length < 2)
+        {
+            AnsiConsole.MarkupLine("[red]Usage:[/] search <pattern>");
+            return;
+        }
+
+        string pattern = string.Join(" ", parts.Skip(1));
+
+        try
+        {
+            var regex = new Regex(pattern, RegexOptions.IgnoreCase);
+            var results = new List<(Paper Paper, string Match, string Context)>();
+
+            foreach (var paper in papers)
+            {
+                // Search in title
+                var titleMatches = regex.Matches(paper.Title);
+                foreach (Match match in titleMatches)
+                {
+                    results.Add((paper, match.Value, $"Title: {paper.Title}"));
+                }
+
+                // Search in abstract
+                var abstractMatches = regex.Matches(paper.Abstract);
+                foreach (Match match in abstractMatches)
+                {
+                    // Get some context around the match
+                    int start = Math.Max(0, match.Index - 40);
+                    int length = Math.Min(paper.Abstract.Length - start, match.Length + 80);
+                    string context = paper.Abstract.Substring(start, length);
+
+                    results.Add((paper, match.Value, $"Abstract: ...{context}..."));
+
+                    // Limit the number of results per paper if not showing all
+                    if (!ShowAllResults && results.Count >= 100)
+                        break;
+                }
+
+                // Limit total results if not showing all
+                if (!ShowAllResults && results.Count >= 100)
+                    break;
+            }
+
+            // Store results for potential export
+            LastSearchResults = new
+            {
+                Pattern = pattern,
+                TotalMatches = results.Count,
+                Timestamp = DateTime.Now,
+                Results = results
+                    .Select(r => new
+                    {
+                        Paper = new
+                        {
+                            Title = r.Paper.Title,
+                            DOI = r.Paper.Doi,
+                            Authors = r.Paper.Authors ?? new string[0],
+                        },
+                        Match = r.Match,
+                        Context = r.Context,
+                    })
+                    .ToList(),
+            };
+
+            // Display results
+            if (results.Count == 0)
+            {
+                AnsiConsole.MarkupLine(
+                    $"[yellow]No matches found[/] for '{ConsoleRenderingService.SafeMarkup(pattern)}'"
+                );
+                return;
+            }
+
+            AnsiConsole.Write(
+                new Rule(
+                    $"Found {results.Count} matches for '{ConsoleRenderingService.SafeMarkup(pattern)}'"
+                ).RuleStyle("green")
+            );
+
+            var table = new Table();
+            table.AddColumn("Paper");
+            table.AddColumn("Match");
+            table.AddColumn("Context");
+
+            // Determine how many results to show
+            int showCount = ShowAllResults ? results.Count : Math.Min(50, results.Count);
+
+            foreach (var (paper, match, context) in results.Take(showCount))
+            {
+                table.AddRow(
+                    ConsoleRenderingService.SafeMarkup(paper.Title),
+                    ConsoleRenderingService.SafeMarkup(match),
+                    ConsoleRenderingService.SafeMarkup(context)
+                );
+            }
+
+            AnsiConsole.Write(table);
+
+            if (!ShowAllResults && results.Count > 50)
+            {
+                AnsiConsole.MarkupLine(
+                    $"[grey]... and {results.Count - 50} more matches[/] (use 'showall true' to see all)"
+                );
+            }
+        }
+        catch (RegexParseException ex)
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Invalid regex pattern:[/] {ConsoleRenderingService.SafeMarkup(ex.Message)}"
+            );
+        }
+    }
+
+    /// <summary>
+    /// Extracts keywords from an expression
+    /// </summary>
+    private HashSet<string> ExtractKeywordsFromExpression(string expression)
+    {
+        // Simple extraction logic - this could be enhanced
+        var keywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Remove operators and parentheses
+        var cleaned = expression
+            .Replace("(", " ")
+            .Replace(")", " ")
+            .Replace(">", " ")
+            .Replace("<", " ")
+            .Replace("=", " ")
+            .Replace("AND", " ")
+            .Replace("OR", " ")
+            .Replace("NOT", " ");
+
+        // Split by spaces and extract potential keywords
+        foreach (var part in cleaned.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            // If not a number, it might be a keyword
+            if (!int.TryParse(part, out _))
+            {
+                keywords.Add(part.Trim());
+            }
+        }
+
+        return keywords;
     }
 }

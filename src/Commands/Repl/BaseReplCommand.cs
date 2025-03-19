@@ -76,7 +76,7 @@ public abstract class BaseReplCommand(ILogger logger, JsonExportService jsonExpo
     /// <summary>
     /// Export the last search results to JSON
     /// </summary>
-    protected bool HandleExportCommand(string[] parts, object data = null)
+    protected bool HandleExportCommand(string[] parts, object? data = null)
     {
         if (jsonExportService == null)
         {
@@ -90,7 +90,7 @@ public abstract class BaseReplCommand(ILogger logger, JsonExportService jsonExpo
             filePath = parts[1];
         }
 
-        object exportData = data ?? LastSearchResults;
+        object? exportData = data ?? LastSearchResults;
         if (exportData == null)
         {
             AnsiConsole.MarkupLine("[red]No data available to export[/]");

@@ -31,7 +31,6 @@ var app = builder.ConfigureServices(
     {
         services.AddOptionsFromOwnSectionAndValidateOnStart<ScraperOptions>(config);
         services.AddOptionsFromOwnSectionAndValidateOnStart<PathsOptions>(config);
-        services.AddOptionsFromOwnSectionAndValidateOnStart<KeywordsOptions>(config);
 
         services.AddHttpClient(
             "acm-scraper",

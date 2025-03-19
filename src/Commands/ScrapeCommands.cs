@@ -20,12 +20,10 @@ namespace DataCollection.Commands;
 public class ScrapeCommands(
     AcmScraper scraper,
     ILogger<ScrapeCommands> logger,
-    IOptions<PathsOptions> pathsOptions,
-    IOptions<KeywordsOptions> keywordsOptions
+    IOptions<PathsOptions> pathsOptions
 )
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
-    private readonly KeywordsOptions _keywordsOptions = keywordsOptions.Value;
 
     /// <summary>
     /// Scrape paper metadata from ACM

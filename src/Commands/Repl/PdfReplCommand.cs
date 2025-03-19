@@ -19,7 +19,6 @@ namespace DataCollection.Commands.Repl;
 public class PdfReplCommand(
     ILogger<PdfReplCommand> logger,
     IOptions<PathsOptions> pathsOptions,
-    IOptions<KeywordsOptions> keywordsOptions,
     PdfDescriptionService pdfDescriptionService,
     ConsoleRenderingService renderingService,
     PdfSearchService searchService,
@@ -28,7 +27,6 @@ public class PdfReplCommand(
 ) : BaseReplCommand(logger, jsonExportService)
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
-    private readonly KeywordsOptions _keywordsOptions = keywordsOptions.Value;
 
     /// <summary>
     /// Run the PDF REPL
@@ -98,10 +96,7 @@ public class PdfReplCommand(
         var commands = new Dictionary<string, string>
         {
             { "count <keyword>", "Count occurrences of a keyword" },
-            { "countall", "Count occurrences of all predefined keywords" },
             { "eval <expression>", "Evaluate a keyword expression" },
-            { "predefined", "Show predefined expressions from config" },
-            { "evaluate <index>", "Evaluate a predefined expression" },
             { "search <pattern>", "Search for a pattern (case-insensitive regex)" },
             { "showall [true|false]", "Toggle showing all results (no result limits)" },
             { "info", "Show document information" },
@@ -137,17 +132,8 @@ public class PdfReplCommand(
                     case "count":
                         HandleCountCommand(pdfData, parts);
                         break;
-                    case "countall":
-                        HandleCountAllCommand(pdfData);
-                        break;
                     case "eval":
                         HandleEvalCommand(pdfData, input.Substring(5));
-                        break;
-                    case "predefined":
-                        DisplayPredefinedExpressions();
-                        break;
-                    case "evaluate":
-                        HandleEvaluatePredefinedCommand(pdfData, parts);
                         break;
                     case "search":
                         HandleSearchCommand(pdfData, parts);
@@ -318,35 +304,6 @@ public class PdfReplCommand(
     }
 
     /// <summary>
-    /// Handle the countall command
-    /// </summary>
-    private void HandleCountAllCommand(PdfData pdfData)
-    {
-        // Get all analysis keywords from options
-        var keywords = _keywordsOptions.Analysis;
-
-        if (keywords == null || keywords.Length == 0)
-        {
-            AnsiConsole.MarkupLine("[yellow]No analysis keywords defined in configuration[/]");
-            return;
-        }
-
-        var counts = CountKeywords(pdfData, keywords);
-
-        var table = new Table();
-        table.AddColumn("Keyword");
-        table.AddColumn("Count");
-
-        foreach (var keyword in keywords.OrderBy(k => k))
-        {
-            table.AddRow(keyword, counts[keyword].ToString());
-        }
-
-        AnsiConsole.Write(new Rule("Keyword counts for all analysis keywords").RuleStyle("green"));
-        AnsiConsole.Write(table);
-    }
-
-    /// <summary>
     /// Handle the eval command
     /// </summary>
     private void HandleEvalCommand(PdfData pdfData, string expression)
@@ -361,11 +318,15 @@ public class PdfReplCommand(
 
         try
         {
-            // Get all keywords used in the expression
-            // This is a simplified approach - a proper implementation would parse the expression
-            // to extract keywords, but for now we'll just use all analysis keywords
-            var keywords = _keywordsOptions.Analysis;
-            var counts = CountKeywords(pdfData, keywords);
+            // Extract keywords from the expression
+            var keywords = ExtractKeywordsFromExpression(expression);
+            if (keywords.Count == 0)
+            {
+                AnsiConsole.MarkupLine("[yellow]No keywords found in expression[/]");
+                return;
+            }
+
+            var counts = CountKeywords(pdfData, keywords.ToArray());
 
             // Parse and evaluate the expression
             var expressionFunc = KeywordExpressionParser.ParseExpression(expression);
@@ -397,66 +358,6 @@ public class PdfReplCommand(
                 $"[red]Error evaluating expression:[/] {ConsoleRenderingService.SafeMarkup(ex.Message)}"
             );
         }
-    }
-
-    /// <summary>
-    /// Display predefined expressions from configuration
-    /// </summary>
-    private void DisplayPredefinedExpressions()
-    {
-        var expressions = _keywordsOptions.ExpressionRules;
-
-        if (expressions == null || expressions.Length == 0)
-        {
-            AnsiConsole.MarkupLine("[yellow]No expression rules defined in configuration[/]");
-            return;
-        }
-
-        var table = new Table();
-        table.AddColumn("#");
-        table.AddColumn("Expression");
-
-        for (int i = 0; i < expressions.Length; i++)
-        {
-            table.AddRow((i + 1).ToString(), ConsoleRenderingService.SafeMarkup(expressions[i]));
-        }
-
-        AnsiConsole.Write(new Rule("Predefined Expressions").RuleStyle("green"));
-        AnsiConsole.Write(table);
-    }
-
-    /// <summary>
-    /// Handle the evaluate predefined command
-    /// </summary>
-    private void HandleEvaluatePredefinedCommand(PdfData pdfData, string[] parts)
-    {
-        if (parts.Length < 2 || !int.TryParse(parts[1], out int index))
-        {
-            AnsiConsole.MarkupLine("[red]Usage:[/] evaluate <index>");
-            return;
-        }
-
-        var expressions = _keywordsOptions.ExpressionRules;
-
-        if (expressions == null || expressions.Length == 0)
-        {
-            AnsiConsole.MarkupLine("[yellow]No expression rules defined in configuration[/]");
-            return;
-        }
-
-        // Adjust for 1-based indexing
-        index--;
-
-        if (index < 0 || index >= expressions.Length)
-        {
-            AnsiConsole.MarkupLine(
-                $"[red]Invalid expression index.[/] Valid range: 1-{expressions.Length}"
-            );
-            return;
-        }
-
-        string expression = expressions[index];
-        HandleEvalCommand(pdfData, expression);
     }
 
     /// <summary>
@@ -568,8 +469,13 @@ public class PdfReplCommand(
 
         try
         {
-            // Get all keywords used in the expression
-            var keywords = _keywordsOptions.Analysis;
+            // Extract keywords from the expression
+            var keywords = ExtractKeywordsFromExpression(expression);
+            if (keywords.Count == 0)
+            {
+                AnsiConsole.MarkupLine("[yellow]No keywords found in expression[/]");
+                return;
+            }
 
             // Parse the expression
             var expressionFunc = KeywordExpressionParser.ParseExpression(expression);
@@ -579,7 +485,7 @@ public class PdfReplCommand(
 
             foreach (var pdf in allPdfData)
             {
-                var counts = CountKeywords(pdf, keywords);
+                var counts = CountKeywords(pdf, keywords.ToArray());
                 if (expressionFunc(counts))
                 {
                     matchingPdfs.Add((pdf, counts));
@@ -830,7 +736,7 @@ public class PdfReplCommand(
         }
 
         logger.LogInformation(
-            "Searching for pattern '{Pattern}' across {Count} PDFs...",
+            "Searching for pattern '{Pattern}' in {Count} PDFs...",
             pattern,
             pdfDataList.Count
         );
@@ -927,7 +833,7 @@ public class PdfReplCommand(
                 if (jsonExportService.ExportToJson(exportData, exportPath))
                 {
                     logger.LogInformation(
-                        "Exported {Count} matches to {Path}",
+                        "Exported {Count} results to {Path}",
                         totalMatches,
                         exportPath
                     );
@@ -942,10 +848,27 @@ public class PdfReplCommand(
                 if (totalMatches > 0)
                 {
                     logger.LogInformation(
-                        "Found {Count} matches in {PdfCount} PDFs. No export path provided.",
-                        totalMatches,
-                        allResults.Count
+                        "Found {Count} matches in PDF files. No export path provided.",
+                        totalMatches
                     );
+
+                    // Log a sample of the results
+                    foreach (var pdf in allResults.Take(3))
+                    {
+                        logger.LogInformation(
+                            "Found {Count} matches in {Pdf}",
+                            (int)pdf.Results.Count,
+                            (string)pdf.PDF
+                        );
+                    }
+
+                    if (allResults.Count > 3)
+                    {
+                        logger.LogInformation(
+                            "... and {Count} more PDFs with matches",
+                            allResults.Count - 3
+                        );
+                    }
                 }
                 else
                 {
@@ -1001,8 +924,13 @@ public class PdfReplCommand(
 
         try
         {
-            // Get all keywords used in the expression
-            var keywords = _keywordsOptions.Analysis;
+            // Extract keywords from the expression
+            var keywords = ExtractKeywordsFromExpression(expression);
+            if (keywords.Count == 0)
+            {
+                logger.LogWarning("No keywords found in expression");
+                return 0;
+            }
 
             // Parse the expression
             var expressionFunc = KeywordExpressionParser.ParseExpression(expression);
@@ -1012,7 +940,7 @@ public class PdfReplCommand(
 
             foreach (var pdf in pdfDataList)
             {
-                var counts = CountKeywords(pdf, keywords);
+                var counts = CountKeywords(pdf, keywords.ToArray());
                 if (expressionFunc(counts))
                 {
                     matchingPdfs.Add((pdf, counts));
@@ -1048,56 +976,52 @@ public class PdfReplCommand(
                 }
                 else
                 {
-                    logger.LogError("Failed to export results to {Path}", exportPath);
+                    logger.LogWarning("Failed to export results to {Path}", exportPath);
                 }
             }
             else
             {
-                if (matchingPdfs.Count > 0)
-                {
-                    logger.LogInformation(
-                        "Found {Count} PDFs matching expression '{Expression}'. No export path provided.",
-                        matchingPdfs.Count,
-                        expression
-                    );
-
-                    // Log a sample of the results
-                    foreach (var pdf in matchingPdfs.Take(5))
-                    {
-                        logger.LogInformation(
-                            "Matching PDF: {PDF} (keywords: {Keywords})",
-                            pdfDescriptionService.GetItemDescription(pdf.Pdf),
-                            string.Join(
-                                ", ",
-                                pdf.Counts.Where(c => c.Value > 0)
-                                    .Select(c => $"{c.Key}: {c.Value}")
-                            )
-                        );
-                    }
-
-                    if (matchingPdfs.Count > 5)
-                    {
-                        logger.LogInformation(
-                            "... and {Count} more matching PDFs",
-                            matchingPdfs.Count - 5
-                        );
-                    }
-                }
-                else
-                {
-                    logger.LogInformation(
-                        "No PDFs matched the expression '{Expression}'",
-                        expression
-                    );
-                }
+                logger.LogInformation("{Count} PDFs matched the expression", matchingPdfs.Count);
             }
 
             return matchingPdfs.Count;
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error during non-interactive evaluation: {Error}", ex.Message);
+            logger.LogError(ex, "Error evaluating expression: {Message}", ex.Message);
             return 0;
         }
+    }
+
+    /// <summary>
+    /// Extracts keywords from an expression
+    /// </summary>
+    private HashSet<string> ExtractKeywordsFromExpression(string expression)
+    {
+        // Simple extraction logic - this could be enhanced
+        var keywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Remove operators and parentheses
+        var cleaned = expression
+            .Replace("(", " ")
+            .Replace(")", " ")
+            .Replace(">", " ")
+            .Replace("<", " ")
+            .Replace("=", " ")
+            .Replace("AND", " ")
+            .Replace("OR", " ")
+            .Replace("NOT", " ");
+
+        // Split by spaces and extract potential keywords
+        foreach (var part in cleaned.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            // If not a number, it might be a keyword
+            if (!int.TryParse(part, out _))
+            {
+                keywords.Add(part.Trim());
+            }
+        }
+
+        return keywords;
     }
 }
