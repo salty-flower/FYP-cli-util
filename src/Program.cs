@@ -52,6 +52,7 @@ var app = builder.ConfigureServices(
         services.AddSingleton<ConsoleRenderingService>();
         services.AddSingleton<PdfSearchService>();
         services.AddSingleton<DataLoadingService>();
+        services.AddSingleton<JsonExportService>();
         services.AddSingleton<TextLinesReplCommand>();
         services.AddSingleton<PdfReplCommand>();
         services.AddSingleton<MetadataReplCommand>();

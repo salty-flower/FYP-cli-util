@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using DataCollection.Models;
 using Spectre.Console;
 
@@ -189,7 +190,8 @@ public class ConsoleRenderingService(PdfDescriptionService pdfDescriptionService
         List<(int PageNum, int LineNum, MatchObject Line)> results,
         string pattern,
         string pdfName = null,
-        int? maxToShow = null
+        int? maxToShow = null,
+        bool showAll = false
     )
     {
         // Safety check for null results
@@ -217,16 +219,20 @@ public class ConsoleRenderingService(PdfDescriptionService pdfDescriptionService
             );
         }
 
-        // Ensure maxToShow is valid
-        if (maxToShow.HasValue && maxToShow.Value <= 0)
-        {
-            maxToShow = 10; // Default to showing 10 results if an invalid value is provided
-        }
-
         // Determine how many results to show
-        int showCount = maxToShow.HasValue
-            ? Math.Min(maxToShow.Value, results.Count)
-            : results.Count;
+        int showCount = showAll
+            ? results.Count
+            : (maxToShow.HasValue ? Math.Min(maxToShow.Value, results.Count) : results.Count);
+
+        // Filter out any null results before creating the table
+        var validResults = results.Take(showCount).Where(r => r.Line != null).ToList();
+
+        // If all results were null, show a message and return
+        if (validResults.Count == 0)
+        {
+            AnsiConsole.MarkupLine("[yellow]Results contained only null lines[/]");
+            return;
+        }
 
         // Show the results
         var table = new Table();
@@ -234,32 +240,20 @@ public class ConsoleRenderingService(PdfDescriptionService pdfDescriptionService
         table.AddColumn("Line");
         table.AddColumn("Text");
 
-        for (int i = 0; i < showCount; i++)
+        foreach (var result in validResults)
         {
             try
             {
-                // Safely extract values, with null checks
-                if (i >= results.Count)
-                {
-                    break; // Guard against index out of bounds
-                }
-
-                var result = results[i];
+                // Safely extract values
                 int pageIdx = result.PageNum;
                 int line = result.LineNum;
-                MatchObject matchLine = result.Line;
+                string text = result.Line?.Text ?? "<null text>";
 
-                if (matchLine == null)
+                // Ensure text is never empty to avoid Spectre.Console errors
+                if (string.IsNullOrEmpty(text))
                 {
-                    table.AddRow(
-                        (pageIdx + 1).ToString(),
-                        (line + 1).ToString(),
-                        "[italic]<null line>[/]"
-                    );
-                    continue;
+                    text = "<empty text>";
                 }
-
-                string text = matchLine.Text ?? "<null text>";
 
                 table.AddRow((pageIdx + 1).ToString(), (line + 1).ToString(), SafeMarkup(text));
             }
@@ -276,11 +270,11 @@ public class ConsoleRenderingService(PdfDescriptionService pdfDescriptionService
 
         AnsiConsole.Write(table);
 
-        // Show count of additional results if limited
-        if (maxToShow.HasValue && results.Count > maxToShow.Value)
+        // Show count of additional results if limited and not showing all
+        if (!showAll && maxToShow.HasValue && results.Count > maxToShow.Value)
         {
             AnsiConsole.MarkupLine(
-                $"[grey]... and {results.Count - maxToShow.Value} more matches[/]"
+                $"[grey]... and {results.Count - maxToShow.Value} more matches[/] (use 'showall true' to see all)"
             );
         }
     }

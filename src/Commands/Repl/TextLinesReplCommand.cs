@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using DataCollection.Models;
 using DataCollection.Options;
@@ -20,8 +21,17 @@ public class TextLinesReplCommand(
     PdfDescriptionService pdfDescriptionService,
     ConsoleRenderingService renderingService,
     PdfSearchService searchService,
-    DataLoadingService dataLoadingService
-) : BaseReplCommand(logger)
+    DataLoadingService dataLoadingService,
+    JsonExportService jsonExportService
+)
+    : BaseReplCommand(
+        logger,
+        pdfDescriptionService,
+        renderingService,
+        searchService,
+        dataLoadingService,
+        jsonExportService
+    )
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
 
@@ -105,6 +115,8 @@ public class TextLinesReplCommand(
                 "Search text using regex pattern (optional: on specific page)"
             },
             { "searchall <pattern>", "Search text across all loaded PDFs" },
+            { "showall [true|false]", "Toggle showing all results (no result limits)" },
+            { "export [filename]", "Export last search results to JSON" },
             { "info", "Show document information" },
             { "exit", "Exit REPL" },
         };
@@ -144,6 +156,12 @@ public class TextLinesReplCommand(
                     case "searchall":
                         HandleSearchAllCommand(allPdfData, parts);
                         break;
+                    case "showall":
+                        HandleShowAllCommand(parts);
+                        break;
+                    case "export":
+                        HandleExportCommand(parts);
+                        break;
                     default:
                         AnsiConsole.MarkupLine(
                             $"[red]Unknown command:[/] {ConsoleRenderingService.SafeMarkup(parts[0])}"
@@ -172,9 +190,11 @@ public class TextLinesReplCommand(
 
         var commands = new Dictionary<string, string>
         {
-            { "search <pattern>", "Search text across all PDFs" },
+            { "search <pattern>", "Search all PDFs for a pattern" },
             { "list", "List all available PDFs" },
-            { "select <number>", "Select a specific PDF to inspect in detail" },
+            { "select <number>", "Select a specific PDF to inspect" },
+            { "showall [true|false]", "Toggle showing all results (no result limits)" },
+            { "export [filename]", "Export last search results to JSON" },
             { "info", "Show summary information about all PDFs" },
             { "exit", "Exit REPL" },
         };
@@ -220,6 +240,12 @@ public class TextLinesReplCommand(
                             // If select command returns true, user wants to return to the main REPL
                             return;
                         }
+                        break;
+                    case "showall":
+                        HandleShowAllCommand(parts);
+                        break;
+                    case "export":
+                        HandleExportCommand(parts);
                         break;
                     default:
                         AnsiConsole.MarkupLine(
@@ -292,39 +318,53 @@ public class TextLinesReplCommand(
             return;
         }
 
-        // Get the pattern
-        string pattern = searchService.ParseSearchPattern(parts);
-
-        // Check if a specific page is requested
-        int? pageNum = null;
-        if (parts.Length > 2 && int.TryParse(parts[parts.Length - 1], out int page))
-        {
-            pageNum = page - 1; // Adjust for 0-based indexing
-            if (pageNum < 0 || pageNum >= pdfData.TextLines.Length)
-            {
-                AnsiConsole.MarkupLine(
-                    $"[red]Invalid page number.[/] Valid range: 1-{pdfData.TextLines.Length}"
-                );
-                return;
-            }
-        }
-
         try
         {
-            var regex = new System.Text.RegularExpressions.Regex(
+            string pattern = searchService.ParseSearchPattern(parts);
+            int? pageNumber = null;
+
+            if (parts.Length > 2 && int.TryParse(parts[2], out int page))
+            {
+                pageNumber = page - 1; // Convert to 0-based index
+            }
+
+            var regex = new Regex(pattern, RegexOptions.IgnoreCase);
+            var results = searchService.SearchInPdf(pdfData, regex, pageNumber);
+
+            string title = pageNumber.HasValue
+                ? $"Page {pageNumber.Value + 1} in {pdfDescriptionService.GetItemDescription(pdfData)}"
+                : pdfDescriptionService.GetItemDescription(pdfData);
+
+            renderingService.DisplaySearchResults(
+                results,
                 pattern,
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                ConsoleRenderingService.SafeMarkup(title),
+                maxToShow: 50,
+                showAll: ShowAllResults
             );
 
-            var results = searchService.SearchInPdf(pdfData, regex, pageNum);
-
-            // Display results
-            string pdfDesc = ConsoleRenderingService.SafeMarkup(
-                pdfDescriptionService.GetItemDescription(pdfData)
-            );
-            renderingService.DisplaySearchResults(results, pattern, pdfDesc, pageNum);
+            // Store results for potential export
+            LastSearchResults = new
+            {
+                Pattern = pattern,
+                PDF = pdfDescriptionService.GetItemDescription(pdfData),
+                PageNumber = pageNumber,
+                Results = results.ConvertAll(r => new
+                {
+                    Page = r.PageNum + 1,
+                    Line = r.LineNum + 1,
+                    Text = r.Line?.Text,
+                    Position = new
+                    {
+                        X0 = r.Line?.X0,
+                        Top = r.Line?.Top,
+                        X1 = r.Line?.X1,
+                        Bottom = r.Line?.Bottom,
+                    },
+                }),
+            };
         }
-        catch (System.Text.RegularExpressions.RegexParseException ex)
+        catch (RegexParseException ex)
         {
             AnsiConsole.MarkupLine(
                 $"[red]Invalid regex pattern:[/] {ConsoleRenderingService.SafeMarkup(ex.Message)}"
@@ -339,97 +379,126 @@ public class TextLinesReplCommand(
     {
         if (parts.Length < 2)
         {
-            AnsiConsole.MarkupLine("[red]Usage:[/] search <pattern>");
+            AnsiConsole.MarkupLine("[red]Usage:[/] searchall <pattern>");
             return;
         }
 
-        // Get the pattern
-        string pattern = searchService.ParseSearchPattern(parts);
-
         try
         {
-            var regex = new System.Text.RegularExpressions.Regex(
-                pattern,
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+            string pattern = searchService.ParseSearchPattern(parts);
+            AnsiConsole.MarkupLine(
+                $"Searching for '{ConsoleRenderingService.SafeMarkup(pattern)}' across all PDFs..."
             );
 
-            AnsiConsole.Write(
-                new Rule(
-                    $"Searching for '{ConsoleRenderingService.SafeMarkup(pattern)}' across {allPdfData.Count} PDFs..."
-                ).RuleStyle("green")
-            );
+            var regex = new Regex(pattern, RegexOptions.IgnoreCase);
 
-            // Search across all PDFs
-            const int maxPdfsToShow = 20; // Limit the number of PDFs to show
-            var pdfResults = searchService.SearchAllPdfs(
-                allPdfData,
-                regex,
-                PdfSearchService.DefaultMaxMatchesPerPdf,
-                maxPdfsToShow
-            );
+            int total = 0;
+            int pdfsWithMatches = 0;
+            var allResults = new List<dynamic>();
 
-            int totalMatches = 0;
-            foreach (var pdfResult in pdfResults)
+            foreach (var pdf in allPdfData)
             {
-                totalMatches += pdfResult.Value.Count;
+                try
+                {
+                    // Skip null PDFs or PDFs with null TextLines
+                    if (pdf == null || pdf.TextLines == null)
+                    {
+                        continue;
+                    }
+
+                    var results = searchService.SearchInPdf(pdf, regex);
+
+                    // Skip if no results or all results are null
+                    if (results == null || results.Count == 0 || results.All(r => r.Line == null))
+                    {
+                        continue;
+                    }
+
+                    string safeTitle = ConsoleRenderingService.SafeMarkup(
+                        pdfDescriptionService.GetItemDescription(pdf)
+                    );
+                    AnsiConsole.MarkupLine($"[green]Results in:[/] {safeTitle}");
+
+                    renderingService.DisplaySearchResults(
+                        results,
+                        pattern,
+                        safeTitle,
+                        maxToShow: 10,
+                        showAll: ShowAllResults
+                    );
+
+                    // Add to all results - ensure we handle potential null values
+                    var validResults = results
+                        .Where(r => r.Line != null)
+                        .Select(r => new
+                        {
+                            Page = r.PageNum + 1,
+                            Line = r.LineNum + 1,
+                            Text = r.Line?.Text ?? "<null text>",
+                            Position = r.Line == null
+                                ? null
+                                : new
+                                {
+                                    X0 = r.Line.X0,
+                                    Top = r.Line.Top,
+                                    X1 = r.Line.X1,
+                                    Bottom = r.Line.Bottom,
+                                },
+                        })
+                        .ToList();
+
+                    if (validResults.Any())
+                    {
+                        allResults.Add(
+                            new
+                            {
+                                PDF = pdfDescriptionService.GetItemDescription(pdf),
+                                FileName = pdf.FileName,
+                                ResultCount = validResults.Count,
+                                Results = validResults,
+                            }
+                        );
+
+                        total += validResults.Count;
+                        pdfsWithMatches++;
+                    }
+
+                    // Draw a separator between PDFs
+                    AnsiConsole.WriteLine();
+                }
+                catch (Exception ex)
+                {
+                    // Log error but continue with other PDFs
+                    logger.LogWarning(
+                        "Error searching PDF {FileName}: {Error}",
+                        pdf?.FileName ?? "unknown",
+                        ex.Message
+                    );
+                }
             }
 
-            // Display results
-            if (totalMatches > 0)
+            // Store results for potential export
+            LastSearchResults = new
             {
-                AnsiConsole.Write(
-                    new Rule($"Found {totalMatches} matches in {pdfResults.Count} PDFs").RuleStyle(
-                        "green"
-                    )
-                );
+                Pattern = pattern,
+                TotalMatches = total,
+                PDFsWithMatches = pdfsWithMatches,
+                Timestamp = DateTime.Now,
+                Results = allResults,
+            };
 
-                int pdfsShown = 0;
-
-                foreach (var pdfResult in pdfResults)
-                {
-                    string pdfDesc = ConsoleRenderingService.SafeMarkup(
-                        pdfDescriptionService.GetItemDescription(pdfResult.Key)
-                    );
-
-                    try
-                    {
-                        AnsiConsole.Write(
-                            new Rule($"PDF: {pdfDesc} ({pdfResult.Value.Count} matches)").RuleStyle(
-                                "blue"
-                            )
-                        );
-
-                        renderingService.DisplaySearchResults(
-                            pdfResult.Value,
-                            pattern,
-                            pdfDesc,
-                            10
-                        );
-                        pdfsShown++;
-                    }
-                    catch (Exception ex)
-                    {
-                        AnsiConsole.MarkupLine(
-                            $"[red]Error displaying results for PDF:[/] {ConsoleRenderingService.SafeMarkup(ex.Message)}"
-                        );
-                    }
-                }
-
-                if (pdfResults.Count > maxPdfsToShow)
-                {
-                    AnsiConsole.MarkupLine(
-                        $"[yellow]Only showing {maxPdfsToShow} out of {pdfResults.Count} PDFs with matches.[/]"
-                    );
-                }
+            if (pdfsWithMatches > 0)
+            {
+                AnsiConsole.MarkupLine($"[blue]Found {total} matches in {pdfsWithMatches} PDFs[/]");
             }
             else
             {
                 AnsiConsole.MarkupLine(
-                    $"[yellow]No matches found for '{ConsoleRenderingService.SafeMarkup(pattern)}' in any PDF[/]"
+                    $"[yellow]No matches found[/] for '{ConsoleRenderingService.SafeMarkup(pattern)}'"
                 );
             }
         }
-        catch (System.Text.RegularExpressions.RegexParseException ex)
+        catch (RegexParseException ex)
         {
             AnsiConsole.MarkupLine(
                 $"[red]Invalid regex pattern:[/] {ConsoleRenderingService.SafeMarkup(ex.Message)}"
@@ -437,6 +506,7 @@ public class TextLinesReplCommand(
         }
         catch (Exception ex)
         {
+            // Catch and display any other exceptions
             HandleError(ex, "search all PDFs");
         }
     }
@@ -490,5 +560,60 @@ public class TextLinesReplCommand(
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Handle the showall command
+    /// </summary>
+    private void HandleShowAllCommand(string[] parts)
+    {
+        if (parts.Length > 1 && bool.TryParse(parts[1], out bool value))
+        {
+            ShowAllResults = value;
+            AnsiConsole.MarkupLine(
+                $"Set showing all results to: [{(ShowAllResults ? "green" : "red")}]{ShowAllResults}[/]"
+            );
+        }
+        else
+        {
+            // Toggle current value
+            ShowAllResults = !ShowAllResults;
+            AnsiConsole.MarkupLine(
+                $"Toggled showing all results to: [{(ShowAllResults ? "green" : "red")}]{ShowAllResults}[/]"
+            );
+        }
+    }
+
+    /// <summary>
+    /// Handle the export command
+    /// </summary>
+    private void HandleExportCommand(string[] parts)
+    {
+        if (parts.Length < 2 || string.IsNullOrWhiteSpace(parts[1]))
+        {
+            AnsiConsole.MarkupLine("[red]Usage:[/] export <filename>");
+            return;
+        }
+
+        string filename = parts[1];
+        if (LastSearchResults == null)
+        {
+            AnsiConsole.MarkupLine("[red]No search results available to export[/]");
+            return;
+        }
+
+        // Use the correct ExportToJson method
+        bool success = jsonExportService.ExportToJson(LastSearchResults, filename);
+
+        if (success)
+        {
+            AnsiConsole.MarkupLine(
+                $"[green]Last search results exported to:[/] {ConsoleRenderingService.SafeMarkup(filename)}"
+            );
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("[red]Failed to export search results[/]");
+        }
     }
 }

@@ -23,8 +23,17 @@ public class MetadataReplCommand(
     PdfDescriptionService pdfDescriptionService,
     ConsoleRenderingService renderingService,
     PdfSearchService searchService,
-    DataLoadingService dataLoadingService
-) : BaseReplCommand(logger)
+    DataLoadingService dataLoadingService,
+    JsonExportService jsonExportService
+)
+    : BaseReplCommand(
+        logger,
+        pdfDescriptionService,
+        renderingService,
+        searchService,
+        dataLoadingService,
+        jsonExportService
+    )
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
     private readonly KeywordsOptions _keywordsOptions = keywordsOptions.Value;
@@ -102,6 +111,8 @@ public class MetadataReplCommand(
             { "eval <expression>", "Evaluate a keyword expression against metadata" },
             { "predefined", "Show predefined expressions from config" },
             { "evaluate <index>", "Evaluate a predefined expression" },
+            { "showall [true|false]", "Toggle showing all results (no result limits)" },
+            { "export [filename]", "Export last search results to JSON" },
             { "info", "Show paper information" },
             { "abstract", "Show the paper abstract" },
             { "title", "Show the paper title" },
@@ -168,6 +179,12 @@ public class MetadataReplCommand(
                     case "evaluate":
                         HandleEvaluatePredefinedCommand(paper, parts);
                         break;
+                    case "showall":
+                        HandleShowAllCommand(parts);
+                        break;
+                    case "export":
+                        HandleExportCommand(parts);
+                        break;
                     default:
                         AnsiConsole.MarkupLine(
                             $"[red]Unknown command:[/] {ConsoleRenderingService.SafeMarkup(parts[0])}"
@@ -202,6 +219,8 @@ public class MetadataReplCommand(
             { "search <pattern>", "Search for a pattern in paper metadata" },
             { "list", "List all available papers" },
             { "select <number>", "Select a specific paper to inspect" },
+            { "showall [true|false]", "Toggle showing all results (no result limits)" },
+            { "export [filename]", "Export last search results to JSON" },
             { "info", "Show summary information about all papers" },
             { "exit", "Exit REPL" },
         };
@@ -256,6 +275,12 @@ public class MetadataReplCommand(
                             // If select command returns true, user wants to return to the main REPL
                             return;
                         }
+                        break;
+                    case "showall":
+                        HandleShowAllCommand(parts);
+                        break;
+                    case "export":
+                        HandleExportCommand(parts);
                         break;
                     default:
                         AnsiConsole.MarkupLine(
@@ -617,11 +642,36 @@ public class MetadataReplCommand(
 
                     results.Add((paper, match.Value, $"Abstract: ...{context}..."));
 
-                    // Limit the number of results per paper
-                    if (results.Count >= 100)
+                    // Limit the number of results per paper if not showing all
+                    if (!ShowAllResults && results.Count >= 100)
                         break;
                 }
+
+                // Limit total results if not showing all
+                if (!ShowAllResults && results.Count >= 100)
+                    break;
             }
+
+            // Store results for potential export
+            LastSearchResults = new
+            {
+                Pattern = pattern,
+                TotalMatches = results.Count,
+                Timestamp = DateTime.Now,
+                Results = results
+                    .Select(r => new
+                    {
+                        Paper = new
+                        {
+                            Title = r.Paper.Title,
+                            DOI = r.Paper.Doi,
+                            Authors = r.Paper.Authors ?? new string[0],
+                        },
+                        Match = r.Match,
+                        Context = r.Context,
+                    })
+                    .ToList(),
+            };
 
             // Display results
             if (results.Count == 0)
@@ -643,7 +693,10 @@ public class MetadataReplCommand(
             table.AddColumn("Match");
             table.AddColumn("Context");
 
-            foreach (var (paper, match, context) in results.Take(50))
+            // Determine how many results to show
+            int showCount = ShowAllResults ? results.Count : Math.Min(50, results.Count);
+
+            foreach (var (paper, match, context) in results.Take(showCount))
             {
                 table.AddRow(
                     ConsoleRenderingService.SafeMarkup(paper.Title),
@@ -654,9 +707,11 @@ public class MetadataReplCommand(
 
             AnsiConsole.Write(table);
 
-            if (results.Count > 50)
+            if (!ShowAllResults && results.Count > 50)
             {
-                AnsiConsole.MarkupLine($"[grey]... and {results.Count - 50} more matches[/]");
+                AnsiConsole.MarkupLine(
+                    $"[grey]... and {results.Count - 50} more matches[/] (use 'showall true' to see all)"
+                );
             }
         }
         catch (RegexParseException ex)
@@ -909,5 +964,60 @@ public class MetadataReplCommand(
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Handle the showall command
+    /// </summary>
+    private void HandleShowAllCommand(string[] parts)
+    {
+        if (parts.Length > 1 && bool.TryParse(parts[1], out bool value))
+        {
+            ShowAllResults = value;
+            AnsiConsole.MarkupLine(
+                $"Set showing all results to: [{(ShowAllResults ? "green" : "red")}]{ShowAllResults}[/]"
+            );
+        }
+        else
+        {
+            // Toggle current value
+            ShowAllResults = !ShowAllResults;
+            AnsiConsole.MarkupLine(
+                $"Toggled showing all results to: [{(ShowAllResults ? "green" : "red")}]{ShowAllResults}[/]"
+            );
+        }
+    }
+
+    /// <summary>
+    /// Handle the export command
+    /// </summary>
+    private void HandleExportCommand(string[] parts)
+    {
+        if (parts.Length < 2 || string.IsNullOrWhiteSpace(parts[1]))
+        {
+            AnsiConsole.MarkupLine("[red]Usage:[/] export <filename>");
+            return;
+        }
+
+        string filename = parts[1];
+        if (LastSearchResults == null)
+        {
+            AnsiConsole.MarkupLine("[red]No search results available to export[/]");
+            return;
+        }
+
+        // Use the correct ExportToJson method
+        bool success = jsonExportService.ExportToJson(LastSearchResults, filename);
+
+        if (success)
+        {
+            AnsiConsole.MarkupLine(
+                $"[green]Last search results exported to:[/] {ConsoleRenderingService.SafeMarkup(filename)}"
+            );
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("[red]Failed to export search results[/]");
+        }
     }
 }

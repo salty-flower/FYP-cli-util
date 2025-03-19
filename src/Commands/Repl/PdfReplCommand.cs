@@ -102,6 +102,7 @@ public class PdfReplCommand(
             { "predefined", "Show predefined expressions from config" },
             { "evaluate <index>", "Evaluate a predefined expression" },
             { "search <pattern>", "Search for a pattern (case-insensitive regex)" },
+            { "showall [true|false]", "Toggle showing all results (no result limits)" },
             { "info", "Show document information" },
             { "exit", "Exit REPL" },
         };
@@ -150,6 +151,9 @@ public class PdfReplCommand(
                     case "search":
                         HandleSearchCommand(pdfData, parts);
                         break;
+                    case "showall":
+                        HandleShowAllCommand(parts);
+                        break;
                     default:
                         AnsiConsole.MarkupLine(
                             $"[red]Unknown command:[/] {ConsoleRenderingService.SafeMarkup(parts[0])}"
@@ -183,6 +187,7 @@ public class PdfReplCommand(
             { "rank <keyword>", "Rank PDFs by keyword occurrence" },
             { "list", "List all available PDFs" },
             { "select <number>", "Select a specific PDF to work with" },
+            { "showall [true|false]", "Toggle showing all results (no result limits)" },
             { "info", "Show summary information about all PDFs" },
             { "exit", "Exit REPL" },
         };
@@ -234,6 +239,9 @@ public class PdfReplCommand(
                             // If select command returns true, user wants to return to the main REPL
                             return;
                         }
+                        break;
+                    case "showall":
+                        HandleShowAllCommand(parts);
                         break;
                     default:
                         AnsiConsole.MarkupLine(
@@ -489,12 +497,12 @@ public class PdfReplCommand(
 
                         results.Add((i, context, match.Value));
 
-                        // Limit the number of results
-                        if (results.Count >= 50)
+                        // Limit the number of results if not showing all
+                        if (!ShowAllResults && results.Count >= 50)
                             break;
                     }
 
-                    if (results.Count >= 50)
+                    if (!ShowAllResults && results.Count >= 50)
                         break;
                 }
             }
@@ -518,7 +526,10 @@ public class PdfReplCommand(
             table.AddColumn("Page");
             table.AddColumn("Context");
 
-            foreach (var result in results)
+            // Determine how many results to show
+            int showCount = ShowAllResults ? results.Count : Math.Min(50, results.Count);
+
+            foreach (var result in results.Take(showCount))
             {
                 string context = ConsoleRenderingService.SafeMarkup(result.Text);
                 table.AddRow((result.PageIdx + 1).ToString(), context);
@@ -526,9 +537,11 @@ public class PdfReplCommand(
 
             AnsiConsole.Write(table);
 
-            if (results.Count >= 50)
+            if (!ShowAllResults && results.Count > 50)
             {
-                AnsiConsole.MarkupLine("[grey]Results limited to 50 matches[/]");
+                AnsiConsole.MarkupLine(
+                    $"[grey]... and {results.Count - 50} more matches[/] (use 'showall true' to see all)"
+                );
             }
         }
         catch (RegexParseException ex)
@@ -787,5 +800,22 @@ public class PdfReplCommand(
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Handle the showall command
+    /// </summary>
+    private void HandleShowAllCommand(string[] parts)
+    {
+        if (parts.Length < 2 || !bool.TryParse(parts[1], out bool showAll))
+        {
+            AnsiConsole.MarkupLine("[red]Usage:[/] showall <true|false>");
+            return;
+        }
+
+        ShowAllResults = showAll;
+        AnsiConsole.MarkupLine(
+            $"Show all results: [{(ShowAllResults ? "green" : "red")}]{ShowAllResults}[/]"
+        );
     }
 }
