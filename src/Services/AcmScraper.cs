@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -163,6 +164,16 @@ public class AcmScraper(
         // Use SemaphoreSlim to limit concurrent downloads
         using var semaphore = new SemaphoreSlim(_options.Parallelism.Downloads);
 
+        // Track last download time for rate limiting
+        var lastDownloadTimes = new ConcurrentDictionary<int, DateTime>();
+        var downloadDelayMs = _options.Parallelism.DownloadDelayMs;
+        var randomGen = new Random();
+
+        logger.LogInformation(
+            "Rate limiting configured with delay of {DelayMs}ms between downloads",
+            downloadDelayMs
+        );
+
         await Parallel.ForEachAsync(
             filteredPapers,
             new ParallelOptions
@@ -175,6 +186,25 @@ public class AcmScraper(
                 try
                 {
                     await semaphore.WaitAsync(ct);
+
+                    // Apply rate limiting if configured
+                    if (downloadDelayMs > 0)
+                    {
+                        var threadId = Environment.CurrentManagedThreadId;
+                        int remainingDelay = 0;
+
+                        if (lastDownloadTimes.TryGetValue(threadId, out var lastDownload))
+                        {
+                            var elapsed = (DateTime.UtcNow - lastDownload).TotalMilliseconds;
+                            remainingDelay =
+                                downloadDelayMs - (int)elapsed + randomGen.Next(downloadDelayMs);
+                        }
+                        if (remainingDelay > 0)
+                            await Task.Delay(remainingDelay, ct);
+
+                        lastDownloadTimes[threadId] = DateTime.UtcNow;
+                    }
+
                     logger.LogInformation(
                         "Downloading: {Title} ({FileName})",
                         p.Paper.Title,
