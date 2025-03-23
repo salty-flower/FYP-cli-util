@@ -41,7 +41,11 @@ var app = builder.ConfigureServices(
                 client.BaseAddress = new Uri(baseUrl);
 
                 // Add cookies from configuration
-                foreach (var cookie in config.Cookies)
+                var cookies = config.Cookies;
+                if (cookies.Count == 0)
+                    throw new InvalidOperationException("No cookies found in configuration");
+
+                foreach (var cookie in cookies)
                     client.DefaultRequestHeaders.TryAddWithoutValidation(
                         "Cookie",
                         $"{cookie.Key}={cookie.Value}"
