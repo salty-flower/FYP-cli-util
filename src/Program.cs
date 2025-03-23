@@ -14,7 +14,9 @@ using Serilog.Settings.Configuration;
 var options = new ConfigurationReaderOptions(typeof(ConsoleLoggerConfigurationExtensions).Assembly);
 var builder = ConsoleApp
     .Create()
-    .ConfigureDefaultConfiguration(cfg => cfg.AddEnvironmentVariables());
+    .ConfigureDefaultConfiguration(cfg =>
+        cfg.AddEnvironmentVariables().AddJsonFile("appsettings.local.json")
+    );
 
 builder.ConfigureLogging(
     (config, logging) =>
@@ -29,6 +31,7 @@ builder.ConfigureLogging(
 var app = builder.ConfigureServices(
     (config, services) =>
     {
+        services.AddOptionsFromRootAndValidateOnStart<RootOptions>(config);
         services.AddOptionsFromOwnSectionAndValidateOnStart<ScraperOptions>(config);
         services.AddOptionsFromOwnSectionAndValidateOnStart<PathsOptions>(config);
 
@@ -52,6 +55,8 @@ var app = builder.ConfigureServices(
                     );
             }
         );
+
+        services.PostConfigure<PathsOptions>(options => options.EnsureDirectoriesExist());
 
         services.AddSingleton<AcmScraper>();
         services.AddSingleton<PdfDescriptionService>();

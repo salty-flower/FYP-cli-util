@@ -33,6 +33,14 @@ public static class BuilderHelpers
                     .First()
             );
 
+    [RequiresDynamicCode("")]
+    [RequiresUnreferencedCode("")]
+    public static OptionsBuilder<TOptions> AddOptionsFromRootAndValidateOnStart<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TOptions
+    >(this IServiceCollection services, IConfiguration configuration)
+        where TOptions : class =>
+        services.AddOptionsWithValidateOnStart<TOptions>().Bind(configuration);
+
     public static TOptions GetOptions<
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
             TOptions

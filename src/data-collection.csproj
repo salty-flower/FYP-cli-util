@@ -27,8 +27,33 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="appsettings.json">
+    <None Update="appsettings*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <Target BeforeTargets="CoreCompile" Name="GenerateBuildConstants">
+    <PropertyGroup>
+      <BuildConstantsFile>
+        $(IntermediateOutputPath)\generated\MSBuildInject\BuildConstants.g.cs
+      </BuildConstantsFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <BuildConstantsContent Include="namespace $(RootNamespace) %3B" />
+      <BuildConstantsContent Include="public static class BuildConstants {" />
+      <BuildConstantsContent
+        Include="public const string SolutionDirectory = @&quot;$(SolutionDir)&quot;%3B"
+      />
+      <BuildConstantsContent Include="}" />
+
+      <Compile Include="$(BuildConstantsFile)" />
+    </ItemGroup>
+
+    <WriteLinesToFile
+      File="$(BuildConstantsFile)"
+      Lines="@(BuildConstantsContent)"
+      Overwrite="true"
+    />
+  </Target>
 </Project>
