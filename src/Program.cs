@@ -59,6 +59,7 @@ var app = builder.ConfigureServices(
 
         services.PostConfigure<PathsOptions>(options => options.EnsureDirectoriesExist());
 
+        services.UseMinimalHttpLogger();
         services.AddSingleton<AcmScraper>();
         services.AddSingleton<PdfDescriptionService>();
         services.AddSingleton<ConsoleRenderingService>();
