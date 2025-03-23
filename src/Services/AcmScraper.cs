@@ -20,6 +20,7 @@ namespace DataCollection.Services;
 public class AcmScraper(
     IHttpClientFactory httpClientFactory,
     IOptions<ScraperOptions> options,
+    IOptionsSnapshot<ParallelismOptions> parallelOpt,
     ILogger<AcmScraper> logger
 )
 {
@@ -103,7 +104,7 @@ public class AcmScraper(
             },
             new ExecutionDataflowBlockOptions
             {
-                MaxDegreeOfParallelism = _options.Parallelism.SectionProcessing,
+                MaxDegreeOfParallelism = parallelOpt.Value.SectionProcessing,
                 CancellationToken = cancellationToken,
             }
         );
@@ -162,11 +163,11 @@ public class AcmScraper(
         );
 
         // Use SemaphoreSlim to limit concurrent downloads
-        using var semaphore = new SemaphoreSlim(_options.Parallelism.Downloads);
+        using var semaphore = new SemaphoreSlim(parallelOpt.Value.Downloads);
 
         // Track last download time for rate limiting
         var lastDownloadTimes = new ConcurrentDictionary<int, DateTime>();
-        var downloadDelayMs = _options.Parallelism.DownloadDelayMs;
+        var downloadDelayMs = parallelOpt.Value.DownloadDelayMs;
         var randomGen = new Random();
 
         logger.LogInformation(
@@ -179,7 +180,7 @@ public class AcmScraper(
             new ParallelOptions
             {
                 CancellationToken = cancellationToken,
-                MaxDegreeOfParallelism = _options.Parallelism.Downloads,
+                MaxDegreeOfParallelism = parallelOpt.Value.Downloads,
             },
             async (p, ct) =>
             {
