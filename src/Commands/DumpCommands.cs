@@ -77,99 +77,89 @@ public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions>
         );
 
         foreach (var pdfFile in pdfFiles)
+            yield return ProcessSinglePdf(pdfFile);
+    }
+
+    /// <summary>
+    /// Process a single PDF file and extract its content
+    /// </summary>
+    /// <param name="pdfFile">The PDF file to process</param>
+    /// <returns>A PdfData object containing the extracted data</returns>
+    private PdfData ProcessSinglePdf(FileInfo pdfFile)
+    {
+        using (Py.GIL())
         {
-            PdfData? result = null;
-            try
+            // Import fitz (PyMuPDF)
+            dynamic fitz = Py.Import("fitz");
+            dynamic document = fitz.open(pdfFile.FullName);
+
+            int pageCount = document.page_count.As<int>();
+            string[] texts = new string[pageCount];
+            MatchObject[][] textLines = new MatchObject[pageCount][];
+
+            // Process each page
+            for (int i = 0; i < pageCount; i++)
             {
-                using (Py.GIL())
+                dynamic page = document[i];
+
+                // Extract text
+                texts[i] = page.get_text().As<string>();
+
+                // Extract text lines
+                var pyTextBlocks = page.get_text("dict")["blocks"];
+                List<MatchObject> pageTextLines = new List<MatchObject>();
+
+                int blockCount = pyTextBlocks.__len__().As<int>();
+                for (int b = 0; b < blockCount; b++)
                 {
-                    // Import fitz (PyMuPDF)
-                    dynamic fitz = Py.Import("fitz");
-                    dynamic document = fitz.open(pdfFile.FullName);
-
-                    int pageCount = document.page_count.As<int>();
-                    string[] texts = new string[pageCount];
-                    MatchObject[][] textLines = new MatchObject[pageCount][];
-
-                    // Process each page
-                    for (int i = 0; i < pageCount; i++)
+                    var block = pyTextBlocks[b];
+                    if (block["type"].As<int>() == 0) // Text block
                     {
-                        dynamic page = document[i];
-
-                        // Extract text
-                        texts[i] = page.get_text().As<string>();
-
-                        // Extract text lines
-                        var pyTextBlocks = page.get_text("dict")["blocks"];
-                        List<MatchObject> pageTextLines = new List<MatchObject>();
-
-                        int blockCount = pyTextBlocks.__len__().As<int>();
-                        for (int b = 0; b < blockCount; b++)
+                        var pyLines = block["lines"];
+                        int lineCount = pyLines.__len__().As<int>();
+                        for (int l = 0; l < lineCount; l++)
                         {
-                            var block = pyTextBlocks[b];
-                            if (block["type"].As<int>() == 0) // Text block
+                            var line = pyLines[l];
+                            var lineText = "";
+                            var spans = line["spans"];
+                            int spanCount = spans.__len__().As<int>();
+                            for (int s = 0; s < spanCount; s++)
                             {
-                                var pyLines = block["lines"];
-                                int lineCount = pyLines.__len__().As<int>();
-                                for (int l = 0; l < lineCount; l++)
-                                {
-                                    var line = pyLines[l];
-                                    var lineText = "";
-                                    var spans = line["spans"];
-                                    int spanCount = spans.__len__().As<int>();
-                                    for (int s = 0; s < spanCount; s++)
-                                    {
-                                        lineText += spans[s]["text"].As<string>();
-                                    }
+                                lineText += spans[s]["text"].As<string>();
+                            }
 
-                                    var bbox = line["bbox"].As<dynamic>();
-                                    if (!string.IsNullOrWhiteSpace(lineText))
-                                    {
-                                        pageTextLines.Add(
-                                            new MatchObject(
-                                                lineText,
-                                                bbox[0].As<double>(), // x0
-                                                bbox[1].As<double>(), // top
-                                                bbox[2].As<double>(), // x1
-                                                bbox[3].As<double>() // bottom
-                                            )
-                                        );
-                                    }
-                                }
+                            var bbox = line["bbox"].As<dynamic>();
+                            if (!string.IsNullOrWhiteSpace(lineText))
+                            {
+                                pageTextLines.Add(
+                                    new MatchObject(
+                                        lineText,
+                                        bbox[0].As<double>(), // x0
+                                        bbox[1].As<double>(), // top
+                                        bbox[2].As<double>(), // x1
+                                        bbox[3].As<double>() // bottom
+                                    )
+                                );
                             }
                         }
-
-                        textLines[i] = pageTextLines.ToArray();
                     }
-
-                    document.close();
-
-                    // Extract tables either using script or create empty tables
-                    logger.LogInformation(
-                        "Skipping table extraction for {FileName} (script not found)",
-                        pdfFile.Name
-                    );
-
-                    result = new PdfData
-                    {
-                        FileName = pdfFile.Name,
-                        Texts = texts,
-                        TextLines = textLines,
-                    };
-
-                    logger.LogInformation("Extracted {FileName}", pdfFile.Name);
                 }
-            }
-            catch (PythonException e)
-            {
-                logger.LogWarning("Can't extract {f}: {m}", pdfFile.Name, e.Message);
-                continue;
+
+                textLines[i] = pageTextLines.ToArray();
             }
 
-            if (result != null)
+            document.close();
+
+            var result = new PdfData
             {
-                yield return result;
-            }
+                FileName = pdfFile.Name,
+                Texts = texts,
+                TextLines = textLines,
+            };
+
+            logger.LogInformation("Extracted {FileName}", pdfFile.Name);
+
+            return result;
         }
     }
 }
