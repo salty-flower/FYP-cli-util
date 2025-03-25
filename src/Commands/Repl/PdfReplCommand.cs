@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using DataCollection.Models;
@@ -99,6 +100,7 @@ public class PdfReplCommand(
             { "eval <expression>", "Evaluate a keyword expression" },
             { "search <pattern>", "Search for a pattern (case-insensitive regex)" },
             { "showall [true|false]", "Toggle showing all results (no result limits)" },
+            { "export [filepath]", "Export the last search results to JSON" },
             { "info", "Show document information" },
             { "exit", "Exit REPL" },
         };
@@ -141,6 +143,9 @@ public class PdfReplCommand(
                     case "showall":
                         HandleShowAllCommand(parts);
                         break;
+                    case "export":
+                        HandleExportCommand(parts);
+                        break;
                     default:
                         AnsiConsole.MarkupLine(
                             $"[red]Unknown command:[/] {ConsoleRenderingService.SafeMarkup(parts[0])}"
@@ -175,6 +180,7 @@ public class PdfReplCommand(
             { "list", "List all available PDFs" },
             { "select <number>", "Select a specific PDF to work with" },
             { "showall [true|false]", "Toggle showing all results (no result limits)" },
+            { "export [filepath]", "Export the last search results to JSON" },
             { "info", "Show summary information about all PDFs" },
             { "exit", "Exit REPL" },
         };
@@ -229,6 +235,9 @@ public class PdfReplCommand(
                         break;
                     case "showall":
                         HandleShowAllCommand(parts);
+                        break;
+                    case "export":
+                        HandleExportCommand(parts);
                         break;
                     default:
                         AnsiConsole.MarkupLine(
@@ -314,7 +323,9 @@ public class PdfReplCommand(
             return;
         }
 
-        expression = expression.Trim();
+        AnsiConsole.MarkupLine(
+            $"Evaluating expression: [yellow]{ConsoleRenderingService.SafeMarkup(expression)}[/]"
+        );
 
         try
         {
@@ -322,15 +333,39 @@ public class PdfReplCommand(
             var keywords = ExtractKeywordsFromExpression(expression);
             if (keywords.Count == 0)
             {
-                AnsiConsole.MarkupLine("[yellow]No keywords found in expression[/]");
+                AnsiConsole.MarkupLine("[red]No keywords found in expression[/]");
                 return;
             }
 
+            // Count occurrences of keywords
             var counts = CountKeywords(pdfData, keywords.ToArray());
 
-            // Parse and evaluate the expression
+            // Parse the expression
             var expressionFunc = KeywordExpressionParser.ParseExpression(expression);
+
+            // Evaluate the expression
             bool result = expressionFunc(counts);
+
+            // Create and store the result for potential export
+            var evalResult = new PdfEvaluationResult
+            {
+                Expression = expression,
+                TotalMatches = result ? 1 : 0,
+                Timestamp = DateTime.Now,
+                MatchingPdfs = result
+                    ? new List<PdfEvaluationItem>
+                    {
+                        new PdfEvaluationItem
+                        {
+                            PdfName = pdfDescriptionService.GetItemDescription(pdfData),
+                            Filename = pdfData.FileName,
+                            KeywordCounts = counts,
+                        },
+                    }
+                    : new List<PdfEvaluationItem>(),
+            };
+
+            LastSearchResults = evalResult;
 
             // Display results
             AnsiConsole.Write(
@@ -371,43 +406,70 @@ public class PdfReplCommand(
             return;
         }
 
-        // Get the pattern
-        string pattern = searchService.ParseSearchPattern(parts);
+        string pattern = string.Join(" ", parts.Skip(1));
+
+        AnsiConsole.MarkupLine(
+            $"Searching for: [yellow]{ConsoleRenderingService.SafeMarkup(pattern)}[/]"
+        );
 
         try
         {
             var regex = new Regex(pattern, RegexOptions.IgnoreCase);
+            var results = new List<(int PageNum, int LineNum, MatchObject Line)>();
 
-            var results = new List<(int PageIdx, string Text, string Match)>();
-
-            // Search in full text
-            if (pdfData.Texts != null)
+            // Initialize a search result to store
+            var pdfSearchResult = new PdfSearchResult
             {
-                for (int i = 0; i < pdfData.Texts.Length; i++)
+                Pattern = pattern,
+                TotalMatches = 0,
+                Timestamp = DateTime.Now,
+                Results = new List<PdfSearchItem>(),
+            };
+
+            var pdfSearchItem = new PdfSearchItem
+            {
+                PdfName = pdfDescriptionService.GetItemDescription(pdfData),
+                Filename = pdfData.FileName,
+                MatchCount = 0,
+                Context = new List<PdfMatchContext>(),
+            };
+
+            // Search in lines
+            for (int i = 0; i < pdfData.TextLines.Length; i++)
+            {
+                var pageLines = pdfData.TextLines[i];
+                if (pageLines == null)
+                    continue;
+
+                for (int j = 0; j < pageLines.Length; j++)
                 {
-                    var text = pdfData.Texts[i];
-                    if (string.IsNullOrEmpty(text))
+                    var line = pageLines[j];
+                    if (line == null || string.IsNullOrEmpty(line.Text))
                         continue;
 
-                    var matches = regex.Matches(text);
-                    foreach (Match match in matches)
+                    if (regex.IsMatch(line.Text))
                     {
-                        // Get some context around the match
-                        int start = Math.Max(0, match.Index - 40);
-                        int length = Math.Min(text.Length - start, match.Length + 80);
-                        string context = text.Substring(start, length);
+                        results.Add((PageNum: i, LineNum: j, Line: line));
 
-                        results.Add((i, context, match.Value));
-
-                        // Limit the number of results if not showing all
-                        if (!ShowAllResults && results.Count >= 50)
-                            break;
+                        // Add to the search result
+                        pdfSearchItem.Context.Add(
+                            new PdfMatchContext
+                            {
+                                Page = i + 1,
+                                Match = regex.Match(line.Text).Value,
+                                Context = line.Text,
+                            }
+                        );
                     }
-
-                    if (!ShowAllResults && results.Count >= 50)
-                        break;
                 }
             }
+
+            pdfSearchItem.MatchCount = results.Count;
+            pdfSearchResult.TotalMatches = results.Count;
+            pdfSearchResult.Results.Add(pdfSearchItem);
+
+            // Store for potential export
+            LastSearchResults = pdfSearchResult;
 
             // Display results
             if (results.Count == 0)
@@ -433,8 +495,8 @@ public class PdfReplCommand(
 
             foreach (var result in results.Take(showCount))
             {
-                string context = ConsoleRenderingService.SafeMarkup(result.Text);
-                table.AddRow((result.PageIdx + 1).ToString(), context);
+                string context = ConsoleRenderingService.SafeMarkup(result.Line.Text);
+                table.AddRow((result.PageNum + 1).ToString(), context);
             }
 
             AnsiConsole.Write(table);
@@ -465,7 +527,9 @@ public class PdfReplCommand(
             return;
         }
 
-        expression = expression.Trim();
+        AnsiConsole.MarkupLine(
+            $"Filtering PDFs with expression: [yellow]{ConsoleRenderingService.SafeMarkup(expression)}[/]"
+        );
 
         try
         {
@@ -473,7 +537,7 @@ public class PdfReplCommand(
             var keywords = ExtractKeywordsFromExpression(expression);
             if (keywords.Count == 0)
             {
-                AnsiConsole.MarkupLine("[yellow]No keywords found in expression[/]");
+                AnsiConsole.MarkupLine("[red]No keywords found in expression[/]");
                 return;
             }
 
@@ -491,6 +555,24 @@ public class PdfReplCommand(
                     matchingPdfs.Add((pdf, counts));
                 }
             }
+
+            // Create the evaluation result for export
+            var evalResult = new PdfEvaluationResult
+            {
+                Expression = expression,
+                TotalMatches = matchingPdfs.Count,
+                Timestamp = DateTime.Now,
+                MatchingPdfs = matchingPdfs
+                    .Select(p => new PdfEvaluationItem
+                    {
+                        PdfName = pdfDescriptionService.GetItemDescription(p.Pdf),
+                        Filename = p.Pdf.FileName,
+                        KeywordCounts = p.Counts,
+                    })
+                    .ToList(),
+            };
+
+            LastSearchResults = evalResult;
 
             // Display results
             if (matchingPdfs.Count == 0)
@@ -817,20 +899,40 @@ public class PdfReplCommand(
             }
 
             // Create export data
-            var exportData = new
+            var exportData = new PdfSearchResult
             {
                 Pattern = pattern,
                 TotalMatches = totalMatches,
-                PDFCount = pdfDataList.Count,
-                PDFsWithMatches = allResults.Count,
                 Timestamp = DateTime.Now,
-                Results = allResults,
+                Results = allResults
+                    .Select(result => new PdfSearchItem
+                    {
+                        PdfName = (string)result.PDF,
+                        Filename = (string)result.FileName,
+                        MatchCount = (int)result.ResultCount,
+                        Context = ((System.Collections.IEnumerable)result.Results)
+                            .Cast<dynamic>()
+                            .Select(r => new PdfMatchContext
+                            {
+                                Page = (int)r.Page,
+                                Match = (string)r.Match,
+                                Context = (string)r.Context,
+                            })
+                            .ToList(),
+                    })
+                    .ToList(),
             };
 
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (jsonExportService.ExportToJson(exportData, exportPath))
+                if (
+                    jsonExportService.ExportToJsonSourceGen(
+                        exportData,
+                        exportPath,
+                        ReplJsonContext.Default.PdfSearchResult
+                    )
+                )
                 {
                     logger.LogInformation(
                         "Exported {Count} results to {Path}",
@@ -948,16 +1050,16 @@ public class PdfReplCommand(
             }
 
             // Create export data
-            var exportData = new
+            var exportData = new PdfEvaluationResult
             {
                 Expression = expression,
                 TotalMatches = matchingPdfs.Count,
                 Timestamp = DateTime.Now,
-                MatchingPDFs = matchingPdfs
-                    .Select(p => new
+                MatchingPdfs = matchingPdfs
+                    .Select(p => new PdfEvaluationItem
                     {
-                        PDF = pdfDescriptionService.GetItemDescription(p.Pdf),
-                        FileName = p.Pdf.FileName,
+                        PdfName = pdfDescriptionService.GetItemDescription(p.Pdf),
+                        Filename = p.Pdf.FileName,
                         KeywordCounts = p.Counts,
                     })
                     .ToList(),
@@ -966,7 +1068,13 @@ public class PdfReplCommand(
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (jsonExportService.ExportToJson(exportData, exportPath))
+                if (
+                    jsonExportService.ExportToJsonSourceGen(
+                        exportData,
+                        exportPath,
+                        ReplJsonContext.Default.PdfEvaluationResult
+                    )
+                )
                 {
                     logger.LogInformation(
                         "Exported {Count} matching PDFs to {Path}",
@@ -1023,5 +1131,88 @@ public class PdfReplCommand(
         }
 
         return keywords;
+    }
+
+    /// <summary>
+    /// Override the HandleExportCommand method to use source generation for exporting
+    /// </summary>
+    protected override bool HandleExportCommand(string[] parts, object? data = null)
+    {
+        if (jsonExportService == null)
+        {
+            AnsiConsole.MarkupLine("[red]JSON export service is not available[/]");
+            return false;
+        }
+
+        string filePath = null;
+        if (parts.Length > 1)
+        {
+            filePath = parts[1];
+        }
+
+        object? exportData = data ?? LastSearchResults;
+        if (exportData == null)
+        {
+            AnsiConsole.MarkupLine("[red]No data available to export[/]");
+            return false;
+        }
+
+        try
+        {
+            // Create default file path if none was provided
+            if (string.IsNullOrEmpty(filePath))
+            {
+                string timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                filePath = System.IO.Path.Combine(
+                    System.IO.Directory.GetCurrentDirectory(),
+                    $"export-{timestamp}.json"
+                );
+            }
+
+            bool success = false;
+
+            // Use appropriate serializer based on the type
+            if (exportData is PdfSearchResult searchResult)
+            {
+                success = jsonExportService.ExportToJsonSourceGen(
+                    searchResult,
+                    filePath,
+                    ReplJsonContext.Default.PdfSearchResult
+                );
+            }
+            else if (exportData is PdfEvaluationResult evalResult)
+            {
+                success = jsonExportService.ExportToJsonSourceGen(
+                    evalResult,
+                    filePath,
+                    ReplJsonContext.Default.PdfEvaluationResult
+                );
+            }
+            else
+            {
+                // Fall back to base implementation for unknown types
+                return base.HandleExportCommand(parts, data);
+            }
+
+            if (success)
+            {
+                AnsiConsole.MarkupLine(
+                    $"[green]Data exported to:[/] {ConsoleRenderingService.SafeMarkup(jsonExportService.GetLastExportedFilePath())}"
+                );
+                return true;
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[red]Failed to export data[/]");
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Error exporting data:[/] {ConsoleRenderingService.SafeMarkup(ex.Message)}"
+            );
+            return false;
+        }
     }
 }

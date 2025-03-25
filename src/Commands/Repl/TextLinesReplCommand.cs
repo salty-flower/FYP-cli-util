@@ -9,6 +9,7 @@ using DataCollection.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Spectre.Console;
+using System.Text.Json;
 
 namespace DataCollection.Commands.Repl;
 
@@ -579,33 +580,40 @@ public class TextLinesReplCommand(
     /// <summary>
     /// Handle the export command
     /// </summary>
-    private void HandleExportCommand(string[] parts)
+    protected bool HandleExportCommand(string[] parts)
     {
-        if (parts.Length < 2 || string.IsNullOrWhiteSpace(parts[1]))
+        if (parts.Length < 2)
         {
-            AnsiConsole.MarkupLine("[red]Usage:[/] export <filename>");
-            return;
+            return base.HandleExportCommand(parts);
         }
 
         string filename = parts[1];
+
         if (LastSearchResults == null)
         {
-            AnsiConsole.MarkupLine("[red]No search results available to export[/]");
-            return;
+            AnsiConsole.MarkupLine("[red]No data available to export[/]");
+            return false;
         }
 
-        // Use the correct ExportToJson method
-        bool success = jsonExportService.ExportToJson(LastSearchResults, filename);
-
-        if (success)
+        try
+        {
+            // Determine the type of the last search results and use appropriate source generation
+            if (LastSearchResults is TextLinesSearchResult searchResult)
+            {
+                return jsonExportService.ExportToJsonSourceGen(searchResult, filename, ReplJsonContext.Default.TextLinesSearchResult);
+            }
+            else
+            {
+                // Fallback to reflection-based serialization for other types
+                return base.HandleExportCommand(parts);
+            }
+        }
+        catch (Exception ex)
         {
             AnsiConsole.MarkupLine(
-                $"[green]Last search results exported to:[/] {ConsoleRenderingService.SafeMarkup(filename)}"
+                $"[red]Error exporting data:[/] {ConsoleRenderingService.SafeMarkup(ex.Message)}"
             );
-        }
-        else
-        {
-            AnsiConsole.MarkupLine("[red]Failed to export search results[/]");
+            return false;
         }
     }
 
@@ -613,11 +621,13 @@ public class TextLinesReplCommand(
     /// Run non-interactive search across all PDFs and optionally export results
     /// </summary>
     /// <param name="pattern">Search pattern (regex supported)</param>
+    /// <param name="results">Out parameter to store the search results</param>
     /// <param name="exportPath">Optional path to export results</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of results found</returns>
     public int RunNonInteractiveSearch(
         string pattern,
+        out TextLinesSearchResult results,
         string exportPath = null,
         CancellationToken cancellationToken = default
     )
@@ -632,6 +642,7 @@ public class TextLinesReplCommand(
             logger.LogWarning(
                 "No PDF data could be loaded. Please run the analyze pdfs command first."
             );
+            results = null;
             return 0;
         }
 
@@ -646,7 +657,7 @@ public class TextLinesReplCommand(
             var regex = new Regex(pattern, RegexOptions.IgnoreCase);
             int total = 0;
             int pdfsWithMatches = 0;
-            var allResults = new List<dynamic>();
+            var pdfResults = new List<TextLinesPdfResult>();
 
             foreach (var pdf in pdfDataList)
             {
@@ -655,49 +666,38 @@ public class TextLinesReplCommand(
                     if (pdf == null || pdf.TextLines == null)
                         continue;
 
-                    var results = searchService.SearchInPdf(pdf, regex);
+                    var searchResults = searchService.SearchInPdf(pdf, regex);
 
-                    if (results == null || results.Count == 0 || results.All(r => r.Line == null))
+                    if (searchResults == null || searchResults.Count == 0 || searchResults.All(r => r.Line == null))
                         continue;
 
                     // Add to all results - ensure we handle potential null values
-                    var validResults = results
+                    var textLinesResults = searchResults
                         .Where(r => r.Line != null)
-                        .Select(r => new
+                        .Select(r => new TextLinesResult
                         {
-                            Page = r.PageNum + 1,
-                            Line = r.LineNum + 1,
-                            Text = r.Line?.Text ?? "<null text>",
-                            Position = r.Line == null
-                                ? null
-                                : new
-                                {
-                                    X0 = r.Line.X0,
-                                    Top = r.Line.Top,
-                                    X1 = r.Line.X1,
-                                    Bottom = r.Line.Bottom,
-                                },
+                            Text = r.Line?.Text ?? "<null text>"
                         })
                         .ToList();
 
-                    if (validResults.Any())
+                    if (textLinesResults.Any())
                     {
-                        allResults.Add(
-                            new
+                        pdfResults.Add(
+                            new TextLinesPdfResult
                             {
-                                PDF = pdfDescriptionService.GetItemDescription(pdf),
+                                Pdf = pdfDescriptionService.GetItemDescription(pdf),
                                 FileName = pdf.FileName,
-                                ResultCount = validResults.Count,
-                                Results = validResults,
+                                ResultCount = textLinesResults.Count,
+                                Results = textLinesResults
                             }
                         );
 
-                        total += validResults.Count;
+                        total += textLinesResults.Count;
                         pdfsWithMatches++;
 
                         logger.LogInformation(
                             "Found {Count} matches in {Pdf}",
-                            validResults.Count,
+                            textLinesResults.Count,
                             pdfDescriptionService.GetItemDescription(pdf)
                         );
                     }
@@ -712,20 +712,23 @@ public class TextLinesReplCommand(
                 }
             }
 
-            // Create export data
-            var exportData = new
+            // Create export data using source generation models
+            results = new TextLinesSearchResult
             {
                 Pattern = pattern,
                 TotalMatches = total,
-                PDFsWithMatches = pdfsWithMatches,
+                PdfsWithMatches = pdfsWithMatches,
                 Timestamp = DateTime.Now,
-                Results = allResults,
+                Results = pdfResults
             };
+
+            // Store for later export if needed
+            LastSearchResults = results;
 
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (jsonExportService.ExportToJson(exportData, exportPath))
+                if (jsonExportService.ExportToJsonSourceGen(results, exportPath, ReplJsonContext.Default.TextLinesSearchResult))
                 {
                     logger.LogInformation("Exported {Count} results to {Path}", total, exportPath);
                 }
@@ -748,11 +751,13 @@ public class TextLinesReplCommand(
         catch (RegexParseException ex)
         {
             logger.LogError("Invalid regex pattern: {Error}", ex.Message);
+            results = null;
             return 0;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error during non-interactive search: {Error}", ex.Message);
+            results = null;
             return 0;
         }
     }

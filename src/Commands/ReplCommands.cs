@@ -37,19 +37,27 @@ public class ReplCommands(
     public void TextLines(CancellationToken cancellationToken = default) =>
         textLinesReplCommand.Run(cancellationToken);
 
+    [Command("search-metadata")]
     /// <summary>
-    /// Non-interactive command to search in metadata and export results
+    /// Non-interactive command to search in metadata and return results directly
     /// </summary>
     /// <param name="pattern">Search pattern (regex supported)</param>
+    /// <param name="results">Out parameter that will contain the search results</param>
     /// <param name="exportPath">Optional path to export results (JSON)</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of results found</returns>
-    [Command("search-metadata")]
     public int SearchMetadata(
         string pattern,
+        out MetadataSearchResult results,
         string exportPath = null,
         CancellationToken cancellationToken = default
-    ) => metadataReplCommand.RunNonInteractiveSearch(pattern, exportPath, cancellationToken);
+    ) =>
+        metadataReplCommand.RunNonInteractiveSearch(
+            pattern,
+            out results,
+            exportPath,
+            cancellationToken
+        );
 
     /// <summary>
     /// Non-interactive command to search in PDF content and export results
@@ -65,19 +73,27 @@ public class ReplCommands(
         CancellationToken cancellationToken = default
     ) => pdfReplCommand.RunNonInteractiveSearch(pattern, exportPath, cancellationToken);
 
+    [Command("search-textlines")]
     /// <summary>
-    /// Non-interactive command to search in PDF text lines and export results
+    /// Non-interactive command to search in PDF text lines and return results directly
     /// </summary>
     /// <param name="pattern">Search pattern (regex supported)</param>
+    /// <param name="results">Out parameter that will contain the search results</param>
     /// <param name="exportPath">Optional path to export results (JSON)</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of results found</returns>
-    [Command("search-textlines")]
     public int SearchTextLines(
         string pattern,
+        out TextLinesSearchResult results,
         string exportPath = null,
         CancellationToken cancellationToken = default
-    ) => textLinesReplCommand.RunNonInteractiveSearch(pattern, exportPath, cancellationToken);
+    ) =>
+        textLinesReplCommand.RunNonInteractiveSearch(
+            pattern,
+            out results,
+            exportPath,
+            cancellationToken
+        );
 
     /// <summary>
     /// Non-interactive command to evaluate a keyword expression against metadata

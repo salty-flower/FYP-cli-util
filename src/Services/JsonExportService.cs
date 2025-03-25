@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
+using DataCollection.Commands.Repl;
 using DataCollection.Models;
 using Microsoft.Extensions.Logging;
 
@@ -31,8 +33,10 @@ public class JsonExportService
     }
 
     /// <summary>
-    /// Export data to a JSON file
+    /// Export data to a JSON file using reflection-based serialization.
+    /// Consider using source-generation based methods when possible for better performance.
     /// </summary>
+    [Obsolete("Consider using source-generation based methods (ExportToJsonSourceGen) when possible for better performance.")]
     public bool ExportToJson<T>(T data, string filePath)
     {
         try
@@ -55,7 +59,31 @@ public class JsonExportService
     }
 
     /// <summary>
-    /// Export search results to JSON
+    /// Export data to a JSON file using source generation
+    /// </summary>
+    public bool ExportToJsonSourceGen<T>(T data, string filePath, JsonTypeInfo<T> typeInfo)
+    {
+        try
+        {
+            // Store the data for potential later use
+            _lastExportedData = data;
+            _lastExportedFile = filePath;
+
+            string json = JsonSerializer.Serialize(data, typeInfo);
+            File.WriteAllText(filePath, json);
+
+            _logger.LogInformation("Data exported to {FilePath} using source generation", filePath);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error exporting data to JSON using source generation: {Message}", ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Export search results to JSON using source generation
     /// </summary>
     public bool ExportSearchResults(
         List<(int PageNum, int LineNum, MatchObject Line)> results,
@@ -64,29 +92,37 @@ public class JsonExportService
         string outputPath = null
     )
     {
-        var exportData = new
+        var searchResultItems = new List<SearchResultItem>();
+        
+        foreach (var r in results)
         {
-            Pattern = pattern,
-            PDF = pdf?.FileName,
-            ResultCount = results.Count,
-            Timestamp = DateTime.Now,
-            Results = results.ConvertAll(r => new
+            var item = new SearchResultItem
             {
                 Page = r.PageNum + 1,
                 Line = r.LineNum + 1,
                 Text = r.Line.Text,
-                BoundingBox = new
+                BoundingBox = new Commands.Repl.BoundingBox
                 {
-                    X0 = r.Line.X0,
-                    Top = r.Line.Top,
-                    X1 = r.Line.X1,
-                    Bottom = r.Line.Bottom,
-                },
-            }),
+                    X0 = (float)r.Line.X0,
+                    Top = (float)r.Line.Top,
+                    X1 = (float)r.Line.X1,
+                    Bottom = (float)r.Line.Bottom
+                }
+            };
+            searchResultItems.Add(item);
+        }
+        
+        var exportData = new SearchResultsExport
+        {
+            Pattern = pattern,
+            Pdf = pdf?.FileName,
+            ResultCount = results.Count,
+            Timestamp = DateTime.Now,
+            Results = searchResultItems
         };
 
         string filePath = outputPath ?? GetDefaultFilePath("search-results");
-        return ExportToJson(exportData, filePath);
+        return ExportToJsonSourceGen(exportData, filePath, ReplJsonContext.Default.SearchResultsExport);
     }
 
     /// <summary>
@@ -98,26 +134,28 @@ public class JsonExportService
         string outputPath = null
     )
     {
-        var exportData = new
+        var metadataItems = results.ConvertAll(r => new MetadataSearchItem
+        {
+            Paper = new PaperReference
+            {
+                Title = r.Paper.Title,
+                DOI = r.Paper.Doi,
+                Authors = r.Paper.Authors ?? Array.Empty<string>()
+            },
+            Match = r.Match,
+            Context = r.Context
+        });
+        
+        var exportData = new MetadataSearchResult
         {
             Pattern = pattern,
-            ResultCount = results.Count,
+            TotalMatches = results.Count,
             Timestamp = DateTime.Now,
-            Results = results.ConvertAll(r => new
-            {
-                Paper = new
-                {
-                    Title = r.Paper.Title,
-                    DOI = r.Paper.Doi,
-                    Authors = r.Paper.Authors,
-                },
-                Match = r.Match,
-                Context = r.Context,
-            }),
+            Results = metadataItems
         };
 
         string filePath = outputPath ?? GetDefaultFilePath("metadata-search-results");
-        return ExportToJson(exportData, filePath);
+        return ExportToJsonSourceGen(exportData, filePath, ReplJsonContext.Default.MetadataSearchResult);
     }
 
     /// <summary>
@@ -129,15 +167,15 @@ public class JsonExportService
         string outputPath = null
     )
     {
-        var exportData = new
+        var exportData = new KeywordCountsExport
         {
             Source = source,
             Timestamp = DateTime.Now,
-            Counts = counts,
+            Counts = counts
         };
 
         string filePath = outputPath ?? GetDefaultFilePath("keyword-counts");
-        return ExportToJson(exportData, filePath);
+        return ExportToJsonSourceGen(exportData, filePath, ReplJsonContext.Default.KeywordCountsExport);
     }
 
     /// <summary>

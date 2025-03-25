@@ -10,6 +10,7 @@ using DataCollection.Utils;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Spectre.Console;
+using System.Text.Json;
 
 namespace DataCollection.Commands.Repl;
 
@@ -520,33 +521,44 @@ public class MetadataReplCommand(
     /// <summary>
     /// Handle the export command
     /// </summary>
-    private void HandleExportCommand(string[] parts)
+    protected bool HandleExportCommand(string[] parts)
     {
-        if (parts.Length < 2 || string.IsNullOrWhiteSpace(parts[1]))
+        if (parts.Length < 2)
         {
-            AnsiConsole.MarkupLine("[red]Usage:[/] export <filename>");
-            return;
+            return base.HandleExportCommand(parts);
         }
 
         string filename = parts[1];
+
         if (LastSearchResults == null)
         {
-            AnsiConsole.MarkupLine("[red]No search results available to export[/]");
-            return;
+            AnsiConsole.MarkupLine("[red]No data available to export[/]");
+            return false;
         }
 
-        // Use the correct ExportToJson method
-        bool success = jsonExportService.ExportToJson(LastSearchResults, filename);
-
-        if (success)
+        try
+        {
+            // Determine the type of the last search results and use appropriate source generation
+            if (LastSearchResults is MetadataSearchResult searchResult)
+            {
+                return jsonExportService.ExportToJsonSourceGen(searchResult, filename, ReplJsonContext.Default.MetadataSearchResult);
+            }
+            else if (LastSearchResults is MetadataEvaluationResult evaluationResult)
+            {
+                return jsonExportService.ExportToJsonSourceGen(evaluationResult, filename, ReplJsonContext.Default.MetadataEvaluationResult);
+            }
+            else
+            {
+                // Fallback to reflection-based serialization for other types
+                return base.HandleExportCommand(parts);
+            }
+        }
+        catch (Exception ex)
         {
             AnsiConsole.MarkupLine(
-                $"[green]Last search results exported to:[/] {ConsoleRenderingService.SafeMarkup(filename)}"
+                $"[red]Error exporting data:[/] {ConsoleRenderingService.SafeMarkup(ex.Message)}"
             );
-        }
-        else
-        {
-            AnsiConsole.MarkupLine("[red]Failed to export search results[/]");
+            return false;
         }
     }
 
@@ -554,11 +566,13 @@ public class MetadataReplCommand(
     /// Run non-interactive search across all papers and optionally export results
     /// </summary>
     /// <param name="pattern">Search pattern (regex supported)</param>
+    /// <param name="results">Out parameter to store the search results</param>
     /// <param name="exportPath">Optional path to export results</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of results found</returns>
     public int RunNonInteractiveSearch(
         string pattern,
+        out MetadataSearchResult results,
         string exportPath = null,
         CancellationToken cancellationToken = default
     )
@@ -570,6 +584,7 @@ public class MetadataReplCommand(
             logger.LogWarning(
                 "No paper metadata could be loaded. Please run the scrape papers command first."
             );
+            results = null;
             return 0;
         }
 
@@ -582,7 +597,7 @@ public class MetadataReplCommand(
         try
         {
             var regex = new Regex(pattern, RegexOptions.IgnoreCase);
-            var results = new List<(Paper Paper, string Match, string Context)>();
+            var searchResults = new List<(Paper Paper, string Match, string Context)>();
 
             foreach (var paper in papers)
             {
@@ -590,7 +605,7 @@ public class MetadataReplCommand(
                 var titleMatches = regex.Matches(paper.Title);
                 foreach (Match match in titleMatches)
                 {
-                    results.Add((paper, match.Value, $"Title: {paper.Title}"));
+                    searchResults.Add((paper, match.Value, $"Title: {paper.Title}"));
                 }
 
                 // Search in abstract
@@ -602,24 +617,24 @@ public class MetadataReplCommand(
                     int length = Math.Min(paper.Abstract.Length - start, match.Length + 80);
                     string context = paper.Abstract.Substring(start, length);
 
-                    results.Add((paper, match.Value, $"Abstract: ...{context}..."));
+                    searchResults.Add((paper, match.Value, $"Abstract: ...{context}..."));
                 }
             }
 
-            // Create export data
-            var exportData = new
+            // Create properly structured data for source generation
+            results = new MetadataSearchResult
             {
                 Pattern = pattern,
-                TotalMatches = results.Count,
+                TotalMatches = searchResults.Count,
                 Timestamp = DateTime.Now,
-                Results = results
-                    .Select(r => new
+                Results = searchResults
+                    .Select(r => new MetadataSearchItem
                     {
-                        Paper = new
+                        Paper = new PaperReference
                         {
                             Title = r.Paper.Title,
                             DOI = r.Paper.Doi,
-                            Authors = r.Paper.Authors ?? new string[0],
+                            Authors = r.Paper.Authors?.ToArray() ?? Array.Empty<string>(),
                         },
                         Match = r.Match,
                         Context = r.Context,
@@ -627,14 +642,17 @@ public class MetadataReplCommand(
                     .ToList(),
             };
 
+            // Store the data for potential later use
+            LastSearchResults = results;
+
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (jsonExportService.ExportToJson(exportData, exportPath))
+                if (jsonExportService.ExportToJsonSourceGen(results, exportPath, ReplJsonContext.Default.MetadataSearchResult))
                 {
                     logger.LogInformation(
                         "Exported {Count} results to {Path}",
-                        results.Count,
+                        searchResults.Count,
                         exportPath
                     );
                 }
@@ -645,15 +663,15 @@ public class MetadataReplCommand(
             }
             else
             {
-                if (results.Count > 0)
+                if (searchResults.Count > 0)
                 {
                     logger.LogInformation(
                         "Found {Count} matches in paper metadata. No export path provided.",
-                        results.Count
+                        searchResults.Count
                     );
 
                     // Log a sample of the results
-                    foreach (var result in results.Take(5))
+                    foreach (var result in searchResults.Take(5))
                     {
                         logger.LogInformation(
                             "Match in {Paper}: {Match}",
@@ -662,9 +680,9 @@ public class MetadataReplCommand(
                         );
                     }
 
-                    if (results.Count > 5)
+                    if (searchResults.Count > 5)
                     {
-                        logger.LogInformation("... and {Count} more matches", results.Count - 5);
+                        logger.LogInformation("... and {Count} more matches", searchResults.Count - 5);
                     }
                 }
                 else
@@ -673,16 +691,18 @@ public class MetadataReplCommand(
                 }
             }
 
-            return results.Count;
+            return searchResults.Count;
         }
         catch (RegexParseException ex)
         {
             logger.LogError("Invalid regex pattern: {Error}", ex.Message);
+            results = null;
             return 0;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error during non-interactive search: {Error}", ex.Message);
+            results = null;
             return 0;
         }
     }
@@ -741,30 +761,33 @@ public class MetadataReplCommand(
                 }
             }
 
-            // Create export data
-            var exportData = new
+            // Create properly structured data for source generation
+            var exportData = new MetadataEvaluationResult
             {
                 Expression = expression,
                 TotalMatches = matchingPapers.Count,
                 Timestamp = DateTime.Now,
                 MatchingPapers = matchingPapers
-                    .Select(p => new
+                    .Select(p => new MetadataEvaluationItem
                     {
-                        Paper = new
+                        Paper = new PaperReference
                         {
                             Title = p.Paper.Title,
                             DOI = p.Paper.Doi,
-                            Authors = p.Paper.Authors ?? new string[0],
+                            Authors = p.Paper.Authors?.ToArray() ?? Array.Empty<string>(),
                         },
                         KeywordCounts = p.Counts,
                     })
                     .ToList(),
             };
 
+            // Store the data for potential later use
+            LastSearchResults = exportData;
+
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (jsonExportService.ExportToJson(exportData, exportPath))
+                if (jsonExportService.ExportToJsonSourceGen(exportData, exportPath, ReplJsonContext.Default.MetadataEvaluationResult))
                 {
                     logger.LogInformation(
                         "Exported {Count} matching papers to {Path}",

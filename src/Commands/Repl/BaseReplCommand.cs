@@ -75,8 +75,10 @@ public abstract class BaseReplCommand(ILogger logger, JsonExportService jsonExpo
 
     /// <summary>
     /// Export the last search results to JSON
+    /// This base implementation uses reflection-based serialization.
+    /// Derived classes should override this method to use source generation when possible.
     /// </summary>
-    protected bool HandleExportCommand(string[] parts, object? data = null)
+    protected virtual bool HandleExportCommand(string[] parts, object? data = null)
     {
         if (jsonExportService == null)
         {
@@ -109,7 +111,11 @@ public abstract class BaseReplCommand(ILogger logger, JsonExportService jsonExpo
                 );
             }
 
+            logger.LogInformation("Using reflection-based serialization as fallback. Consider implementing source generation for this data type.");
+
+#pragma warning disable CS0618 // Type or member is obsolete
             bool success = jsonExportService.ExportToJson(exportData, filePath);
+#pragma warning restore CS0618
 
             if (success)
             {
