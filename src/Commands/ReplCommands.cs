@@ -48,16 +48,9 @@ public class ReplCommands(
     /// <returns>Number of results found</returns>
     public int SearchMetadata(
         string pattern,
-        out MetadataSearchResult results,
         string exportPath = null,
         CancellationToken cancellationToken = default
-    ) =>
-        metadataReplCommand.RunNonInteractiveSearch(
-            pattern,
-            out results,
-            exportPath,
-            cancellationToken
-        );
+    ) => metadataReplCommand.RunNonInteractiveSearch(pattern, out _, exportPath, cancellationToken);
 
     /// <summary>
     /// Non-interactive command to search in PDF content and export results
@@ -84,16 +77,10 @@ public class ReplCommands(
     /// <returns>Number of results found</returns>
     public int SearchTextLines(
         string pattern,
-        out TextLinesSearchResult results,
         string exportPath = null,
         CancellationToken cancellationToken = default
     ) =>
-        textLinesReplCommand.RunNonInteractiveSearch(
-            pattern,
-            out results,
-            exportPath,
-            cancellationToken
-        );
+        textLinesReplCommand.RunNonInteractiveSearch(pattern, out _, exportPath, cancellationToken);
 
     /// <summary>
     /// Non-interactive command to evaluate a keyword expression against metadata

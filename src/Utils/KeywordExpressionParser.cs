@@ -156,7 +156,7 @@ public class KeywordExpressionParser
             return true;
         }
 
-        private bool TryParseSimpleExpression(
+        private static bool TryParseSimpleExpression(
             string expression,
             out Func<Dictionary<string, int>, bool> func
         )

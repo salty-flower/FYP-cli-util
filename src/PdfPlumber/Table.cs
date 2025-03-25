@@ -7,7 +7,7 @@ namespace DataCollection.PdfPlumber;
 
 public class CellGroup
 {
-    public float[] Cells { get; set; }
+    public required float[] Cells { get; set; }
 }
 
 public class Row : CellGroup { }

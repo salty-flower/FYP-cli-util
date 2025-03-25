@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using ConsoleAppFramework;
 using DataCollection.Commands.Repl;
+using DataCollection.Models.Export;
 using DataCollection.Options;
 using Microsoft.Extensions.Logging;
 
@@ -18,7 +18,11 @@ namespace DataCollection.Commands;
 /// </summary>
 [RegisterCommands("procedure")]
 [ConsoleAppFilter<PathsOptions.Filter>]
-public class AnalysisCommands(ILogger<AnalysisCommands> logger, ReplCommands replCommands)
+public class AnalysisCommands(
+    ILogger<AnalysisCommands> logger,
+    TextLinesReplCommand textLinesRepl,
+    MetadataReplCommand metadataRepl
+)
 {
     /// <summary>
     /// Filter papers for bug tables and testing technique mentions
@@ -49,7 +53,7 @@ public class AnalysisCommands(ILogger<AnalysisCommands> logger, ReplCommands rep
 
         // Call the appropriate ReplCommands method with out parameter
         TextLinesSearchResult bugTablesData;
-        int bugTablesResult = replCommands.SearchTextLines(
+        int bugTablesResult = textLinesRepl.RunNonInteractiveSearch(
             bugTablesPattern,
             out bugTablesData,
             tempBugTablesFile,
@@ -67,7 +71,7 @@ public class AnalysisCommands(ILogger<AnalysisCommands> logger, ReplCommands rep
 
         // Call the appropriate ReplCommands method with out parameter
         MetadataSearchResult techniquesData;
-        int techniquesResult = replCommands.SearchMetadata(
+        int techniquesResult = metadataRepl.RunNonInteractiveSearch(
             techniquesPattern,
             out techniquesData,
             tempTechniquesFile,
@@ -117,7 +121,10 @@ public class AnalysisCommands(ILogger<AnalysisCommands> logger, ReplCommands rep
                 {
                     Title = technique.Paper.Title,
                     Doi = technique.Paper.DOI,
-                    Authors = technique.Paper.Authors != null ? new List<string>(technique.Paper.Authors) : new List<string>(),
+                    Authors =
+                        technique.Paper.Authors != null
+                            ? new List<string>(technique.Paper.Authors)
+                            : new List<string>(),
                     Technique = technique.Match,
                     TechniqueContext = technique.Context,
                     BugTables = new BugTableSummary
@@ -176,7 +183,7 @@ public class AnalysisCommands(ILogger<AnalysisCommands> logger, ReplCommands rep
             // Save to file
             await File.WriteAllTextAsync(
                 outputFile,
-                JsonSerializer.Serialize(output, AnalysisJsonContext.Default.AnalysisOutput),
+                JsonSerializer.Serialize(output, ExportModelJsonContext.Default.AnalysisOutput),
                 cancellationToken
             );
 
@@ -191,10 +198,10 @@ public class AnalysisCommands(ILogger<AnalysisCommands> logger, ReplCommands rep
             {
                 if (File.Exists(tempBugTablesFile))
                     File.Delete(tempBugTablesFile);
-                
+
                 if (File.Exists(tempTechniquesFile))
                     File.Delete(tempTechniquesFile);
-                
+
                 logger.LogInformation("Temporary files removed");
             }
 
@@ -207,7 +214,7 @@ public class AnalysisCommands(ILogger<AnalysisCommands> logger, ReplCommands rep
             logger.LogInformation("Testing Technique Summary:");
             foreach (var tech in techniqueSummary)
             {
-                logger.LogInformation("  {0}: {1} papers", tech.Key, tech.Count());
+                logger.LogInformation("  {key}: {count} papers", tech.Key, tech.Count());
             }
 
             return mergedPapers.Count;
@@ -218,135 +225,4 @@ public class AnalysisCommands(ILogger<AnalysisCommands> logger, ReplCommands rep
             return 1;
         }
     }
-
-    #region Model Classes
-
-    // Classes for deserialization
-    public class BugTablesSearchResult
-    {
-        public int TotalMatches { get; set; }
-
-        public int PdfsWithMatches { get; set; }
-
-        public List<BugTablePdfResult> Results { get; set; }
-    }
-
-    public class BugTablePdfResult
-    {
-        public string FileName { get; set; }
-
-        public string Pdf { get; set; }
-
-        public int ResultCount { get; set; }
-
-        public List<BugTableTextResult> Results { get; set; }
-    }
-
-    public class BugTableTextResult
-    {
-        public string Text { get; set; }
-    }
-
-    public class TechniquesSearchResult
-    {
-        public int TotalMatches { get; set; }
-
-        public List<TechniqueResult> Results { get; set; }
-    }
-
-    public class TechniqueResult
-    {
-        public PaperInfo Paper { get; set; }
-
-        public string Match { get; set; }
-
-        public string Context { get; set; }
-    }
-
-    public class PaperInfo
-    {
-        public string Title { get; set; }
-
-        public string Doi { get; set; }
-
-        public string[] Authors { get; set; }
-    }
-
-    // Helper classes
-    public class BugTableInfo
-    {
-        public string Title { get; set; }
-        public int TableCount { get; set; }
-        public List<string> Tables { get; set; }
-    }
-
-    public class PaperAnalysisResult
-    {
-        public string Title { get; set; }
-        public string Doi { get; set; }
-        public List<string> Authors { get; set; }
-        public string Technique { get; set; }
-        public string TechniqueContext { get; set; }
-        public BugTableSummary BugTables { get; set; }
-    }
-
-    // Output classes
-    public class AnalysisOutput
-    {
-        public AnalysisSummary Summary { get; set; }
-
-        public List<MergedPaperAnalysis> Papers { get; set; }
-    }
-
-    public class AnalysisSummary
-    {
-        public int TotalPapers { get; set; }
-
-        public string Timestamp { get; set; }
-
-        public string BugTablePattern { get; set; }
-
-        public string TechniquesPattern { get; set; }
-    }
-
-    public class MergedPaperAnalysis
-    {
-        public string Title { get; set; }
-
-        public string Doi { get; set; }
-
-        public List<string> Authors { get; set; }
-
-        public List<string> Techniques { get; set; }
-
-        public List<TechniqueContext> TechniqueContexts { get; set; }
-
-        public BugTableSummary BugTables { get; set; }
-    }
-
-    public class TechniqueContext
-    {
-        public string Technique { get; set; }
-
-        public string Context { get; set; }
-    }
-
-    public class BugTableSummary
-    {
-        public int Count { get; set; }
-
-        public List<string> Tables { get; set; }
-    }
-
-    #endregion
 }
-
-[JsonSourceGenerationOptions(
-    WriteIndented = true,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase
-)]
-[JsonSerializable(typeof(AnalysisCommands.BugTablesSearchResult))]
-[JsonSerializable(typeof(AnalysisCommands.TechniquesSearchResult))]
-[JsonSerializable(typeof(AnalysisCommands.AnalysisOutput))]
-public partial class AnalysisJsonContext : JsonSerializerContext { }

@@ -121,7 +121,7 @@ public class ConsoleRenderingService(PdfDescriptionService pdfDescriptionService
     /// <summary>
     /// Display a single text line with its properties
     /// </summary>
-    public void DisplayTextLine(int pageNum, int lineNum, MatchObject line)
+    public static void DisplayTextLine(int pageNum, int lineNum, MatchObject line)
     {
         AnsiConsole.Write(new Rule($"Page {pageNum + 1}, Line {lineNum + 1}").RuleStyle("blue"));
 
@@ -155,7 +155,7 @@ public class ConsoleRenderingService(PdfDescriptionService pdfDescriptionService
     /// <summary>
     /// Display a page of text lines
     /// </summary>
-    public void DisplayPage(PdfData pdfData, int pageNum)
+    public static void DisplayPage(PdfData pdfData, int pageNum)
     {
         // Validate page number
         if (pageNum < 0 || pageNum >= pdfData.TextLines.Length)
@@ -186,7 +186,7 @@ public class ConsoleRenderingService(PdfDescriptionService pdfDescriptionService
     /// <summary>
     /// Display search results consistently
     /// </summary>
-    public void DisplaySearchResults(
+    public static void DisplaySearchResults(
         List<(int PageNum, int LineNum, MatchObject Line)> results,
         string pattern,
         string pdfName = null,

@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using DataCollection.Models;
+using DataCollection.Models.Export;
 using DataCollection.Options;
 using DataCollection.Services;
 using DataCollection.Utils;
@@ -22,10 +22,8 @@ public class PdfReplCommand(
     IOptions<PathsOptions> pathsOptions,
     PdfDescriptionService pdfDescriptionService,
     ConsoleRenderingService renderingService,
-    PdfSearchService searchService,
-    DataLoadingService dataLoadingService,
-    JsonExportService jsonExportService
-) : BaseReplCommand(logger, jsonExportService)
+    DataLoadingService dataLoadingService
+) : BaseReplCommand(logger)
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
 
@@ -144,6 +142,11 @@ public class PdfReplCommand(
                         HandleShowAllCommand(parts);
                         break;
                     case "export":
+                        if (parts.Length == 1)
+                        {
+                            AnsiConsole.MarkupLine("[red]No export path provided[/]");
+                            break;
+                        }
                         HandleExportCommand(parts);
                         break;
                     default:
@@ -237,6 +240,11 @@ public class PdfReplCommand(
                         HandleShowAllCommand(parts);
                         break;
                     case "export":
+                        if (parts.Length == 1)
+                        {
+                            AnsiConsole.MarkupLine("[red]No export path provided[/]");
+                            break;
+                        }
                         HandleExportCommand(parts);
                         break;
                     default:
@@ -256,7 +264,7 @@ public class PdfReplCommand(
     /// <summary>
     /// Count occurrences of a keyword in a PDF
     /// </summary>
-    private Dictionary<string, int> CountKeywords(PdfData pdfData, params string[] keywords)
+    private static Dictionary<string, int> CountKeywords(PdfData pdfData, params string[] keywords)
     {
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
@@ -926,13 +934,7 @@ public class PdfReplCommand(
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (
-                    jsonExportService.ExportToJsonSourceGen(
-                        exportData,
-                        exportPath,
-                        ReplJsonContext.Default.PdfSearchResult
-                    )
-                )
+                if (WriteToFile(exportData, exportPath, ReplJsonContext.Default.PdfSearchResult))
                 {
                     logger.LogInformation(
                         "Exported {Count} results to {Path}",
@@ -1069,11 +1071,7 @@ public class PdfReplCommand(
             if (!string.IsNullOrEmpty(exportPath))
             {
                 if (
-                    jsonExportService.ExportToJsonSourceGen(
-                        exportData,
-                        exportPath,
-                        ReplJsonContext.Default.PdfEvaluationResult
-                    )
+                    WriteToFile(exportData, exportPath, ReplJsonContext.Default.PdfEvaluationResult)
                 )
                 {
                     logger.LogInformation(
@@ -1104,7 +1102,7 @@ public class PdfReplCommand(
     /// <summary>
     /// Extracts keywords from an expression
     /// </summary>
-    private HashSet<string> ExtractKeywordsFromExpression(string expression)
+    private static HashSet<string> ExtractKeywordsFromExpression(string expression)
     {
         // Simple extraction logic - this could be enhanced
         var keywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1138,12 +1136,6 @@ public class PdfReplCommand(
     /// </summary>
     protected override bool HandleExportCommand(string[] parts, object? data = null)
     {
-        if (jsonExportService == null)
-        {
-            AnsiConsole.MarkupLine("[red]JSON export service is not available[/]");
-            return false;
-        }
-
         string filePath = null;
         if (parts.Length > 1)
         {
@@ -1174,7 +1166,7 @@ public class PdfReplCommand(
             // Use appropriate serializer based on the type
             if (exportData is PdfSearchResult searchResult)
             {
-                success = jsonExportService.ExportToJsonSourceGen(
+                success = WriteToFile(
                     searchResult,
                     filePath,
                     ReplJsonContext.Default.PdfSearchResult
@@ -1182,7 +1174,7 @@ public class PdfReplCommand(
             }
             else if (exportData is PdfEvaluationResult evalResult)
             {
-                success = jsonExportService.ExportToJsonSourceGen(
+                success = WriteToFile(
                     evalResult,
                     filePath,
                     ReplJsonContext.Default.PdfEvaluationResult
@@ -1190,14 +1182,16 @@ public class PdfReplCommand(
             }
             else
             {
-                // Fall back to base implementation for unknown types
-                return base.HandleExportCommand(parts, data);
+                AnsiConsole.MarkupLine(
+                    $"[red]Invalid data type for export:[/] {exportData.GetType()}"
+                );
+                return false;
             }
 
             if (success)
             {
                 AnsiConsole.MarkupLine(
-                    $"[green]Data exported to:[/] {ConsoleRenderingService.SafeMarkup(jsonExportService.GetLastExportedFilePath())}"
+                    $"[green]Data exported to:[/] {ConsoleRenderingService.SafeMarkup(LastExportedFilePath)}"
                 );
                 return true;
             }

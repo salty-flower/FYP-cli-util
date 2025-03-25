@@ -14,11 +14,11 @@ public class StructTreeMissing(string message) : Exception(message) { }
 
 public class PDFStructTree : Findable
 {
-    public PDFStructElement[] Children { get; set; }
+    public required PDFStructElement[] Children { get; set; }
 }
 
 public class PDFStructElement : Findable
 {
-    public string Type { get; set; }
-    public PDFStructElement[] Children { get; set; }
+    public required string Type { get; set; }
+    public required PDFStructElement[] Children { get; set; }
 }

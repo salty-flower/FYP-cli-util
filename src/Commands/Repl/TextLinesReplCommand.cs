@@ -4,12 +4,12 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using DataCollection.Models;
+using DataCollection.Models.Export;
 using DataCollection.Options;
 using DataCollection.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Spectre.Console;
-using System.Text.Json;
 
 namespace DataCollection.Commands.Repl;
 
@@ -22,9 +22,8 @@ public class TextLinesReplCommand(
     PdfDescriptionService pdfDescriptionService,
     ConsoleRenderingService renderingService,
     PdfSearchService searchService,
-    DataLoadingService dataLoadingService,
-    JsonExportService jsonExportService
-) : BaseReplCommand(logger, jsonExportService)
+    DataLoadingService dataLoadingService
+) : BaseReplCommand(logger)
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
 
@@ -291,12 +290,12 @@ public class TextLinesReplCommand(
                 return;
             }
 
-            renderingService.DisplayTextLine(pageNum, lineNum, lines[lineNum]);
+            ConsoleRenderingService.DisplayTextLine(pageNum, lineNum, lines[lineNum]);
         }
         else
         {
             // Display all lines on the page
-            renderingService.DisplayPage(pdfData, pageNum);
+            ConsoleRenderingService.DisplayPage(pdfData, pageNum);
         }
     }
 
@@ -313,7 +312,7 @@ public class TextLinesReplCommand(
 
         try
         {
-            string pattern = searchService.ParseSearchPattern(parts);
+            string pattern = PdfSearchService.ParseSearchPattern(parts);
             int? pageNumber = null;
 
             if (parts.Length > 2 && int.TryParse(parts[2], out int page))
@@ -328,7 +327,7 @@ public class TextLinesReplCommand(
                 ? $"Page {pageNumber.Value + 1} in {pdfDescriptionService.GetItemDescription(pdfData)}"
                 : pdfDescriptionService.GetItemDescription(pdfData);
 
-            renderingService.DisplaySearchResults(
+            ConsoleRenderingService.DisplaySearchResults(
                 results,
                 pattern,
                 ConsoleRenderingService.SafeMarkup(title),
@@ -378,7 +377,7 @@ public class TextLinesReplCommand(
 
         try
         {
-            string pattern = searchService.ParseSearchPattern(parts);
+            string pattern = PdfSearchService.ParseSearchPattern(parts);
             AnsiConsole.MarkupLine(
                 $"Searching for '{ConsoleRenderingService.SafeMarkup(pattern)}' across all PDFs..."
             );
@@ -412,7 +411,7 @@ public class TextLinesReplCommand(
                     );
                     AnsiConsole.MarkupLine($"[green]Results in:[/] {safeTitle}");
 
-                    renderingService.DisplaySearchResults(
+                    ConsoleRenderingService.DisplaySearchResults(
                         results,
                         pattern,
                         safeTitle,
@@ -582,11 +581,6 @@ public class TextLinesReplCommand(
     /// </summary>
     protected bool HandleExportCommand(string[] parts)
     {
-        if (parts.Length < 2)
-        {
-            return base.HandleExportCommand(parts);
-        }
-
         string filename = parts[1];
 
         if (LastSearchResults == null)
@@ -600,12 +594,19 @@ public class TextLinesReplCommand(
             // Determine the type of the last search results and use appropriate source generation
             if (LastSearchResults is TextLinesSearchResult searchResult)
             {
-                return jsonExportService.ExportToJsonSourceGen(searchResult, filename, ReplJsonContext.Default.TextLinesSearchResult);
+                return WriteToFile(
+                    searchResult,
+                    filename,
+                    ReplJsonContext.Default.TextLinesSearchResult
+                );
             }
             else
             {
-                // Fallback to reflection-based serialization for other types
-                return base.HandleExportCommand(parts);
+                AnsiConsole.MarkupLine(
+                    "[red]Unknown data type for export:[/] {Type}",
+                    LastSearchResults?.GetType().Name ?? "null"
+                );
+                return false;
             }
         }
         catch (Exception ex)
@@ -668,16 +669,17 @@ public class TextLinesReplCommand(
 
                     var searchResults = searchService.SearchInPdf(pdf, regex);
 
-                    if (searchResults == null || searchResults.Count == 0 || searchResults.All(r => r.Line == null))
+                    if (
+                        searchResults == null
+                        || searchResults.Count == 0
+                        || searchResults.All(r => r.Line == null)
+                    )
                         continue;
 
                     // Add to all results - ensure we handle potential null values
                     var textLinesResults = searchResults
                         .Where(r => r.Line != null)
-                        .Select(r => new TextLinesResult
-                        {
-                            Text = r.Line?.Text ?? "<null text>"
-                        })
+                        .Select(r => new TextLinesResult { Text = r.Line?.Text ?? "<null text>" })
                         .ToList();
 
                     if (textLinesResults.Any())
@@ -688,7 +690,7 @@ public class TextLinesReplCommand(
                                 Pdf = pdfDescriptionService.GetItemDescription(pdf),
                                 FileName = pdf.FileName,
                                 ResultCount = textLinesResults.Count,
-                                Results = textLinesResults
+                                Results = textLinesResults,
                             }
                         );
 
@@ -719,7 +721,7 @@ public class TextLinesReplCommand(
                 TotalMatches = total,
                 PdfsWithMatches = pdfsWithMatches,
                 Timestamp = DateTime.Now,
-                Results = pdfResults
+                Results = pdfResults,
             };
 
             // Store for later export if needed
@@ -728,7 +730,7 @@ public class TextLinesReplCommand(
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (jsonExportService.ExportToJsonSourceGen(results, exportPath, ReplJsonContext.Default.TextLinesSearchResult))
+                if (WriteToFile(results, exportPath, ReplJsonContext.Default.TextLinesSearchResult))
                 {
                     logger.LogInformation("Exported {Count} results to {Path}", total, exportPath);
                 }

@@ -4,7 +4,7 @@ namespace DataCollection.PdfPlumber.Utils;
 
 public class TextMap
 {
-    public string[] Text { get; set; }
+    public required string[] Text { get; set; }
 
     public object extract()
     {
@@ -14,7 +14,7 @@ public class TextMap
 
 public class WordMap
 {
-    public string[] Words { get; set; }
+    public required string[] Words { get; set; }
 
     public object extract()
     {

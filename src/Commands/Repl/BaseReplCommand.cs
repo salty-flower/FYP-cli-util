@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using DataCollection.Services;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
@@ -9,7 +12,7 @@ namespace DataCollection.Commands.Repl;
 /// <summary>
 /// Base class for REPL commands
 /// </summary>
-public abstract class BaseReplCommand(ILogger logger, JsonExportService jsonExportService)
+public abstract class BaseReplCommand(ILogger logger)
 {
     /// <summary>
     /// Controls whether to show all results or limit them
@@ -20,6 +23,11 @@ public abstract class BaseReplCommand(ILogger logger, JsonExportService jsonExpo
     /// Last search results for exporting
     /// </summary>
     protected object? LastSearchResults { get; set; }
+
+    /// <summary>
+    /// Gets the path of the last exported file
+    /// </summary>
+    protected string? LastExportedFilePath { get; private set; }
 
     /// <summary>
     /// Display a help table for the REPL
@@ -75,66 +83,43 @@ public abstract class BaseReplCommand(ILogger logger, JsonExportService jsonExpo
 
     /// <summary>
     /// Export the last search results to JSON
-    /// This base implementation uses reflection-based serialization.
-    /// Derived classes should override this method to use source generation when possible.
+    /// Derived classes should override this method.
     /// </summary>
-    protected virtual bool HandleExportCommand(string[] parts, object? data = null)
+    protected virtual bool HandleExportCommand(string[] parts, object? data = null) =>
+        throw new NotImplementedException();
+
+    /// <summary>
+    /// Writes serialized JSON data to a file using source generation
+    /// </summary>
+    /// <typeparam name="T">The type of data being written</typeparam>
+    /// <param name="data">The data to write to the file</param>
+    /// <param name="filePath">The file path to write to</param>
+    /// <param name="typeInfo">Type information for serialization</param>
+    /// <returns>True if the operation succeeded, false otherwise</returns>
+    protected bool WriteToFile<T>(T data, string filePath, JsonTypeInfo<T> typeInfo)
     {
-        if (jsonExportService == null)
-        {
-            AnsiConsole.MarkupLine("[red]JSON export service is not available[/]");
-            return false;
-        }
-
-        string filePath = null;
-        if (parts.Length > 1)
-        {
-            filePath = parts[1];
-        }
-
-        object? exportData = data ?? LastSearchResults;
-        if (exportData == null)
-        {
-            AnsiConsole.MarkupLine("[red]No data available to export[/]");
-            return false;
-        }
-
         try
         {
-            // Create default file path if none was provided
-            if (string.IsNullOrEmpty(filePath))
+            // Store the filepath for later reference
+            LastExportedFilePath = filePath;
+
+            // Create the directory if it doesn't exist
+            var directory = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
             {
-                string timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-                filePath = System.IO.Path.Combine(
-                    System.IO.Directory.GetCurrentDirectory(),
-                    $"export-{timestamp}.json"
-                );
+                Directory.CreateDirectory(directory);
             }
 
-            logger.LogInformation("Using reflection-based serialization as fallback. Consider implementing source generation for this data type.");
+            // Serialize and write the data
+            string json = JsonSerializer.Serialize(data, typeInfo);
+            File.WriteAllText(filePath, json);
 
-#pragma warning disable CS0618 // Type or member is obsolete
-            bool success = jsonExportService.ExportToJson(exportData, filePath);
-#pragma warning restore CS0618
-
-            if (success)
-            {
-                AnsiConsole.MarkupLine(
-                    $"[green]Data exported to:[/] {ConsoleRenderingService.SafeMarkup(jsonExportService.GetLastExportedFilePath())}"
-                );
-                return true;
-            }
-            else
-            {
-                AnsiConsole.MarkupLine("[red]Failed to export data[/]");
-                return false;
-            }
+            logger.LogInformation("Data exported to {FilePath} using source generation", filePath);
+            return true;
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine(
-                $"[red]Error exporting data:[/] {ConsoleRenderingService.SafeMarkup(ex.Message)}"
-            );
+            logger.LogError(ex, "Error exporting data to JSON: {Message}", ex.Message);
             return false;
         }
     }

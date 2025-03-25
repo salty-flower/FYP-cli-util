@@ -4,13 +4,13 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using DataCollection.Models;
+using DataCollection.Models.Export;
 using DataCollection.Options;
 using DataCollection.Services;
 using DataCollection.Utils;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Spectre.Console;
-using System.Text.Json;
 
 namespace DataCollection.Commands.Repl;
 
@@ -21,9 +21,8 @@ public class MetadataReplCommand(
     ILogger<MetadataReplCommand> logger,
     IOptions<PathsOptions> pathsOptions,
     PdfDescriptionService pdfDescriptionService,
-    DataLoadingService dataLoadingService,
-    JsonExportService jsonExportService
-) : BaseReplCommand(logger, jsonExportService)
+    DataLoadingService dataLoadingService
+) : BaseReplCommand(logger)
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
 
@@ -160,6 +159,11 @@ public class MetadataReplCommand(
                         HandleShowAllCommand(parts);
                         break;
                     case "export":
+                        if (parts.Length == 1)
+                        {
+                            AnsiConsole.MarkupLine("[red]No export path provided[/]");
+                            break;
+                        }
                         HandleExportCommand(parts);
                         break;
                     default:
@@ -276,7 +280,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Display information about a single paper
     /// </summary>
-    private void DisplayPaperInfo(Paper paper)
+    private static void DisplayPaperInfo(Paper paper)
     {
         AnsiConsole.Write(new Rule("Paper Information").RuleStyle("blue"));
 
@@ -299,7 +303,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Display a paper's abstract
     /// </summary>
-    private void DisplayPaperAbstract(Paper paper)
+    private static void DisplayPaperAbstract(Paper paper)
     {
         AnsiConsole.Write(new Rule("Paper Abstract").RuleStyle("blue"));
 
@@ -316,7 +320,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Display a paper's title
     /// </summary>
-    private void DisplayPaperTitle(Paper paper)
+    private static void DisplayPaperTitle(Paper paper)
     {
         AnsiConsole.Write(new Rule("Paper Title").RuleStyle("blue"));
         AnsiConsole.MarkupLine(ConsoleRenderingService.SafeMarkup(paper.Title));
@@ -325,7 +329,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Display a paper's authors
     /// </summary>
-    private void DisplayPaperAuthors(Paper paper)
+    private static void DisplayPaperAuthors(Paper paper)
     {
         AnsiConsole.Write(new Rule("Paper Authors").RuleStyle("blue"));
 
@@ -344,7 +348,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Display a list of all papers
     /// </summary>
-    private void DisplayPapersList(List<Paper> papers)
+    private static void DisplayPapersList(List<Paper> papers)
     {
         var table = new Table();
         table.AddColumn("#");
@@ -367,7 +371,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Display summary information about all papers
     /// </summary>
-    private void DisplayCollectionInfo(List<Paper> papers)
+    private static void DisplayCollectionInfo(List<Paper> papers)
     {
         AnsiConsole.Write(new Rule("Paper Collection Summary").RuleStyle("blue"));
 
@@ -389,7 +393,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Count occurrences of keywords in a paper's metadata
     /// </summary>
-    private Dictionary<string, int> CountKeywords(Paper paper, params string[] keywords)
+    private static Dictionary<string, int> CountKeywords(Paper paper, params string[] keywords)
     {
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
@@ -523,11 +527,6 @@ public class MetadataReplCommand(
     /// </summary>
     protected bool HandleExportCommand(string[] parts)
     {
-        if (parts.Length < 2)
-        {
-            return base.HandleExportCommand(parts);
-        }
-
         string filename = parts[1];
 
         if (LastSearchResults == null)
@@ -541,16 +540,26 @@ public class MetadataReplCommand(
             // Determine the type of the last search results and use appropriate source generation
             if (LastSearchResults is MetadataSearchResult searchResult)
             {
-                return jsonExportService.ExportToJsonSourceGen(searchResult, filename, ReplJsonContext.Default.MetadataSearchResult);
+                return WriteToFile(
+                    searchResult,
+                    filename,
+                    ReplJsonContext.Default.MetadataSearchResult
+                );
             }
             else if (LastSearchResults is MetadataEvaluationResult evaluationResult)
             {
-                return jsonExportService.ExportToJsonSourceGen(evaluationResult, filename, ReplJsonContext.Default.MetadataEvaluationResult);
+                return WriteToFile(
+                    evaluationResult,
+                    filename,
+                    ReplJsonContext.Default.MetadataEvaluationResult
+                );
             }
             else
             {
-                // Fallback to reflection-based serialization for other types
-                return base.HandleExportCommand(parts);
+                AnsiConsole.MarkupLine(
+                    $"[red]Unknown data type for export:[/] {LastSearchResults.GetType()}"
+                );
+                return false;
             }
         }
         catch (Exception ex)
@@ -648,7 +657,7 @@ public class MetadataReplCommand(
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (jsonExportService.ExportToJsonSourceGen(results, exportPath, ReplJsonContext.Default.MetadataSearchResult))
+                if (WriteToFile(results, exportPath, ReplJsonContext.Default.MetadataSearchResult))
                 {
                     logger.LogInformation(
                         "Exported {Count} results to {Path}",
@@ -682,7 +691,10 @@ public class MetadataReplCommand(
 
                     if (searchResults.Count > 5)
                     {
-                        logger.LogInformation("... and {Count} more matches", searchResults.Count - 5);
+                        logger.LogInformation(
+                            "... and {Count} more matches",
+                            searchResults.Count - 5
+                        );
                     }
                 }
                 else
@@ -787,7 +799,13 @@ public class MetadataReplCommand(
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (jsonExportService.ExportToJsonSourceGen(exportData, exportPath, ReplJsonContext.Default.MetadataEvaluationResult))
+                if (
+                    WriteToFile(
+                        exportData,
+                        exportPath,
+                        ReplJsonContext.Default.MetadataEvaluationResult
+                    )
+                )
                 {
                     logger.LogInformation(
                         "Exported {Count} matching papers to {Path}",
@@ -1187,7 +1205,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Extracts keywords from an expression
     /// </summary>
-    private HashSet<string> ExtractKeywordsFromExpression(string expression)
+    private static HashSet<string> ExtractKeywordsFromExpression(string expression)
     {
         // Simple extraction logic - this could be enhanced
         var keywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

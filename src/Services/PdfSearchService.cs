@@ -18,7 +18,7 @@ public class PdfSearchService
     /// <summary>
     /// Parse search pattern from command parts, handling quoted strings
     /// </summary>
-    public string ParseSearchPattern(string[] parts)
+    public static string ParseSearchPattern(string[] parts)
     {
         if (parts.Length < 2)
             return string.Empty;
@@ -49,7 +49,7 @@ public class PdfSearchService
     /// <summary>
     /// Search for a pattern in a specific page of a PDF
     /// </summary>
-    public void SearchInPage(
+    public static void SearchInPage(
         PdfData pdfData,
         Regex regex,
         int pageNum,
