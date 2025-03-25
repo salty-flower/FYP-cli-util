@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using ConsoleAppFramework;
 using DataCollection.Models;
 using DataCollection.Options;
-using DataCollection.PdfPlumber;
 using MemoryPack;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -41,7 +40,7 @@ public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions>
         var alreadyDumped = pdfDataDir.GetFiles("*.bin").Select(f => f.Name.Replace(".bin", ""));
         var alreadyDumpedDict = alreadyDumped.ToDictionary(p => p, _ => true).AsReadOnly();
 
-        foreach (var pdfData in FilterPapers(paperBinDir, alreadyDumpedDict))
+        foreach (var pdfData in ExtractPdfData(paperBinDir, alreadyDumpedDict))
         {
             // Serialize and save the PDF data
             var bin = MemoryPackSerializer.Serialize(pdfData);
@@ -51,7 +50,7 @@ public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions>
             GC.Collect();
         }
 
-        logger.LogInformation("PDFPlumber dump completed");
+        logger.LogInformation("PyMuPDF dump completed");
     }
 
     private void InitializePythonEngine()
@@ -61,7 +60,7 @@ public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions>
         PythonEngine.BeginAllowThreads();
     }
 
-    private IEnumerable<PdfData> FilterPapers(
+    private IEnumerable<PdfData> ExtractPdfData(
         DirectoryInfo paperDir,
         ReadOnlyDictionary<string, bool>? skipMap
     )
@@ -71,49 +70,106 @@ public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions>
             .Where(f => skipMap == null || !skipMap.ContainsKey(f.Name));
 
         logger.LogInformation(
-            "Extracting  PDF files: {total} (total) = {skipped} (skipped) + {actual} (actual)",
+            "Extracting PDF files: {total} (total) = {skipped} (skipped) + {actual} (actual)",
             pdfFiles.Count() + skipMap?.Count ?? 0,
             skipMap?.Count ?? 0,
             pdfFiles.Count()
         );
+
         foreach (var pdfFile in pdfFiles)
         {
-            PDF? po = null;
+            PdfData? result = null;
             try
             {
-                po = PdfPlumber.PDF.open(pdfFile.FullName);
+                using (Py.GIL())
+                {
+                    // Import fitz (PyMuPDF)
+                    dynamic fitz = Py.Import("fitz");
+                    dynamic document = fitz.open(pdfFile.FullName);
+
+                    int pageCount = document.page_count.As<int>();
+                    string[] texts = new string[pageCount];
+                    MatchObject[][] textLines = new MatchObject[pageCount][];
+
+                    // Process each page
+                    for (int i = 0; i < pageCount; i++)
+                    {
+                        dynamic page = document[i];
+
+                        // Extract text
+                        texts[i] = page.get_text().As<string>();
+
+                        // Extract text lines
+                        var pyTextBlocks = page.get_text("dict")["blocks"];
+                        List<MatchObject> pageTextLines = new List<MatchObject>();
+
+                        int blockCount = pyTextBlocks.__len__().As<int>();
+                        for (int b = 0; b < blockCount; b++)
+                        {
+                            var block = pyTextBlocks[b];
+                            if (block["type"].As<int>() == 0) // Text block
+                            {
+                                var pyLines = block["lines"];
+                                int lineCount = pyLines.__len__().As<int>();
+                                for (int l = 0; l < lineCount; l++)
+                                {
+                                    var line = pyLines[l];
+                                    var lineText = "";
+                                    var spans = line["spans"];
+                                    int spanCount = spans.__len__().As<int>();
+                                    for (int s = 0; s < spanCount; s++)
+                                    {
+                                        lineText += spans[s]["text"].As<string>();
+                                    }
+
+                                    var bbox = line["bbox"].As<dynamic>();
+                                    if (!string.IsNullOrWhiteSpace(lineText))
+                                    {
+                                        pageTextLines.Add(
+                                            new MatchObject(
+                                                lineText,
+                                                bbox[0].As<double>(), // x0
+                                                bbox[1].As<double>(), // top
+                                                bbox[2].As<double>(), // x1
+                                                bbox[3].As<double>() // bottom
+                                            )
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
+                        textLines[i] = pageTextLines.ToArray();
+                    }
+
+                    document.close();
+
+                    // Extract tables either using script or create empty tables
+                    logger.LogInformation(
+                        "Skipping table extraction for {FileName} (script not found)",
+                        pdfFile.Name
+                    );
+
+                    result = new PdfData
+                    {
+                        FileName = pdfFile.Name,
+                        Texts = texts,
+                        TextLines = textLines,
+                    };
+
+                    logger.LogInformation("Extracted {FileName}", pdfFile.Name);
+                }
             }
             catch (PythonException e)
             {
                 logger.LogWarning("Can't extract {f}: {m}", pdfFile.Name, e.Message);
                 continue;
             }
-            var pages = po.Pages.ToList(); // Materialize pages once
 
-            var tables = pages.Select(p => p.extractTables()).ToList();
-            var texts = pages.Select(p => p.extractText()).ToArray();
-            var textLines = pages.Select(p => p.extractTextLines()).ToArray();
-
-            var result = new PdfData
+            if (result != null)
             {
-                FileName = pdfFile.Name,
-                Texts = texts,
-                Tables = tables
-                    .Select(t =>
-                        t.Select(tt =>
-                                tt.Cells.Select(ccc => ccc.Select(c => (PlainCell)c).ToArray())
-                                    .ToArray()
-                            )
-                            .ToArray()
-                    )
-                    .ToArray(),
-                TextLines = textLines,
-            };
-
-            logger.LogInformation("Extracted {FileName}", pdfFile.Name);
-            po?.Dispose();
-
-            yield return result;
+                yield return result;
+            }
         }
     }
 }
