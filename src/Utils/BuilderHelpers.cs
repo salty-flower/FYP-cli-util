@@ -18,20 +18,24 @@ public static class BuilderHelpers
     [RequiresUnreferencedCode("")]
     public static OptionsBuilder<TOptions> AddOptionsFromOwnSectionAndValidateOnStart<
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TOptions
-    >(this IServiceCollection services, IConfiguration configuration)
-        where TOptions : class =>
-        services
-            .AddOptionsWithValidateOnStart<TOptions>()
-            .Bind(
-                new string[]
-                {
-                    typeof(TOptions).Name,
-                    typeof(TOptions).Name.RemoveSuffix("Options"),
-                }
-                    .Select(configuration.GetSection)
-                    .Where(IsNonEmpty)
-                    .First()
+    >(this IServiceCollection services, IConfiguration configuration, bool allowDefault = false)
+        where TOptions : class
+    {
+        var maybeConfig = new string[]
+        {
+            typeof(TOptions).Name,
+            typeof(TOptions).Name.RemoveSuffix("Options"),
+        }
+            .Select(configuration.GetSection)
+            .Where(IsNonEmpty)
+            .FirstOrDefault();
+        return maybeConfig != null
+                ? services.AddOptionsWithValidateOnStart<TOptions>().Bind(maybeConfig)
+            : allowDefault ? services.AddOptionsWithValidateOnStart<TOptions>()
+            : throw new InvalidOperationException(
+                $"No configuration section found for {typeof(TOptions).Name}. Check if it is defined, or allow default."
             );
+    }
 
     [RequiresDynamicCode("")]
     [RequiresUnreferencedCode("")]

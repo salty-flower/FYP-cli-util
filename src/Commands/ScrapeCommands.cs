@@ -17,6 +17,7 @@ namespace DataCollection.Commands;
 /// Commands for scraping and downloading papers
 /// </summary>
 [RegisterCommands("scrape")]
+[ConsoleAppFilter<PathsOptions.Filter>]
 public class ScrapeCommands(
     AcmScraper scraper,
     ILogger<ScrapeCommands> logger,
@@ -36,8 +37,6 @@ public class ScrapeCommands(
     )
     {
         var paperMetadataDir = new DirectoryInfo(_pathsOptions.PaperMetadataDir);
-        if (!paperMetadataDir.Exists)
-            paperMetadataDir.Create();
 
         logger.LogInformation("Starting paper metadata scraping...");
         var count = 0;
@@ -62,9 +61,6 @@ public class ScrapeCommands(
     {
         var paperMetadataDir = new DirectoryInfo(_pathsOptions.PaperMetadataDir);
         var paperBinDir = new DirectoryInfo(_pathsOptions.PaperBinDir);
-
-        if (!paperBinDir.Exists)
-            paperBinDir.Create();
 
         logger.LogInformation("Loading papers from metadata...");
         var papers = await LoadPapersFromMetadataAsync(paperMetadataDir, cancellationToken);

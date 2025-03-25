@@ -1,6 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
 using ConsoleAppFramework;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -58,5 +60,18 @@ public class PathsOptions
         Directory.CreateDirectory(PaperMetadataDir);
         Directory.CreateDirectory(PdfDataDir);
         Directory.CreateDirectory(PaperBinDir);
+    }
+
+    internal class Filter(ConsoleAppFilter next, IOptionsSnapshot<PathsOptions> pathsOptions)
+        : ConsoleAppFilter(next)
+    {
+        public override async Task InvokeAsync(
+            ConsoleAppContext context,
+            CancellationToken cancellationToken
+        )
+        {
+            pathsOptions.Value.EnsureDirectoriesExist();
+            await Next.InvokeAsync(context, cancellationToken);
+        }
     }
 }

@@ -1,6 +1,7 @@
 ﻿using System.Threading;
 using ConsoleAppFramework;
 using DataCollection.Commands.Repl;
+using DataCollection.Options;
 
 namespace DataCollection.Commands;
 
@@ -8,6 +9,7 @@ namespace DataCollection.Commands;
 /// Interactive REPL commands for analyzing papers
 /// </summary>
 [RegisterCommands("repl")]
+[ConsoleAppFilter<PathsOptions.Filter>]
 public class ReplCommands(
     TextLinesReplCommand textLinesReplCommand,
     PdfReplCommand pdfReplCommand,

@@ -20,6 +20,7 @@ namespace DataCollection.Commands;
 /// Commands for dumping papers
 /// </summary>
 [RegisterCommands("dump")]
+[ConsoleAppFilter<PathsOptions.Filter>]
 public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions> pathsOptions)
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
@@ -32,9 +33,6 @@ public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions>
     {
         var pdfDataDir = new DirectoryInfo(_pathsOptions.PdfDataDir);
         var paperBinDir = new DirectoryInfo(_pathsOptions.PaperBinDir);
-
-        if (!pdfDataDir.Exists)
-            pdfDataDir.Create();
 
         // Configure Python environment
         InitializePythonEngine();

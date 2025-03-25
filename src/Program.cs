@@ -1,5 +1,6 @@
 ﻿using System;
 using ConsoleAppFramework;
+using DataCollection.Commands;
 using DataCollection.Commands.Repl;
 using DataCollection.Options;
 using DataCollection.Services;
@@ -28,13 +29,18 @@ builder.ConfigureLogging(
     }
 );
 
+builder.UseFilter<RootOptions.Filter>();
+
 var app = builder.ConfigureServices(
     (config, services) =>
     {
         services.AddOptionsFromRootAndValidateOnStart<RootOptions>(config);
         services.AddOptionsFromOwnSectionAndValidateOnStart<ScraperOptions>(config);
         services.AddOptionsFromOwnSectionAndValidateOnStart<PathsOptions>(config);
-        services.AddOptionsFromOwnSectionAndValidateOnStart<ParallelismOptions>(config);
+        services.AddOptionsFromOwnSectionAndValidateOnStart<ParallelismOptions>(
+            config,
+            allowDefault: true
+        );
 
         services.AddHttpClient(
             "acm-scraper",
@@ -57,8 +63,6 @@ var app = builder.ConfigureServices(
             }
         );
 
-        services.PostConfigure<PathsOptions>(options => options.EnsureDirectoriesExist());
-
         services.UseMinimalHttpLogger();
         services.AddSingleton<AcmScraper>();
         services.AddSingleton<PdfDescriptionService>();
@@ -66,9 +70,11 @@ var app = builder.ConfigureServices(
         services.AddSingleton<PdfSearchService>();
         services.AddSingleton<DataLoadingService>();
         services.AddSingleton<JsonExportService>();
+        services.AddSingleton<ReplCommands>();
         services.AddSingleton<TextLinesReplCommand>();
         services.AddSingleton<PdfReplCommand>();
         services.AddSingleton<MetadataReplCommand>();
+        services.AddSingleton<AnalysisCommands>();
     }
 );
 
