@@ -2,14 +2,20 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using ConsoleAppFramework;
 using DataCollection.Commands.Repl;
+using DataCollection.Models;
 using DataCollection.Models.Export;
 using DataCollection.Options;
+using DataCollection.Services;
+using DataCollection.Utils;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DataCollection.Commands;
 
@@ -21,7 +27,10 @@ namespace DataCollection.Commands;
 public class AnalysisCommands(
     ILogger<AnalysisCommands> logger,
     TextLinesReplCommand textLinesRepl,
-    MetadataReplCommand metadataRepl
+    MetadataReplCommand metadataRepl,
+    DataLoadingService dataLoadingService,
+    PdfDescriptionService pdfDescriptionService,
+    IOptions<PathsOptions> pathsOptions
 )
 {
     /// <summary>
@@ -224,5 +233,141 @@ public class AnalysisCommands(
             logger.LogError(ex, "Error processing results");
             return 1;
         }
+    }
+
+    /// <summary>
+    /// Analyze bug terminology across all papers
+    /// </summary>
+    /// <param name="bugPattern">Regex pattern to detect bug sentences</param>
+    /// <param name="outputFile">Output file for the terminology analysis</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Number of sentences containing "bug" found across all papers</returns>
+    public async Task<int> AnalyzeBugTerminology(
+        string bugPattern = @"\b(?:bug|bugs)\b",
+        string outputFile = "bug-terminology-analysis.json",
+        CancellationToken cancellationToken = default
+    )
+    {
+        logger.LogInformation("Starting bug terminology analysis...");
+
+        var paths = pathsOptions.Value;
+
+        // Step 1: Load all the PDF data
+        logger.LogInformation("Loading PDF data from directory...");
+        var pdfDataList = dataLoadingService.LoadPdfDataFromDirectory(
+            paths.PdfDataDir,
+            paths.PaperMetadataDir
+        );
+
+        if (pdfDataList.Count == 0)
+        {
+            logger.LogWarning(
+                "No PDF data could be loaded. Please run the analyze pdfs command first."
+            );
+            return 0;
+        }
+
+        logger.LogInformation("Loaded {Count} papers for analysis", pdfDataList.Count);
+
+        // Step 2: Create the results structure
+        var results = new BugTerminologyAnalysis
+        {
+            Summary = new BugTerminologySummary
+            {
+                TotalPapers = pdfDataList.Count,
+                SearchPattern = bugPattern,
+                Timestamp = DateTime.Now.ToString("o"),
+            },
+            PaperAnalyses = new List<PaperBugTerminologyAnalysis>(),
+            GlobalWordFrequency = new Dictionary<string, int>(),
+        };
+
+        var regex = new Regex(bugPattern, RegexOptions.IgnoreCase);
+        int totalBugSentences = 0;
+
+        // Step 3: Process each paper
+        foreach (var pdfData in pdfDataList)
+        {
+            string paperTitle = Path.GetFileNameWithoutExtension(pdfData.FileName);
+            string paperDoi = string.Empty;
+
+            // Try to get paper metadata from filename
+            if (paperTitle.StartsWith("10.") && paperTitle.Contains('-'))
+            {
+                paperDoi = paperTitle.Replace('-', '/');
+                paperTitle = PdfDescriptionService.FormatPdfFileName(pdfData.FileName);
+            }
+
+            logger.LogInformation("Processing paper: {PaperTitle}", paperTitle);
+
+            // Create paper analysis object
+            var paperAnalysis = new PaperBugTerminologyAnalysis
+            {
+                Title = paperTitle,
+                FileName = pdfData.FileName,
+                DOI = paperDoi,
+                BugSentences = new List<BugSentence>(),
+                WordFrequency = new Dictionary<string, int>(),
+            };
+
+            // Use the PdfTextUtils to extract bug sentences
+            int paperBugSentences = PdfTextUtils.ExtractBugSentences(pdfData, regex, paperAnalysis);
+            totalBugSentences += paperBugSentences;
+
+            // Add paper-level word frequency to global word frequency
+            foreach (var word in paperAnalysis.WordFrequency)
+            {
+                if (results.GlobalWordFrequency.ContainsKey(word.Key))
+                    results.GlobalWordFrequency[word.Key] += word.Value;
+                else
+                    results.GlobalWordFrequency[word.Key] = word.Value;
+            }
+
+            // Sort the word frequency dictionaries by frequency (descending)
+            paperAnalysis.WordFrequency = paperAnalysis
+                .WordFrequency.OrderByDescending(pair => pair.Value)
+                .ToDictionary(pair => pair.Key, pair => pair.Value);
+
+            // Add paper analysis to results
+            paperAnalysis.TotalBugSentences = paperAnalysis.BugSentences.Count;
+            results.PaperAnalyses.Add(paperAnalysis);
+        }
+
+        // Step 4: Update summary information
+        results.Summary.TotalBugSentences = totalBugSentences;
+        results.Summary.PapersWithBugs = results.PaperAnalyses.Count(p => p.TotalBugSentences > 0);
+
+        // Sort the global word frequency dictionary by frequency (descending)
+        results.GlobalWordFrequency = results
+            .GlobalWordFrequency.OrderByDescending(pair => pair.Value)
+            .ToDictionary(pair => pair.Key, pair => pair.Value);
+
+        // Step 5: Save results to file
+        string jsonString = JsonSerializer.Serialize(
+            results,
+            new JsonSerializerOptions { WriteIndented = true }
+        );
+
+        await File.WriteAllTextAsync(outputFile, jsonString, cancellationToken);
+
+        // Step 6: Display summary
+        logger.LogInformation("Bug terminology analysis complete!");
+        logger.LogInformation(
+            "Found {TotalSentences} sentences containing 'bug' across {PapersWithBugs} papers out of {TotalPapers} total papers",
+            totalBugSentences,
+            results.Summary.PapersWithBugs,
+            results.Summary.TotalPapers
+        );
+
+        // Top 10 most frequent words
+        logger.LogInformation("Top 10 most frequent words in bug sentences:");
+        foreach (var word in results.GlobalWordFrequency.Take(10))
+        {
+            logger.LogInformation("  {Word}: {Count}", word.Key, word.Value);
+        }
+
+        logger.LogInformation("Results saved to {OutputFile}", outputFile);
+
+        return totalBugSentences;
     }
 }
