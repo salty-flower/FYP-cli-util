@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using DataCollection.Models;
 using DataCollection.Models.Export;
+using DataCollection.Services;
 
 namespace DataCollection.Utils;
 
@@ -162,16 +163,20 @@ public static class PdfTextUtils
     }
 
     /// <summary>
-    /// Extract all bug-related sentences from a PDF with context awareness
+    /// Extract all bug-related sentences from a PDF with context awareness and adjective filtering
     /// </summary>
     /// <param name="pdfData">PDF data object</param>
     /// <param name="bugPattern">Regular expression pattern for detecting bug mentions</param>
     /// <param name="extractionResult">Object to store the extraction results</param>
+    /// <param name="nlpService">Optional NLP service for adjective filtering</param>
+    /// <param name="adjectivesOnly">Whether to filter for adjectives only</param>
     /// <returns>Total number of bug sentences found</returns>
     public static int ExtractBugSentences(
         PdfData pdfData,
         Regex bugPattern,
-        PaperBugTerminologyAnalysis extractionResult
+        PaperBugTerminologyAnalysis extractionResult,
+        NlpService nlpService = null,
+        bool adjectivesOnly = false
     )
     {
         int totalBugSentences = 0;
@@ -197,9 +202,24 @@ public static class PdfTextUtils
                 {
                     if (bugPattern.IsMatch(sentence))
                     {
-                        // Count words in the sentence
-                        var words = TextProcessingUtils.ExtractWords(sentence);
-                        var wordCounts = TextProcessingUtils.CountWords(words);
+                        List<string> words;
+                        Dictionary<string, int> wordCounts;
+
+                        // Extract words from the sentence
+                        if (adjectivesOnly && nlpService != null)
+                        {
+                            // Use NLP service to get adjectives only
+                            wordCounts = nlpService.AnalyzeSentenceAdjectives(sentence);
+
+                            // Extract the adjective words as a list
+                            words = wordCounts.Keys.ToList();
+                        }
+                        else
+                        {
+                            // Standard word extraction without POS filtering
+                            words = TextProcessingUtils.ExtractWords(sentence);
+                            wordCounts = TextProcessingUtils.CountWords(words);
+                        }
 
                         // Add to sentence-level data
                         var bugSentence = new BugSentence

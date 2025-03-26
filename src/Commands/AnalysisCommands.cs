@@ -30,6 +30,7 @@ public class AnalysisCommands(
     MetadataReplCommand metadataRepl,
     DataLoadingService dataLoadingService,
     PdfDescriptionService pdfDescriptionService,
+    NlpService nlpService,
     IOptions<PathsOptions> pathsOptions
 )
 {
@@ -240,15 +241,36 @@ public class AnalysisCommands(
     /// </summary>
     /// <param name="bugPattern">Regex pattern to detect bug sentences</param>
     /// <param name="outputFile">Output file for the terminology analysis</param>
+    /// <param name="adjectivesOnly">Whether to filter for adjectives only</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of sentences containing "bug" found across all papers</returns>
     public async Task<int> AnalyzeBugTerminology(
         string bugPattern = @"\b(?:bug|bugs)\b",
         string outputFile = "bug-terminology-analysis.json",
+        bool adjectivesOnly = false,
         CancellationToken cancellationToken = default
     )
     {
         logger.LogInformation("Starting bug terminology analysis...");
+
+        if (adjectivesOnly)
+        {
+            logger.LogInformation("Filtering for adjectives only using NLTK");
+
+            try
+            {
+                // Initialize NLP service to ensure Python runtime is ready
+                nlpService.Initialize();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(
+                    ex,
+                    "Failed to initialize NLP service. Adjective filtering will be disabled."
+                );
+                adjectivesOnly = false;
+            }
+        }
 
         var paths = pathsOptions.Value;
 
@@ -277,6 +299,7 @@ public class AnalysisCommands(
                 TotalPapers = pdfDataList.Count,
                 SearchPattern = bugPattern,
                 Timestamp = DateTime.Now.ToString("o"),
+                AdjectivesOnly = adjectivesOnly,
             },
             PaperAnalyses = new List<PaperBugTerminologyAnalysis>(),
             GlobalWordFrequency = new Dictionary<string, int>(),
@@ -310,8 +333,15 @@ public class AnalysisCommands(
                 WordFrequency = new Dictionary<string, int>(),
             };
 
-            // Use the PdfTextUtils to extract bug sentences
-            int paperBugSentences = PdfTextUtils.ExtractBugSentences(pdfData, regex, paperAnalysis);
+            // Use the PdfTextUtils to extract bug sentences with optional adjective filtering
+            int paperBugSentences = PdfTextUtils.ExtractBugSentences(
+                pdfData,
+                regex,
+                paperAnalysis,
+                adjectivesOnly ? nlpService : null,
+                adjectivesOnly
+            );
+
             totalBugSentences += paperBugSentences;
 
             // Add paper-level word frequency to global word frequency
@@ -353,14 +383,18 @@ public class AnalysisCommands(
         // Step 6: Display summary
         logger.LogInformation("Bug terminology analysis complete!");
         logger.LogInformation(
-            "Found {TotalSentences} sentences containing 'bug' across {PapersWithBugs} papers out of {TotalPapers} total papers",
+            "Found {TotalSentences} sentences containing 'bug' across {PapersWithBugs} papers out of {TotalPapers} total papers{AdjectiveFilter}",
             totalBugSentences,
             results.Summary.PapersWithBugs,
-            results.Summary.TotalPapers
+            results.Summary.TotalPapers,
+            adjectivesOnly ? " (adjectives only)" : ""
         );
 
         // Top 10 most frequent words
-        logger.LogInformation("Top 10 most frequent words in bug sentences:");
+        logger.LogInformation(
+            "Top 10 most frequent words in bug sentences{AdjectiveFilter}:",
+            adjectivesOnly ? " (adjectives only)" : ""
+        );
         foreach (var word in results.GlobalWordFrequency.Take(10))
         {
             logger.LogInformation("  {Word}: {Count}", word.Key, word.Value);

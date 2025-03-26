@@ -23,6 +23,7 @@ public class BugTerminologySummary
     public int TotalBugSentences { get; set; }
     public string SearchPattern { get; set; }
     public string Timestamp { get; set; }
+    public bool AdjectivesOnly { get; set; }
 }
 
 /// <summary>
