@@ -357,7 +357,7 @@ public class AnalysisCommands(
         // Step 5: Save results to file
         string jsonString = JsonSerializer.Serialize(
             results,
-            new JsonSerializerOptions { WriteIndented = true }
+            ExportModelJsonContext.Default.BugTerminologyAnalysis
         );
 
         await File.WriteAllTextAsync(outputFile, jsonString, cancellationToken);
