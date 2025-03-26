@@ -19,12 +19,12 @@ using Microsoft.Extensions.Options;
 namespace DataCollection.Commands;
 
 /// <summary>
-/// Commands for analyzing research papers
+/// Pre-defined procedures that come from scripts
 /// </summary>
 [RegisterCommands("procedure")]
 [ConsoleAppFilter<PathsOptions.Filter>]
-public class AnalysisCommands(
-    ILogger<AnalysisCommands> logger,
+public class ProcedureCommands(
+    ILogger<ProcedureCommands> logger,
     TextLinesReplCommand textLinesRepl,
     MetadataReplCommand metadataRepl,
     DataLoadingService dataLoadingService,

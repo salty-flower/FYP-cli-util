@@ -73,7 +73,7 @@ var app = builder.ConfigureServices(
         services.AddSingleton<TextLinesReplCommand>();
         services.AddSingleton<PdfReplCommand>();
         services.AddSingleton<MetadataReplCommand>();
-        services.AddSingleton<AnalysisCommands>();
+        services.AddSingleton<ProcedureCommands>();
     }
 );
 
