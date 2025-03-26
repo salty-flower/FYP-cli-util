@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using ConsoleAppFramework;
@@ -13,6 +14,7 @@ using MemoryPack;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Python.Runtime;
+using Spectre.Console;
 
 namespace DataCollection.Commands;
 
@@ -68,8 +70,12 @@ public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions>
             pdfFiles.Count()
         );
 
+        dynamic fitz;
+        using (Py.GIL())
+            fitz = Py.Import("fitz");
+
         foreach (var pdfFile in pdfFiles)
-            yield return ProcessSinglePdf(pdfFile);
+            yield return ProcessSinglePdf(pdfFile, fitz);
     }
 
     /// <summary>
@@ -77,76 +83,66 @@ public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions>
     /// </summary>
     /// <param name="pdfFile">The PDF file to process</param>
     /// <returns>A PdfData object containing the extracted data</returns>
-    private PdfData ProcessSinglePdf(FileInfo pdfFile)
+    private PdfData ProcessSinglePdf(FileInfo pdfFile, dynamic fitz)
     {
         using (Py.GIL())
         {
-            // Import fitz (PyMuPDF)
-            dynamic fitz = Py.Import("fitz");
             dynamic document = fitz.open(pdfFile.FullName);
 
-            int pageCount = document.page_count.As<int>();
-            string[] texts = new string[pageCount];
-            MatchObject[][] textLines = new MatchObject[pageCount][];
-
-            // Process each page
-            for (int i = 0; i < pageCount; i++)
-            {
-                dynamic page = document[i];
-
-                // Extract text
-                texts[i] = page.get_text().As<string>();
-
-                // Extract text lines
-                var pyTextBlocks = page.get_text("dict")["blocks"];
-                List<MatchObject> pageTextLines = new List<MatchObject>();
-
-                int blockCount = pyTextBlocks.__len__().As<int>();
-                for (int b = 0; b < blockCount; b++)
+            var proc = Enumerable
+                .Range(0, (int)document.page_count.As<int>())
+                .Select(i => document[i])
+                .Select(page =>
                 {
-                    var block = pyTextBlocks[b];
-                    if (block["type"].As<int>() == 0) // Text block
-                    {
-                        var pyLines = block["lines"];
-                        int lineCount = pyLines.__len__().As<int>();
-                        for (int l = 0; l < lineCount; l++)
-                        {
-                            var line = pyLines[l];
-                            var lineText = "";
-                            var spans = line["spans"];
-                            int spanCount = spans.__len__().As<int>();
-                            for (int s = 0; s < spanCount; s++)
-                            {
-                                lineText += spans[s]["text"].As<string>();
-                            }
+                    // Extract text
+                    string text = page.get_text().As<string>();
+                    var pyTextBlocks = page.get_text("dict")["blocks"];
+                    var textLines = Enumerable
+                        .Range(0, (int)pyTextBlocks.__len__().As<int>())
+                        .Select(b => pyTextBlocks[b])
+                        .Where(block => block["type"].As<int>() == 0) // Only text blocks
+                        .Select(block => block["lines"])
+                        .SelectMany(pyLines =>
+                            Enumerable
+                                .Range(0, (int)pyLines.__len__().As<int>())
+                                .Select(l => pyLines[l])
+                                .Select(line =>
+                                {
+                                    var spans = line["spans"];
 
-                            var bbox = line["bbox"].As<dynamic>();
-                            if (!string.IsNullOrWhiteSpace(lineText))
-                            {
-                                pageTextLines.Add(
-                                    new MatchObject(
-                                        lineText,
-                                        bbox[0].As<double>(), // x0
-                                        bbox[1].As<double>(), // top
-                                        bbox[2].As<double>(), // x1
-                                        bbox[3].As<double>() // bottom
-                                    )
-                                );
-                            }
-                        }
-                    }
-                }
+                                    // Concatenate all span texts
+                                    var sb = new StringBuilder();
+                                    for (int s = 0; s < (int)spans.__len__().As<int>(); s++)
+                                        sb.Append(spans[s]["text"].As<string>());
 
-                textLines[i] = pageTextLines.ToArray();
-            }
+                                    return new
+                                    {
+                                        LineText = sb.ToString(),
+                                        BBox = line["bbox"].As<dynamic>(),
+                                    };
+                                })
+                                .Where(item => !string.IsNullOrWhiteSpace(item.LineText))
+                                .Select(item => new MatchObject(
+                                    item.LineText,
+                                    item.BBox[0].As<double>(), // x0
+                                    item.BBox[1].As<double>(), // top
+                                    item.BBox[2].As<double>(), // x1
+                                    item.BBox[3].As<double>() // bottom
+                                ))
+                        )
+                        .ToArray();
+
+                    return new { Text = text, TextLines = textLines };
+                })
+                .ToList();
 
             document.close();
 
             var result = new PdfData
             {
                 FileName = pdfFile.Name,
-                Texts = texts,
-                TextLines = textLines,
+                Texts = proc.Select(p => p.Text).ToArray(),
+                TextLines = proc.Select(p => p.TextLines).ToArray(),
             };
 
             logger.LogInformation("Extracted {FileName}", pdfFile.Name);
