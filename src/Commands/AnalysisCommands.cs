@@ -2,14 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using ConsoleAppFramework;
 using DataCollection.Commands.Repl;
-using DataCollection.Models;
+using DataCollection.Filters;
 using DataCollection.Models.Export;
 using DataCollection.Options;
 using DataCollection.Services;
@@ -29,8 +28,6 @@ public class AnalysisCommands(
     TextLinesReplCommand textLinesRepl,
     MetadataReplCommand metadataRepl,
     DataLoadingService dataLoadingService,
-    PdfDescriptionService pdfDescriptionService,
-    NlpService nlpService,
     IOptions<PathsOptions> pathsOptions
 )
 {
@@ -244,6 +241,8 @@ public class AnalysisCommands(
     /// <param name="adjectivesOnly">Whether to filter for adjectives only</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of sentences containing "bug" found across all papers</returns>
+
+    [ConsoleAppFilter<PythonEngineInitFilter>]
     public async Task<int> AnalyzeBugTerminology(
         string bugPattern = @"\b(?:bug|bugs)\b",
         string outputFile = "bug-terminology-analysis.json",
@@ -254,23 +253,7 @@ public class AnalysisCommands(
         logger.LogInformation("Starting bug terminology analysis...");
 
         if (adjectivesOnly)
-        {
             logger.LogInformation("Filtering for adjectives only using NLTK");
-
-            try
-            {
-                // Initialize NLP service to ensure Python runtime is ready
-                nlpService.Initialize();
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(
-                    ex,
-                    "Failed to initialize NLP service. Adjective filtering will be disabled."
-                );
-                adjectivesOnly = false;
-            }
-        }
 
         var paths = pathsOptions.Value;
 
@@ -338,7 +321,6 @@ public class AnalysisCommands(
                 pdfData,
                 regex,
                 paperAnalysis,
-                adjectivesOnly ? nlpService : null,
                 adjectivesOnly
             );
 

@@ -69,7 +69,6 @@ var app = builder.ConfigureServices(
         services.AddSingleton<ConsoleRenderingService>();
         services.AddSingleton<PdfSearchService>();
         services.AddSingleton<DataLoadingService>();
-        services.AddSingleton<NlpService>();
         services.AddSingleton<ReplCommands>();
         services.AddSingleton<TextLinesReplCommand>();
         services.AddSingleton<PdfReplCommand>();

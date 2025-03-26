@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ConsoleAppFramework;
+using DataCollection.Filters;
 using DataCollection.Models;
 using DataCollection.Options;
 using MemoryPack;
@@ -28,13 +29,11 @@ public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions>
     /// Process and analyze PDF files
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
+    [ConsoleAppFilter<PythonEngineInitFilter>]
     public async Task PDF(CancellationToken cancellationToken = default)
     {
         var pdfDataDir = new DirectoryInfo(_pathsOptions.PdfDataDir);
         var paperBinDir = new DirectoryInfo(_pathsOptions.PaperBinDir);
-
-        // Configure Python environment
-        InitializePythonEngine();
 
         // Get already processed files
         var alreadyDumped = pdfDataDir.GetFiles("*.bin").Select(f => f.Name.Replace(".bin", ""));
@@ -51,13 +50,6 @@ public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions>
         }
 
         logger.LogInformation("PyMuPDF dump completed");
-    }
-
-    private void InitializePythonEngine()
-    {
-        Runtime.PythonDLL = _pathsOptions.PythonDLL;
-        PythonEngine.Initialize();
-        PythonEngine.BeginAllowThreads();
     }
 
     private IEnumerable<PdfData> ExtractPdfData(

@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -175,7 +174,6 @@ public static class PdfTextUtils
         PdfData pdfData,
         Regex bugPattern,
         PaperBugTerminologyAnalysis extractionResult,
-        NlpService nlpService = null,
         bool adjectivesOnly = false
     )
     {
@@ -206,10 +204,10 @@ public static class PdfTextUtils
                         Dictionary<string, int> wordCounts;
 
                         // Extract words from the sentence
-                        if (adjectivesOnly && nlpService != null)
+                        if (adjectivesOnly)
                         {
                             // Use NLP service to get adjectives only
-                            wordCounts = nlpService.AnalyzeSentenceAdjectives(sentence);
+                            wordCounts = AdjectiveAnalyzer.AnalyzeSentenceAdjectives(sentence);
 
                             // Extract the adjective words as a list
                             words = wordCounts.Keys.ToList();
