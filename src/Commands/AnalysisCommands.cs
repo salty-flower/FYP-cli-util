@@ -386,4 +386,212 @@ public class AnalysisCommands(
 
         return totalBugSentences;
     }
+
+    /// <summary>
+    /// Merge and analyze bug terminology analysis across multiple jobs/directories
+    /// and export the results to CSV files in a specified directory
+    /// </summary>
+    /// <param name="analysisPattern">File pattern to search for bug terminology analysis JSON files (default: "bug-terminology-analysis.json")</param>
+    /// <param name="outputDirectory">Directory path where CSV files will be saved - will be created if it doesn't exist</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Number of analysis files processed</returns>
+    public async Task<int> MergeBugTerminologyAnalysis(
+        string analysisPattern = "bug-terminology-analysis.json",
+        string outputDirectory = "analysis-results",
+        CancellationToken cancellationToken = default
+    )
+    {
+        logger.LogInformation("Starting to merge bug terminology analysis files...");
+
+        // Use default directory if empty
+        if (string.IsNullOrWhiteSpace(outputDirectory))
+        {
+            outputDirectory = "analysis-results";
+            logger.LogInformation(
+                "Using default output directory: {outputDirectory}",
+                outputDirectory
+            );
+        }
+
+        // Create output directory if it doesn't exist
+        if (!Directory.Exists(outputDirectory))
+        {
+            Directory.CreateDirectory(outputDirectory);
+            logger.LogInformation("Created output directory: {outputDirectory}", outputDirectory);
+        }
+
+        // Find all bug terminology analysis files
+        var analysisFiles = Directory.GetFiles(
+            pathsOptions.Value.BaseDir,
+            analysisPattern,
+            SearchOption.AllDirectories
+        );
+
+        if (analysisFiles.Length == 0)
+        {
+            logger.LogWarning(
+                "No bug terminology analysis files found matching pattern: {pattern}",
+                analysisPattern
+            );
+            return 0;
+        }
+
+        logger.LogInformation("Found {count} bug terminology analysis files", analysisFiles.Length);
+
+        // Prepare data structures to store merged results
+        var globalWordFrequency = new Dictionary<string, int>();
+        var jobSummaries = new List<(string JobName, int TotalWordFrequency)>();
+        var jobWordFrequencies = new Dictionary<string, Dictionary<string, int>>();
+
+        // Process each analysis file
+        foreach (var file in analysisFiles)
+        {
+            try
+            {
+                // Read and parse the JSON file
+                var jsonString = await File.ReadAllTextAsync(file, cancellationToken);
+                var analysis = JsonSerializer.Deserialize(
+                    jsonString,
+                    ExportModelJsonContext.Default.BugTerminologyAnalysis
+                );
+
+                if (analysis == null)
+                {
+                    logger.LogWarning("Could not parse analysis file: {file}", file);
+                    continue;
+                }
+
+                // Get job name from parent directory
+                var jobName = Path.GetFileName(Path.GetDirectoryName(file));
+
+                // Skip if we can't determine job name
+                if (string.IsNullOrWhiteSpace(jobName))
+                    jobName = Path.GetFileNameWithoutExtension(file);
+
+                logger.LogInformation("Processing job: {jobName}", jobName);
+
+                // Calculate total word frequency for this job
+                var totalFrequency = analysis.GlobalWordFrequency.Values.Sum();
+                jobSummaries.Add((jobName, totalFrequency));
+
+                // Store job-specific word frequency
+                jobWordFrequencies[jobName] = analysis.GlobalWordFrequency;
+
+                // Merge into global word frequency
+                foreach (var word in analysis.GlobalWordFrequency)
+                {
+                    if (globalWordFrequency.ContainsKey(word.Key))
+                        globalWordFrequency[word.Key] += word.Value;
+                    else
+                        globalWordFrequency[word.Key] = word.Value;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error processing file: {file}", file);
+            }
+        }
+
+        // Sort the global word frequency by count (descending)
+        var sortedGlobalWordFrequency = globalWordFrequency
+            .OrderByDescending(pair => pair.Value)
+            .ToList();
+
+        // Export CSV files
+
+        // 1. Global summary (word frequencies across all jobs)
+        var globalSummaryPath = Path.Combine(outputDirectory, "global-summary.csv");
+        using (var writer = new StreamWriter(globalSummaryPath))
+        {
+            await writer.WriteLineAsync("Word,TotalFrequency");
+            foreach (var pair in sortedGlobalWordFrequency)
+                await writer.WriteLineAsync($"{EscapeCsvField(pair.Key)},{pair.Value}");
+        }
+        logger.LogInformation("Global word frequency summary saved to {path}", globalSummaryPath);
+
+        // 2. Job summary (total word frequency per job)
+        var jobSummaryPath = Path.Combine(outputDirectory, "job-summary.csv");
+        using (var writer = new StreamWriter(jobSummaryPath))
+        {
+            await writer.WriteLineAsync("JobName,TotalWordFrequency");
+            foreach (var (jobName, totalFrequency) in jobSummaries.OrderBy(j => j.JobName))
+            {
+                await writer.WriteLineAsync($"{EscapeCsvField(jobName)},{totalFrequency}");
+            }
+        }
+        logger.LogInformation("Job summary saved to {path}", jobSummaryPath);
+
+        // 3. Individual job word frequencies
+        foreach (var job in jobWordFrequencies)
+        {
+            var jobName = job.Key;
+            var wordFrequency = job.Value.OrderByDescending(pair => pair.Value);
+
+            var jobPath = Path.Combine(outputDirectory, $"{jobName}.csv");
+            using (var writer = new StreamWriter(jobPath))
+            {
+                await writer.WriteLineAsync("Word,Frequency");
+                foreach (var pair in wordFrequency)
+                {
+                    await writer.WriteLineAsync($"{EscapeCsvField(pair.Key)},{pair.Value}");
+                }
+            }
+            logger.LogInformation(
+                "Word frequency for job {jobName} saved to {path}",
+                jobName,
+                jobPath
+            );
+        }
+
+        logger.LogInformation(
+            "Merge and analysis complete! {count} files processed\n"
+                + "Results exported to CSV files in directory: {directory}\n"
+                + "Generated CSV files:\n"
+                + "  - global-summary.csv (Word frequencies across all jobs)\n"
+                + "  - job-summary.csv (Total word counts per job)\n"
+                + "  - [jobname].csv (Individual job word frequencies)",
+            analysisFiles.Length,
+            outputDirectory
+        );
+
+        // Display summary statistics
+        logger.LogInformation(
+            "Top 10 most frequent words across all jobs:\n" + "{Words}",
+            string.Join(
+                "\n",
+                sortedGlobalWordFrequency.Take(10).Select(pair => $"  {pair.Key}: {pair.Value}")
+            )
+        );
+
+        return analysisFiles.Length;
+    }
+
+    /// <summary>
+    /// Helper method to escape CSV field values that might contain commas, quotes, or newlines
+    /// </summary>
+    /// <param name="field">The field value to escape</param>
+    /// <returns>Properly escaped CSV field value</returns>
+    private string EscapeCsvField(string field)
+    {
+        if (string.IsNullOrEmpty(field))
+        {
+            return string.Empty;
+        }
+
+        // If the field contains commas, quotes, or newlines, wrap it in quotes and escape internal quotes
+        bool needsQuotes =
+            field.Contains(',')
+            || field.Contains('"')
+            || field.Contains('\n')
+            || field.Contains('\r');
+
+        if (needsQuotes)
+        {
+            // Double up any quotes within the field
+            field = field.Replace("\"", "\"\"");
+            return $"\"{field}\"";
+        }
+
+        return field;
+    }
 }
