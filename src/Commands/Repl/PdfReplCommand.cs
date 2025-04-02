@@ -50,7 +50,7 @@ public class PdfReplCommand(
             new SelectionPrompt<string>()
                 .Title("How would you like to work with the [green]PDFs[/]?")
                 .PageSize(10)
-                .AddChoices(new[] { "Work with a single PDF", "Work with all PDFs" })
+                .AddChoices(["Work with a single PDF", "Work with all PDFs"])
         );
 
         if (choice == "Work with a single PDF")
@@ -783,9 +783,7 @@ public class PdfReplCommand(
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
                 .Title("What would you like to do?")
-                .AddChoices(
-                    new[] { "Work with this PDF in detail", "Cancel and return to all PDFs mode" }
-                )
+                .AddChoices(["Work with this PDF in detail", "Cancel and return to all PDFs mode"])
         );
 
         if (choice == "Work with this PDF in detail")
@@ -808,7 +806,7 @@ public class PdfReplCommand(
     /// <returns>Number of results found</returns>
     public int RunNonInteractiveSearch(
         string pattern,
-        string exportPath,
+        string? exportPath,
         CancellationToken cancellationToken = default
     )
     {
@@ -1003,7 +1001,7 @@ public class PdfReplCommand(
     /// <returns>Number of PDFs matching the expression</returns>
     public int RunNonInteractiveEvaluation(
         string expression,
-        string exportPath = null,
+        string? exportPath = null,
         CancellationToken cancellationToken = default
     )
     {
@@ -1119,7 +1117,7 @@ public class PdfReplCommand(
             .Replace("NOT", " ");
 
         // Split by spaces and extract potential keywords
-        foreach (var part in cleaned.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var part in cleaned.Split([' '], StringSplitOptions.RemoveEmptyEntries))
         {
             // If not a number, it might be a keyword
             if (!int.TryParse(part, out _))
@@ -1136,7 +1134,7 @@ public class PdfReplCommand(
     /// </summary>
     protected override bool HandleExportCommand(string[] parts, object? data = null)
     {
-        string filePath = null;
+        string? filePath = null;
         if (parts.Length > 1)
         {
             filePath = parts[1];

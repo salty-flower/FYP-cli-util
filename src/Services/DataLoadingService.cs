@@ -20,7 +20,7 @@ public class DataLoadingService(
     /// </summary>
     public List<PdfData> LoadPdfDataFromDirectory(
         string directoryPath,
-        string paperMetadataDir = null
+        string? paperMetadataDir = null
     )
     {
         var pdfDataDir = new DirectoryInfo(directoryPath);

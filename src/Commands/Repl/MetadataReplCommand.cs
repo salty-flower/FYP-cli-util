@@ -46,7 +46,7 @@ public class MetadataReplCommand(
             new SelectionPrompt<string>()
                 .Title("How would you like to work with the [green]papers[/]?")
                 .PageSize(10)
-                .AddChoices(new[] { "Inspect a single paper", "Work with all papers" })
+                .AddChoices(["Inspect a single paper", "Work with all papers"])
         );
 
         if (choice == "Inspect a single paper")
@@ -501,28 +501,6 @@ public class MetadataReplCommand(
     }
 
     /// <summary>
-    /// Handle the showall command
-    /// </summary>
-    private void HandleShowAllCommand(string[] parts)
-    {
-        if (parts.Length > 1 && bool.TryParse(parts[1], out bool value))
-        {
-            ShowAllResults = value;
-            AnsiConsole.MarkupLine(
-                $"Set showing all results to: [{(ShowAllResults ? "green" : "red")}]{ShowAllResults}[/]"
-            );
-        }
-        else
-        {
-            // Toggle current value
-            ShowAllResults = !ShowAllResults;
-            AnsiConsole.MarkupLine(
-                $"Toggled showing all results to: [{(ShowAllResults ? "green" : "red")}]{ShowAllResults}[/]"
-            );
-        }
-    }
-
-    /// <summary>
     /// Handle the export command
     /// </summary>
     protected bool HandleExportCommand(string[] parts)
@@ -581,8 +559,8 @@ public class MetadataReplCommand(
     /// <returns>Number of results found</returns>
     public int RunNonInteractiveSearch(
         string pattern,
-        out MetadataSearchResult results,
-        string exportPath = null,
+        out MetadataSearchResult? results,
+        string? exportPath = null,
         CancellationToken cancellationToken = default
     )
     {
@@ -728,7 +706,7 @@ public class MetadataReplCommand(
     /// <returns>Number of papers matching the expression</returns>
     public int RunNonInteractiveEvaluation(
         string expression,
-        string exportPath = null,
+        string? exportPath = null,
         CancellationToken cancellationToken = default
     )
     {
@@ -956,7 +934,7 @@ public class MetadataReplCommand(
             new SelectionPrompt<string>()
                 .Title("What would you like to do?")
                 .AddChoices(
-                    new[] { "Inspect this paper in detail", "Cancel and return to all papers mode" }
+                    ["Inspect this paper in detail", "Cancel and return to all papers mode"]
                 )
         );
 
@@ -1145,7 +1123,7 @@ public class MetadataReplCommand(
                         {
                             Title = r.Paper.Title,
                             DOI = r.Paper.Doi,
-                            Authors = r.Paper.Authors ?? new string[0],
+                            Authors = r.Paper.Authors ?? [],
                         },
                         Match = r.Match,
                         Context = r.Context,
@@ -1222,7 +1200,7 @@ public class MetadataReplCommand(
             .Replace("NOT", " ");
 
         // Split by spaces and extract potential keywords
-        foreach (var part in cleaned.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var part in cleaned.Split([' '], StringSplitOptions.RemoveEmptyEntries))
         {
             // If not a number, it might be a keyword
             if (!int.TryParse(part, out _))

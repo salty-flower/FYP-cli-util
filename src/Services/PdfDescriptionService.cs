@@ -17,7 +17,7 @@ public class PdfDescriptionService
     /// Initialize with optional paper cache
     /// </summary>
     /// <param name="paperCache">Optional cache of papers for metadata lookup</param>
-    public PdfDescriptionService(List<Paper> paperCache = null)
+    public PdfDescriptionService(List<Paper>? paperCache = null)
     {
         if (paperCache != null)
         {

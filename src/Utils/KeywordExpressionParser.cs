@@ -82,7 +82,7 @@ public class KeywordExpressionParser
             string simpleExpr = ParseSimpleExpression();
             if (TryParseSimpleExpression(simpleExpr, out var func))
             {
-                return func;
+                return func!;
             }
 
             throw new ArgumentException(
@@ -158,7 +158,7 @@ public class KeywordExpressionParser
 
         private static bool TryParseSimpleExpression(
             string expression,
-            out Func<Dictionary<string, int>, bool> func
+            out Func<Dictionary<string, int>, bool>? func
         )
         {
             func = null;
@@ -168,7 +168,7 @@ public class KeywordExpressionParser
             {
                 if (expression.Contains(op))
                 {
-                    var parts = expression.Split(new[] { op }, StringSplitOptions.None);
+                    var parts = expression.Split([op], StringSplitOptions.None);
                     if (parts.Length != 2)
                         return false;
 
@@ -197,49 +197,4 @@ public class KeywordExpressionParser
             return false;
         }
     }
-
-    private static bool TryParseSimpleExpression(
-        string expression,
-        out Func<Dictionary<string, int>, bool> func
-    )
-    {
-        func = null;
-
-        // Match patterns like "keyword > 5", "keyword >= 10", etc.
-        foreach (var op in new[] { ">=", "<=", ">", "<", "==" })
-        {
-            if (expression.Contains(op))
-            {
-                var parts = expression.Split(new[] { op }, StringSplitOptions.None);
-                if (parts.Length != 2)
-                    return false;
-
-                var keyword = parts[0].Trim();
-                if (!int.TryParse(parts[1].Trim(), out var threshold))
-                    return false;
-
-                func = counts =>
-                {
-                    var count = counts.TryGetValue(keyword, out var c) ? c : 0;
-                    return op switch
-                    {
-                        ">=" => count >= threshold,
-                        "<=" => count <= threshold,
-                        ">" => count > threshold,
-                        "<" => count < threshold,
-                        "==" => count == threshold,
-                        _ => false,
-                    };
-                };
-
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    // Dictionary to store functions for synthetic expressions
-    private static Dictionary<string, Func<Dictionary<string, int>, bool>> SubExpressionFunctions =
-        new Dictionary<string, Func<Dictionary<string, int>, bool>>();
 }

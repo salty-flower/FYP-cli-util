@@ -59,10 +59,9 @@ public class ProcedureCommands(
         logger.LogInformation("Searching for bug tables in PDFs...");
 
         // Call the appropriate ReplCommands method with out parameter
-        TextLinesSearchResult bugTablesData;
         int bugTablesResult = textLinesRepl.RunNonInteractiveSearch(
             bugTablesPattern,
-            out bugTablesData,
+            out TextLinesSearchResult? bugTablesData,
             tempBugTablesFile,
             cancellationToken
         );
@@ -77,10 +76,9 @@ public class ProcedureCommands(
         logger.LogInformation("Searching for testing techniques in metadata...");
 
         // Call the appropriate ReplCommands method with out parameter
-        MetadataSearchResult techniquesData;
         int techniquesResult = metadataRepl.RunNonInteractiveSearch(
             techniquesPattern,
-            out techniquesData,
+            out MetadataSearchResult? techniquesData,
             tempTechniquesFile,
             cancellationToken
         );

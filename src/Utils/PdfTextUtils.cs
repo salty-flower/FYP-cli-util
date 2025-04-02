@@ -139,7 +139,7 @@ public static class PdfTextUtils
     /// <param name="currentLine">Current line object</param>
     /// <param name="previousLine">Previous line object</param>
     /// <returns>True if a new paragraph should be started</returns>
-    public static bool ShouldStartNewParagraph(MatchObject currentLine, MatchObject previousLine)
+    public static bool ShouldStartNewParagraph(MatchObject currentLine, MatchObject? previousLine)
     {
         if (previousLine == null)
             return false;

@@ -50,7 +50,7 @@ public class TextLinesReplCommand(
             new SelectionPrompt<string>()
                 .Title("How would you like to work with the [green]PDFs[/]?")
                 .PageSize(10)
-                .AddChoices(new[] { "Inspect a single PDF", "Work with all PDFs" })
+                .AddChoices(["Inspect a single PDF", "Work with all PDFs"])
         );
 
         if (choice == "Inspect a single PDF")
@@ -538,9 +538,7 @@ public class TextLinesReplCommand(
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
                 .Title("What would you like to do?")
-                .AddChoices(
-                    new[] { "Inspect this PDF in detail", "Cancel and return to all PDFs mode" }
-                )
+                .AddChoices(["Inspect this PDF in detail", "Cancel and return to all PDFs mode"])
         );
 
         if (choice == "Inspect this PDF in detail")
@@ -552,28 +550,6 @@ public class TextLinesReplCommand(
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// Handle the showall command
-    /// </summary>
-    private void HandleShowAllCommand(string[] parts)
-    {
-        if (parts.Length > 1 && bool.TryParse(parts[1], out bool value))
-        {
-            ShowAllResults = value;
-            AnsiConsole.MarkupLine(
-                $"Set showing all results to: [{(ShowAllResults ? "green" : "red")}]{ShowAllResults}[/]"
-            );
-        }
-        else
-        {
-            // Toggle current value
-            ShowAllResults = !ShowAllResults;
-            AnsiConsole.MarkupLine(
-                $"Toggled showing all results to: [{(ShowAllResults ? "green" : "red")}]{ShowAllResults}[/]"
-            );
-        }
     }
 
     /// <summary>
@@ -628,8 +604,8 @@ public class TextLinesReplCommand(
     /// <returns>Number of results found</returns>
     public int RunNonInteractiveSearch(
         string pattern,
-        out TextLinesSearchResult results,
-        string exportPath = null,
+        out TextLinesSearchResult? results,
+        string? exportPath = null,
         CancellationToken cancellationToken = default
     )
     {

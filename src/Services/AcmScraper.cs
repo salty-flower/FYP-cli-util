@@ -116,10 +116,10 @@ public class AcmScraper(
         );
 
         // Post all section nodes to be processed
-        foreach (var node in sectionNodes.Where(n => n.Attributes.Count == 1))
-        {
-            await sectionBuffer.SendAsync(node, cancellationToken);
-        }
+        if (sectionNodes != null)
+            foreach (var node in sectionNodes.Where(n => n.Attributes.Count == 1))
+                await sectionBuffer.SendAsync(node, cancellationToken);
+
         sectionBuffer.Complete();
 
         // Process results as they complete

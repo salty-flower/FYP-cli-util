@@ -14,7 +14,7 @@ public class ConsoleRenderingService(PdfDescriptionService pdfDescriptionService
     /// <summary>
     /// Escape markup for safe display in Spectre.Console
     /// </summary>
-    public static string SafeMarkup(string text)
+    public static string SafeMarkup(string? text)
     {
         if (string.IsNullOrEmpty(text))
             return string.Empty;
@@ -189,7 +189,7 @@ public class ConsoleRenderingService(PdfDescriptionService pdfDescriptionService
     public static void DisplaySearchResults(
         List<(int PageNum, int LineNum, MatchObject Line)> results,
         string pattern,
-        string pdfName = null,
+        string? pdfName = null,
         int? maxToShow = null,
         bool showAll = false
     )
