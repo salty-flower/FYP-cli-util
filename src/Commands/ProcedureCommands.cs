@@ -327,12 +327,13 @@ public class ProcedureCommands(
             totalBugSentences += paperBugSentences;
 
             // Add paper-level word frequency to global word frequency
+            // Important: nomatter how many occurences in one paper, only count ONE, to avoid bias
             foreach (var word in paperAnalysis.WordFrequency)
             {
                 if (results.GlobalWordFrequency.ContainsKey(word.Key))
-                    results.GlobalWordFrequency[word.Key] += word.Value;
+                    results.GlobalWordFrequency[word.Key] += 1;
                 else
-                    results.GlobalWordFrequency[word.Key] = word.Value;
+                    results.GlobalWordFrequency[word.Key] = 1;
             }
 
             // Sort the word frequency dictionaries by frequency (descending)
@@ -440,6 +441,7 @@ public class ProcedureCommands(
 
         // Prepare data structures to store merged results
         var globalWordFrequency = new Dictionary<string, int>();
+        var numberOfPapers = new Dictionary<string, int>();
         var jobSummaries = new List<(string JobName, int TotalWordFrequency)>();
         var jobWordFrequencies = new Dictionary<string, Dictionary<string, int>>();
 
@@ -470,6 +472,9 @@ public class ProcedureCommands(
 
                 logger.LogInformation("Processing job: {jobName}", jobName);
 
+                // Add the paper count
+                numberOfPapers[jobName] = analysis.Summary.TotalPapers;
+
                 // Calculate total word frequency for this job
                 var totalFrequency = analysis.GlobalWordFrequency.Values.Sum();
                 jobSummaries.Add((jobName, totalFrequency));
@@ -498,6 +503,19 @@ public class ProcedureCommands(
             .ToList();
 
         // Export CSV files
+
+
+        // 0. Paper counts (total number of papers each job)
+        var paperCountsPath = Path.Combine(outputDirectory, "paper-counts.csv");
+        using (var writer = new StreamWriter(paperCountsPath))
+        {
+            await writer.WriteLineAsync("JobName,TotalPapers");
+            foreach (var (jobName, totalPapers) in numberOfPapers.OrderBy(j => j.Key))
+            {
+                await writer.WriteLineAsync($"{EscapeCsvField(jobName)},{totalPapers}");
+            }
+        }
+        logger.LogInformation("Paper counts saved to {path}", paperCountsPath);
 
         // 1. Global summary (word frequencies across all jobs)
         var globalSummaryPath = Path.Combine(outputDirectory, "global-summary.csv");
@@ -547,6 +565,7 @@ public class ProcedureCommands(
             "Merge and analysis complete! {count} files processed\n"
                 + "Results exported to CSV files in directory: {directory}\n"
                 + "Generated CSV files:\n"
+                + "  - paper-counts.csv (Total number of papers per job)\n"
                 + "  - global-summary.csv (Word frequencies across all jobs)\n"
                 + "  - job-summary.csv (Total word counts per job)\n"
                 + "  - [jobname].csv (Individual job word frequencies)",
