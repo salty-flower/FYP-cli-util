@@ -1,13 +1,11 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
-using System.Threading.Tasks.Dataflow;
 using System.Web;
 using DataCollection.Models;
 using DataCollection.Options;
@@ -19,16 +17,13 @@ namespace DataCollection.Services;
 
 public class AcmScraper(
     IHttpClientFactory httpClientFactory,
-    IOptions<ScraperOptions> options,
     IOptionsSnapshot<ParallelismOptions> parallelOpt,
-    ILogger<AcmScraper> logger
+    ILogger<AcmScraper> logger,
+    AcmPaperParser acmPaperParser
 )
 {
-    private readonly ScraperOptions _options = options.Value;
-
-    // New streaming method that yields papers as they are processed
     public async IAsyncEnumerable<Paper> GetSectionPapersAsync(
-        string proceedingDOI = "10.1145/3597503",
+        string proceedingDOI,
         [EnumeratorCancellation] CancellationToken cancellationToken = default
     )
     {
@@ -40,194 +35,39 @@ public class AcmScraper(
         var rootDoc = new HtmlDocument();
         rootDoc.LoadHtml(rootHtml);
 
+        var pbContextMeta = rootDoc.DocumentNode.SelectSingleNode("//meta[@name='pbContext']");
+        var pbContext = pbContextMeta?.Attributes["content"]?.Value ?? string.Empty;
+
         var tocWrapperNode = rootDoc.DocumentNode.SelectSingleNode(
             ".//div[contains(@class, 'table-of-content-wrapper')]"
         );
-        var rootDataWidgetId = tocWrapperNode.Attributes["data-widgetid"].Value;
 
-        // get sections
-        var sectionNodes = tocWrapperNode.SelectNodes(
-            "//div[@class = 'toc__section accordion-tabbed__tab']"
-        );
-
-        logger.LogInformation("Found {Count} sections to process", sectionNodes?.Count ?? 0);
-
-        // Create a DataFlow pipeline for processing sections in parallel with controlled throughput
-        var sectionBuffer = new BufferBlock<HtmlNode>(
-            new DataflowBlockOptions { CancellationToken = cancellationToken }
-        );
-
-        var sectionProcessor = new TransformBlock<HtmlNode, (HtmlNode Node, List<Paper> Papers)>(
-            async sectionNode =>
-            {
-                try
-                {
-                    var sectionDoi = sectionNode
-                        .SelectSingleNode(".//div[contains(@class, 'accordion-lazy')]")
-                        .Attributes["data-doi"]
-                        .Value;
-                    var sectionHeadingId = sectionNode
-                        .SelectSingleNode(
-                            ".//a[contains(@class, 'section__title accordion-tabbed__control left-bordered-title')]"
-                        )
-                        .Attributes["id"]
-                        .Value;
-
-                    logger.LogDebug(
-                        "Processing section {SectionId} with DOI {SectionDoi}",
-                        sectionHeadingId,
-                        sectionDoi
-                    );
-
-                    var sectionHtml = await GetSectionAsync(
-                        sectionHeadingId,
-                        sectionDoi,
-                        rootDataWidgetId,
-                        proceedingDOI,
-                        cancellationToken
-                    );
-                    var papers = await GetPapersFromSection(sectionHtml, cancellationToken);
-
-                    logger.LogInformation(
-                        "Found {Count} papers in section {SectionId}",
-                        papers.Count,
-                        sectionHeadingId
-                    );
-
-                    return (sectionNode, papers);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Error processing section");
-                    return (sectionNode, new List<Paper>());
-                }
-            },
-            new ExecutionDataflowBlockOptions
-            {
-                MaxDegreeOfParallelism = parallelOpt.Value.SectionProcessing,
-                CancellationToken = cancellationToken,
-            }
-        );
-
-        // Link blocks
-        sectionBuffer.LinkTo(
-            sectionProcessor,
-            new DataflowLinkOptions { PropagateCompletion = true }
-        );
-
-        // Post all section nodes to be processed
-        if (sectionNodes != null)
-            foreach (var node in sectionNodes.Where(n => n.Attributes.Count == 1))
-                await sectionBuffer.SendAsync(node, cancellationToken);
-
-        sectionBuffer.Complete();
-
-        // Process results as they complete
-        while (await sectionProcessor.OutputAvailableAsync(cancellationToken))
+        if (tocWrapperNode == null)
         {
-            var (_, papers) = await sectionProcessor.ReceiveAsync(cancellationToken);
-            foreach (var paper in papers)
-            {
-                yield return paper;
-            }
+            logger.LogWarning(
+                "Could not find table-of-content-wrapper node for DOI {DOI}",
+                proceedingDOI
+            );
+            yield break;
         }
-    }
 
-    public async Task DownloadPapersAsync(
-        IEnumerable<Paper> papers,
-        string baseDir,
-        CancellationToken cancellationToken = default
-    )
-    {
-        using var httpClient = httpClientFactory.CreateClient("acm-scraper");
-        // ensure directory exists
-        var dir = new DirectoryInfo(baseDir);
-        if (!dir.Exists)
-            dir.Create();
-
-        var filteredPapers = papers
-            .Select(paper => new
-            {
-                Link = paper.DownloadLink,
-                Path = Path.Combine(dir.FullName, paper.SanitizedDoi + ".pdf"),
-                Paper = paper,
-            })
-            // if non-existent or empty, download
-            .Where(p => !File.Exists(p.Path) || new FileInfo(p.Path).Length == 0)
-            .ToList();
-
-        logger.LogInformation(
-            "Downloading {Count} papers to {Directory}",
-            filteredPapers.Count,
-            baseDir
+        var rootDataWidgetId = tocWrapperNode.Attributes["data-widgetid"]?.Value ?? string.Empty; // Handle missing widget ID
+        var lazySectionNodes = tocWrapperNode.SelectNodes(
+            "//div[contains(@class, 'toc__section') and .//div[contains(@class, 'accordion-lazy')]]"
         );
 
-        // Use SemaphoreSlim to limit concurrent downloads
-        using var semaphore = new SemaphoreSlim(parallelOpt.Value.Downloads);
+        var asyncEnumerable =
+            (lazySectionNodes != null && lazySectionNodes.Count > 0)
+                ? ProcessSectionedLayoutAsync(
+                    lazySectionNodes,
+                    rootDataWidgetId,
+                    proceedingDOI,
+                    cancellationToken
+                )
+                : ProcessNonSectionedLayoutAsync(tocWrapperNode, pbContext, cancellationToken);
 
-        // Track last download time for rate limiting
-        var lastDownloadTimes = new ConcurrentDictionary<int, DateTime>();
-        var downloadDelayMs = parallelOpt.Value.DownloadDelayMs;
-        var randomGen = new Random();
-
-        logger.LogInformation(
-            "Rate limiting configured with delay of {DelayMs}ms between downloads",
-            downloadDelayMs
-        );
-
-        await Parallel.ForEachAsync(
-            filteredPapers,
-            new ParallelOptions
-            {
-                CancellationToken = cancellationToken,
-                MaxDegreeOfParallelism = parallelOpt.Value.Downloads,
-            },
-            async (p, ct) =>
-            {
-                try
-                {
-                    await semaphore.WaitAsync(ct);
-
-                    // Apply rate limiting if configured
-                    if (downloadDelayMs > 0)
-                    {
-                        var threadId = Environment.CurrentManagedThreadId;
-                        int remainingDelay = 0;
-
-                        if (lastDownloadTimes.TryGetValue(threadId, out var lastDownload))
-                        {
-                            var elapsed = (DateTime.UtcNow - lastDownload).TotalMilliseconds;
-                            remainingDelay =
-                                downloadDelayMs - (int)elapsed + randomGen.Next(downloadDelayMs);
-                        }
-                        if (remainingDelay > 0)
-                            await Task.Delay(remainingDelay, ct);
-
-                        lastDownloadTimes[threadId] = DateTime.UtcNow;
-                    }
-
-                    logger.LogInformation(
-                        "Downloading: {Title} ({FileName})",
-                        p.Paper.Title,
-                        Path.GetFileName(p.Path)
-                    );
-
-                    var pdfStream = await httpClient.GetStreamAsync(p.Link, ct);
-                    using var fileStream = File.Create(p.Path);
-                    await pdfStream.CopyToAsync(fileStream, ct);
-
-                    logger.LogDebug("Successfully downloaded {FileName}", Path.GetFileName(p.Path));
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Error downloading {FileName}", Path.GetFileName(p.Path));
-                }
-                finally
-                {
-                    semaphore.Release();
-                }
-            }
-        );
+        await foreach (var paper in asyncEnumerable.WithCancellation(cancellationToken))
+            yield return paper;
     }
 
     private async Task<string> GetSectionAsync(
@@ -245,71 +85,339 @@ public class AcmScraper(
         return sectionHtml;
     }
 
-    private async Task<string> GetPaperAbstractAsync(
-        string paperDoi,
-        CancellationToken cancellationToken = default
+    private async IAsyncEnumerable<Paper> ProcessSectionedLayoutAsync(
+        HtmlNodeCollection sectionNodes,
+        string rootDataWidgetId,
+        string proceedingDOI,
+        [EnumeratorCancellation] CancellationToken cancellationToken
     )
     {
-        using var httpClient = httpClientFactory.CreateClient("acm-scraper");
-        var paperUrl = $"/doi/{paperDoi}";
-        var paperHtml = await httpClient.GetStringAsync(paperUrl, cancellationToken);
-        var paperDoc = new HtmlDocument();
-        paperDoc.LoadHtml(paperHtml);
-        var abstractNode = paperDoc.DocumentNode.SelectSingleNode(
-            "//div[contains(@id, 'abstracts')]//section//div"
+        logger.LogInformation(
+            "Found {Count} lazy-loaded sections to process (Sectioned Layout) using Channels",
+            sectionNodes.Count
         );
-        return abstractNode?.InnerText ?? "Abstract not available";
+
+        // Channel to pass section data (headingId, doi) to consumers
+        var sectionChannel = Channel.CreateBounded<(string headingId, string doi)>(
+            new BoundedChannelOptions(parallelOpt.Value.SectionProcessing) // Bound capacity for backpressure
+            {
+                FullMode = BoundedChannelFullMode.Wait, // Wait if channel is full
+                SingleReader = false,
+                SingleWriter = true, // Only one producer task
+            }
+        );
+
+        // Channel to aggregate Paper results from consumers
+        var resultsChannel = Channel.CreateUnbounded<Paper>(
+            new UnboundedChannelOptions
+            {
+                SingleReader = true, // Only the main method reads results
+                SingleWriter = false, // Multiple consumers write results
+            }
+        );
+
+        // --- Producer Task ---
+        var producerTask = Task.Run(
+            async () =>
+            {
+                try
+                {
+                    foreach (var sectionNode in sectionNodes)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        var lazyLoadDiv = sectionNode.SelectSingleNode(
+                            ".//div[contains(@class, 'accordion-lazy')]"
+                        );
+                        var sectionDoi = lazyLoadDiv?.Attributes["data-doi"]?.Value;
+                        var sectionTitleLink = sectionNode.SelectSingleNode(
+                            ".//a[contains(@class, 'section__title')]"
+                        );
+                        var sectionHeadingId = sectionTitleLink?.Attributes["id"]?.Value;
+
+                        if (
+                            string.IsNullOrEmpty(sectionDoi)
+                            || string.IsNullOrEmpty(sectionHeadingId)
+                            || string.IsNullOrEmpty(rootDataWidgetId)
+                        )
+                        {
+                            logger.LogWarning(
+                                "Skipping section in producer due to missing attributes (DOI: {SectionDoi}, HeadingID: {SectionHeadingId}, RootWidgetId: {RootWidgetId})",
+                                sectionDoi,
+                                sectionHeadingId,
+                                rootDataWidgetId
+                            );
+                            continue; // Skip this section
+                        }
+
+                        // Write valid section data to the channel
+                        await sectionChannel.Writer.WriteAsync(
+                            (sectionHeadingId, sectionDoi),
+                            cancellationToken
+                        );
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    logger.LogDebug("Section producer task canceled.");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error in section producer task");
+                    // Signal error to the writer - this will fault the channel reader
+                    sectionChannel.Writer.TryComplete(ex);
+                }
+                finally
+                {
+                    // Mark the channel as complete when done producing
+                    sectionChannel.Writer.TryComplete();
+                }
+            },
+            cancellationToken
+        );
+
+        // --- Consumer Tasks ---
+        var consumerTasks = new List<Task>();
+        for (int i = 0; i < parallelOpt.Value.SectionProcessing; i++)
+        {
+            consumerTasks.Add(
+                Task.Run(
+                    async () =>
+                    {
+                        try
+                        {
+                            // Read from the section channel until it's complete
+                            await foreach (
+                                var (headingId, doi) in sectionChannel.Reader.ReadAllAsync(
+                                    cancellationToken
+                                )
+                            )
+                            {
+                                try
+                                {
+                                    logger.LogDebug(
+                                        "Processing section {SectionId} with DOI {SectionDoi}",
+                                        headingId,
+                                        doi
+                                    );
+
+                                    var sectionHtml = await GetSectionAsync(
+                                        headingId,
+                                        doi,
+                                        rootDataWidgetId,
+                                        proceedingDOI,
+                                        cancellationToken
+                                    );
+                                    var sectionContentDoc = new HtmlDocument();
+                                    sectionContentDoc.LoadHtml(sectionHtml);
+
+                                    // Parse papers and write to results channel
+                                    await foreach (
+                                        var paper in acmPaperParser
+                                            .ParsePapersFromNodeAsync(
+                                                sectionContentDoc.DocumentNode,
+                                                cancellationToken
+                                            )
+                                            .WithCancellation(cancellationToken)
+                                    )
+                                    {
+                                        await resultsChannel.Writer.WriteAsync(
+                                            paper,
+                                            cancellationToken
+                                        );
+                                    }
+                                }
+                                catch (OperationCanceledException)
+                                {
+                                    // Expected if cancellation is requested during processing
+
+                                    logger.LogTrace(
+                                        "Section consumer sub-task canceled for section {SectionId}",
+                                        headingId
+                                    );
+                                    throw; // Re-throw to cancel the foreach loop
+                                }
+                                catch (Exception ex)
+                                {
+                                    // Log error for specific section but continue processing others
+                                    logger.LogError(
+                                        ex,
+                                        "Error processing section {SectionId} with DOI {Doi}",
+                                        headingId,
+                                        doi
+                                    );
+                                }
+                            }
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            logger.LogDebug("Section consumer task canceled.");
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogError(ex, "Error in section consumer task");
+                            // Signal error completion to the results channel writer if an unexpected error occurs
+                            resultsChannel.Writer.TryComplete(ex);
+                        }
+                    },
+                    cancellationToken
+                )
+            );
+        }
+
+        // Wait for the producer and all consumers to finish
+        // Need a Task to monitor producer and completion of consumers before closing results channel
+        _ = Task.Run(
+            async () =>
+            {
+                await producerTask; // Wait for producer first
+                await Task.WhenAll(consumerTasks); // Then wait for all consumers
+                resultsChannel.Writer.TryComplete(); // Mark results channel complete
+            },
+            cancellationToken
+        );
+
+        // Read results from the results channel and yield them
+        await foreach (var paper in resultsChannel.Reader.ReadAllAsync(cancellationToken))
+            yield return paper;
+
+        logger.LogInformation("Finished processing sectioned layout using Channels.");
     }
 
-    private async Task<List<Paper>> GetPapersFromSection(
-        string sectionHtml,
-        CancellationToken cancellationToken = default
+    private async IAsyncEnumerable<Paper> ProcessNonSectionedLayoutAsync(
+        HtmlNode tocWrapperNode,
+        string pbContext,
+        [EnumeratorCancellation] CancellationToken cancellationToken
     )
     {
-        var sectionDoc = new HtmlDocument();
-        sectionDoc.LoadHtml(sectionHtml);
-        var paperNodes = sectionDoc.DocumentNode.SelectNodes(
-            "//div[contains(@class, 'issue-item-container')]"
+        logger.LogInformation("Processing as Non-Sectioned Layout (Paginated See More)");
+
+        // 1. Parse papers initially visible on the page
+        logger.LogInformation("Parsing initially visible papers...");
+        int initialPaperCount = 0;
+        await foreach (
+            var paper in acmPaperParser.ParsePapersFromNodeAsync(tocWrapperNode, cancellationToken)
+        )
+        {
+            yield return paper;
+            initialPaperCount++;
+        }
+        logger.LogInformation("Parsed {Count} initial papers.", initialPaperCount);
+
+        // 2. Process 'See More' sequence
+        // Initial setup: Find the first 'See More' button and necessary IDs/context
+        var firstSeeMoreDiv = tocWrapperNode.SelectSingleNode(
+            ".//div[contains(@class, 'see_more')]"
+        );
+        var firstShowMoreButton = firstSeeMoreDiv?.SelectSingleNode(
+            ".//button[contains(@class, 'showMoreProceedings')]"
         );
 
-        if (paperNodes == null)
-            return new List<Paper>();
+        string? currentDataUrl = firstShowMoreButton?.Attributes["data-url"]?.Value;
+        string? currentDataDoi = firstShowMoreButton?.Attributes["data-doi"]?.Value;
+        string? currentDataId = firstShowMoreButton?.Attributes["data-id"]?.Value;
+        string? currentWidgetId = tocWrapperNode.Attributes["data-widgetid"]?.Value;
 
-        var papers = new List<Paper>();
-        foreach (var paperNode in paperNodes)
+        if (
+            string.IsNullOrEmpty(currentDataUrl)
+            || string.IsNullOrEmpty(currentDataDoi)
+            || string.IsNullOrEmpty(currentDataId)
+            || string.IsNullOrEmpty(currentWidgetId)
+            || string.IsNullOrEmpty(pbContext)
+        )
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            logger.LogWarning(
+                "Could not initiate 'See More' sequence: missing initial data attributes or pbContext."
+            );
+            yield break;
+        }
+
+        // Loop as long as we have a data-id for the next request
+        using var httpClient = httpClientFactory.CreateClient("acm-scraper");
+        while (!string.IsNullOrEmpty(currentDataId))
+        {
+            logger.LogInformation("Fetching 'See More' chunk with ID: {DataId}", currentDataId);
+            string? responseHtml = null;
+            string? nextDataId = null; // ID for the *next* iteration
 
             try
             {
-                var titleNode = paperNode
-                    .SelectSingleNode(".//h5[contains(@class, 'issue-item__title')]")
-                    .SelectSingleNode(".//a");
-                var title = titleNode.InnerText;
-                var doi = titleNode.Attributes["href"].Value.Replace("/doi/", "");
-                var authors = paperNode
-                    .SelectSingleNode(".//ul")
-                    .SelectNodes(".//li")
-                    .Select(li => li.InnerText.TrimEnd(','))
-                    .ToArray();
-                var @abstract = await GetPaperAbstractAsync(doi, cancellationToken);
-                var url = paperNode.SelectSingleNode(".//a").Attributes["href"].Value;
-                papers.Add(
-                    new Paper
-                    {
-                        Title = title,
-                        Authors = authors,
-                        Abstract = @abstract,
-                        Url = url,
-                        Doi = doi,
-                    }
-                );
+                var seeMoreUrl =
+                    $"{currentDataUrl}?id={currentDataId}&doi={HttpUtility.UrlEncode(currentDataDoi)}&widgetId={currentWidgetId}&pbContext={HttpUtility.UrlEncode(pbContext)}";
+                logger.LogDebug("Requesting 'See More' URL: {SeeMoreUrl}", seeMoreUrl);
+
+                responseHtml = await httpClient.GetStringAsync(seeMoreUrl, cancellationToken);
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Error extracting paper data");
+                logger.LogError(
+                    ex,
+                    "Error fetching 'See More' chunk with ID {DataId}",
+                    currentDataId
+                );
+                break; // Stop processing 'See More' on error
             }
+
+            if (string.IsNullOrEmpty(responseHtml))
+            {
+                logger.LogWarning(
+                    "Received empty response for 'See More' chunk ID {DataId}",
+                    currentDataId
+                );
+                // Don't necessarily break here, maybe the next ID is present
+            }
+            else
+            {
+                var chunkDoc = new HtmlDocument();
+                chunkDoc.LoadHtml(responseHtml);
+
+                // Parse and yield papers from the current chunk
+                int chunkPaperCount = 0;
+                await foreach (
+                    var paper in acmPaperParser.ParsePapersFromNodeAsync(
+                        chunkDoc.DocumentNode,
+                        cancellationToken
+                    )
+                )
+                {
+                    yield return paper;
+                    chunkPaperCount++;
+                }
+                logger.LogDebug(
+                    "Parsed {Count} papers from chunk ID {DataId}",
+                    chunkPaperCount,
+                    currentDataId
+                );
+            }
+
+            // Find the NEXT 'See More' button within this response's HTML (handle null responseHtml)
+            if (!string.IsNullOrEmpty(responseHtml))
+            {
+                var chunkDocForNextButton = new HtmlDocument(); // Need to parse again or reuse chunkDoc if not null
+                chunkDocForNextButton.LoadHtml(responseHtml);
+                var nextSeeMoreDiv = chunkDocForNextButton.DocumentNode.SelectSingleNode(
+                    "//div[contains(@class, 'see_more')]"
+                ); // Search within the response doc
+                var nextShowMoreButton = nextSeeMoreDiv?.SelectSingleNode(
+                    ".//button[contains(@class, 'showMoreProceedings')]"
+                );
+                nextDataId = nextShowMoreButton?.Attributes["data-id"]?.Value;
+            }
+            else
+            {
+                // If responseHtml was null/empty, we can't find the next button in it.
+                nextDataId = null;
+            }
+
+            if (string.IsNullOrEmpty(nextDataId))
+                logger.LogInformation(
+                    "No further 'See More' button found in response for ID {DataId}. Reached end.",
+                    currentDataId
+                );
+
+            currentDataId = nextDataId;
         }
-        return papers;
+
+        logger.LogInformation("Finished processing 'See More' sequence.");
     }
 }

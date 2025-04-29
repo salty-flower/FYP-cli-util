@@ -25,6 +25,7 @@
       </IncludeAssets>
     </PackageReference>
     <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="System.Threading.RateLimiting" />
   </ItemGroup>
 
   <ItemGroup>

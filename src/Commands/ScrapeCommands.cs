@@ -20,6 +20,7 @@ namespace DataCollection.Commands;
 [ConsoleAppFilter<PathsOptions.Filter>]
 public class ScrapeCommands(
     AcmScraper scraper,
+    AcmPaperDownloader paperDownloader,
     ILogger<ScrapeCommands> logger,
     IOptions<PathsOptions> pathsOptions
 )
@@ -31,10 +32,7 @@ public class ScrapeCommands(
     /// </summary>
     /// <param name="proceedingDOI">-p, The DOI of the proceedings to scrape</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task Metadata(
-        string proceedingDOI = "10.1145/3597503",
-        CancellationToken cancellationToken = default
-    )
+    public async Task Metadata(string proceedingDOI, CancellationToken cancellationToken = default)
     {
         var paperMetadataDir = new DirectoryInfo(_pathsOptions.PaperMetadataDir);
 
@@ -66,7 +64,7 @@ public class ScrapeCommands(
         var papers = await LoadPapersFromMetadataAsync(paperMetadataDir, cancellationToken);
 
         logger.LogInformation("Found {Count} papers to download", papers.Count);
-        await scraper.DownloadPapersAsync(papers, paperBinDir.FullName, cancellationToken);
+        await paperDownloader.DownloadPapersAsync(papers, paperBinDir.FullName, cancellationToken);
         logger.LogInformation("Downloads completed");
     }
 
@@ -75,10 +73,7 @@ public class ScrapeCommands(
     /// </summary>
     /// <param name="proceedingDOI">-p, The DOI of the proceedings to scrape</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task Pipeline(
-        string proceedingDOI = "10.1145/3597503",
-        CancellationToken cancellationToken = default
-    )
+    public async Task Pipeline(string proceedingDOI, CancellationToken cancellationToken = default)
     {
         logger.LogInformation("Starting full pipeline...");
 

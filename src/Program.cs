@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading.RateLimiting;
 using ConsoleAppFramework;
 using DataCollection.Commands;
 using DataCollection.Commands.Repl;
@@ -42,29 +43,45 @@ var app = builder.ConfigureServices(
             allowDefault: true
         );
 
-        services.AddHttpClient(
-            "acm-scraper",
-            (sp, client) =>
-            {
-                var config = sp.GetRequiredService<IOptionsSnapshot<ScraperOptions>>().Value;
-                var baseUrl = config.AcmBaseUrl;
-                client.BaseAddress = new Uri(baseUrl);
+        services
+            .AddHttpClient(
+                "acm-scraper",
+                (sp, client) =>
+                {
+                    var config = sp.GetRequiredService<IOptionsSnapshot<ScraperOptions>>().Value;
+                    var baseUrl = config.AcmBaseUrl;
+                    client.BaseAddress = new Uri(baseUrl);
 
-                // Add cookies from configuration
-                var cookies = config.Cookies;
-                if (cookies.Count == 0)
-                    throw new InvalidOperationException("No cookies found in configuration");
+                    // Add cookies from configuration
+                    var cookies = config.Cookies;
+                    if (cookies.Count == 0)
+                        throw new InvalidOperationException("No cookies found in configuration");
 
-                foreach (var cookie in cookies)
-                    client.DefaultRequestHeaders.TryAddWithoutValidation(
-                        "Cookie",
-                        $"{cookie.Key}={cookie.Value}"
-                    );
-            }
-        );
+                    foreach (var cookie in cookies)
+                        client.DefaultRequestHeaders.TryAddWithoutValidation(
+                            "Cookie",
+                            $"{cookie.Key}={cookie.Value}"
+                        );
+                }
+            )
+            .ConfigurePrimaryHttpMessageHandler(() =>
+                new ClientSideRateLimitedHandler(
+                    new SlidingWindowRateLimiter(
+                        new SlidingWindowRateLimiterOptions
+                        {
+                            QueueLimit = int.MaxValue,
+                            Window = TimeSpan.FromSeconds(6),
+                            PermitLimit = 2,
+                            SegmentsPerWindow = 1,
+                        }
+                    )
+                )
+            );
 
         services.UseMinimalHttpLogger();
         services.AddSingleton<AcmScraper>();
+        services.AddSingleton<AcmPaperParser>();
+        services.AddSingleton<AcmPaperDownloader>();
         services.AddSingleton<PdfDescriptionService>();
         services.AddSingleton<ConsoleRenderingService>();
         services.AddSingleton<PdfSearchService>();

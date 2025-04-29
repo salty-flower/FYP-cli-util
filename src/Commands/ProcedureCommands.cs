@@ -239,7 +239,6 @@ public class ProcedureCommands(
     /// <param name="adjectivesOnly">Whether to filter for adjectives only</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of sentences containing "bug" found across all papers</returns>
-
     [ConsoleAppFilter<PythonEngineInitFilter>]
     public async Task<int> AnalyzeBugTerminology(
         string bugPattern = @"\b(?:bug|bugs)\b",
@@ -501,7 +500,6 @@ public class ProcedureCommands(
             .ToList();
 
         // Export CSV files
-
 
         // 0. Paper counts (total number of papers each job)
         var paperCountsPath = Path.Combine(outputDirectory, "paper-counts.csv");

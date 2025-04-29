@@ -33,7 +33,6 @@
     <PackageVersion Include="Janitor.fody" Version="1.9.0">
       <PrivateAssets>all</PrivateAssets>
     </PackageVersion>
-    <PackageVersion Include="pythonnet" Version="3.0.5" />
     <!-- Logging -->
     <PackageVersion Include="Serilog" Version="4.2.0-dev-02328" />
     <PackageVersion Include="Serilog.Extensions.Hosting" Version="9.0.0" />
@@ -65,7 +64,10 @@
       </IncludeAssets>
     </PackageVersion>
     <PackageVersion Include="coverlet.collector" Version="6.0.2" />
+    <!-- Others -->
     <PackageVersion Include="Moq" Version="4.20.72" />
+    <PackageVersion Include="pythonnet" Version="3.0.5" />
     <PackageVersion Include="Spectre.Console" Version="0.49.1" />
+    <PackageVersion Include="System.Threading.RateLimiting" Version="9.0.4" />
   </ItemGroup>
 </Project>

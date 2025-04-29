@@ -11,6 +11,4 @@ public class ScraperOptions
 public class ParallelismOptions
 {
     public int SectionProcessing { get; set; } = 3;
-    public int Downloads { get; set; } = 1;
-    public int DownloadDelayMs { get; set; } = 5000;
 }
