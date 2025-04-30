@@ -240,6 +240,7 @@ public class ProcedureCommands(
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of sentences containing "bug" found across all papers</returns>
     [ConsoleAppFilter<PythonEngineInitFilter>]
+    [ConsoleAppFilter<NLTKDataFilter>]
     public async Task<int> AnalyzeBugTerminology(
         string bugPattern = @"\b(?:bug|bugs)\b",
         string outputFile = "bug-terminology-analysis.json",

@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using DataCollection.Utils;
 using Python.Runtime;
 
 namespace DataCollection.Services;
@@ -14,6 +16,10 @@ public static partial class AdjectiveAnalyzer
         {
             dynamic nltk = Py.Import("nltk");
             dynamic re = Py.Import("re");
+
+            nltk.data.path.append(
+                Path.Combine(Directory.GetParent(Runtime.PythonDLL!)!.FullName, "nltk_data")
+            );
 
             dynamic tokens = nltk.word_tokenize(text.ToLower());
             dynamic taggedWords = nltk.pos_tag(tokens);
@@ -41,6 +47,7 @@ public static partial class AdjectiveAnalyzer
     public static Dictionary<string, int> AnalyzeSentenceAdjectives(string text) =>
         GetAdjectivesFromSentence(text)
             .GroupBy(adj => adj)
+            .Where(g => !TextProcessingUtils.IsStopword(g.Key))
             .ToDictionary(g => g.Key, g => g.Count());
 
     [GeneratedRegex("^[a-z]+$")]

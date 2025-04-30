@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -111,7 +112,7 @@ public static partial class PdfTextUtils
                 if (previousLineEndsWithHyphen)
                 {
                     // Remove the hyphen from the previous line
-                    result.Length = result.Length - 1; // Remove the hyphen
+                    result.Length = Math.Max(0, result.Length - 1); // Remove the hyphen
                 }
                 result.Append(currentLine);
                 continue;

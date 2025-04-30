@@ -7,8 +7,81 @@ namespace DataCollection.Utils;
 /// <summary>
 /// Utility class for text processing operations used in analysis
 /// </summary>
-public static class TextProcessingUtils
+public static partial class TextProcessingUtils
 {
+    private static readonly HashSet<string> STOPWORDS =
+    [
+        "bug",
+        "the",
+        "and",
+        "a",
+        "to",
+        "of",
+        "in",
+        "is",
+        "that",
+        "it",
+        "with",
+        "for",
+        "as",
+        "on",
+        "was",
+        "be",
+        "by",
+        "this",
+        "an",
+        "which",
+        "or",
+        "from",
+        "are",
+        "we",
+        "they",
+        "can",
+        "at",
+        "have",
+        "has",
+        "had",
+        "not",
+        "but",
+        "were",
+        "their",
+        "been",
+        "would",
+        "will",
+        "when",
+        "what",
+        "who",
+        "how",
+        "all",
+        "if",
+        "may",
+        "more",
+        "no",
+        "our",
+        "one",
+        "other",
+        "some",
+        "such",
+        "than",
+        "then",
+        "there",
+        "these",
+        "them",
+        "those",
+        "its",
+        "his",
+        "her",
+        "he",
+        "she",
+        "you",
+        "your",
+        "my",
+        "do",
+        "does",
+        "did",
+        "done",
+    ];
+
     /// <summary>
     /// Extract sentences from text, handling academic text conventions
     /// </summary>
@@ -95,14 +168,14 @@ public static class TextProcessingUtils
         var words = new List<string>();
 
         // Match regular words, compound words with hyphens, and technical terms
-        var matches = Regex.Matches(normalized, @"\b[a-z0-9]+-*[a-z0-9]+(?:-[a-z0-9]+)*\b");
+        var matches = WordPattern().Matches(normalized);
 
         foreach (Match match in matches)
         {
             string word = match.Value;
 
             // Skip if it's a number or very short word
-            if (Regex.IsMatch(word, @"^\d+$") || word.Length < 2)
+            if (NumberPattern().IsMatch(word) || word.Length < 2)
                 continue;
 
             // Skip common stopwords to focus on meaningful terms
@@ -120,83 +193,7 @@ public static class TextProcessingUtils
     /// </summary>
     /// <param name="word">The word to check</param>
     /// <returns>True if the word is a stopword</returns>
-    public static bool IsStopword(string word)
-    {
-        // Common English stopwords to filter out
-        var stopwords = new HashSet<string>
-        {
-            "the",
-            "and",
-            "a",
-            "to",
-            "of",
-            "in",
-            "is",
-            "that",
-            "it",
-            "with",
-            "for",
-            "as",
-            "on",
-            "was",
-            "be",
-            "by",
-            "this",
-            "an",
-            "which",
-            "or",
-            "from",
-            "are",
-            "we",
-            "they",
-            "can",
-            "at",
-            "have",
-            "has",
-            "had",
-            "not",
-            "but",
-            "were",
-            "their",
-            "been",
-            "would",
-            "will",
-            "when",
-            "what",
-            "who",
-            "how",
-            "all",
-            "if",
-            "may",
-            "more",
-            "no",
-            "our",
-            "one",
-            "other",
-            "some",
-            "such",
-            "than",
-            "then",
-            "there",
-            "these",
-            "them",
-            "those",
-            "its",
-            "his",
-            "her",
-            "he",
-            "she",
-            "you",
-            "your",
-            "my",
-            "do",
-            "does",
-            "did",
-            "done",
-        };
-
-        return stopwords.Contains(word);
-    }
+    public static bool IsStopword(string word) => STOPWORDS.Contains(word);
 
     /// <summary>
     /// Count word frequencies in a list of words
@@ -208,12 +205,17 @@ public static class TextProcessingUtils
         // Count frequency of each word
         var wordCounts = new Dictionary<string, int>();
         foreach (var word in words)
-        {
-            if (wordCounts.ContainsKey(word))
-                wordCounts[word]++;
+            if (wordCounts.TryGetValue(word, out int value))
+                wordCounts[word] = ++value;
             else
                 wordCounts[word] = 1;
-        }
+
         return wordCounts;
     }
+
+    [GeneratedRegex(@"^\d+$")]
+    private static partial Regex NumberPattern();
+
+    [GeneratedRegex(@"\b[a-z0-9]+-*[a-z0-9]+(?:-[a-z0-9]+)*\b")]
+    private static partial Regex WordPattern();
 }
