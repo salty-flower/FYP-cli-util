@@ -1,0 +1,16 @@
+[project]
+name = "data-collection"
+version = "0.1.0"
+description = """
+    Python runtime for data collection.
+
+    By default, it uses `.venv` as the virtual environment.
+    Initialize this by:
+    ```bash
+    micromamba create -p ./.venv python=3.12
+    uv sync --python .venv
+    ```
+"""
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["nltk>=3.9.1", "pymupdf>=1.25.5", "setuptools>=80.0.1"]
