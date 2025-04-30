@@ -11,7 +11,7 @@ namespace DataCollection.Utils;
 /// <summary>
 /// Utility class for PDF text processing operations
 /// </summary>
-public static class PdfTextUtils
+public static partial class PdfTextUtils
 {
     /// <summary>
     /// Process a page of lines into reconstructed paragraphs
@@ -21,7 +21,7 @@ public static class PdfTextUtils
     public static List<string> ReconstructParagraphs(MatchObject[] pageLines)
     {
         if (pageLines == null || pageLines.Length == 0)
-            return new List<string>();
+            return [];
 
         // Group lines into paragraphs to handle line breaks properly
         var paragraphs = new List<string>();
@@ -76,16 +76,14 @@ public static class PdfTextUtils
             currentParagraph.Add(lineText);
 
             // Update hyphen flag for next iteration
-            previousLineEndsWithHyphen = lineText.EndsWith("-");
+            previousLineEndsWithHyphen = lineText.EndsWith('-');
         }
 
         // Add the last paragraph if any
         if (currentParagraph.Count > 0)
-        {
             paragraphs.Add(
                 JoinParagraphWithHyphenHandling(currentParagraph, ref previousLineEndsWithHyphen)
             );
-        }
 
         return paragraphs;
     }
@@ -107,27 +105,29 @@ public static class PdfTextUtils
         {
             string currentLine = lines[i].Trim();
 
-            if (i > 0)
+            if (i <= 0)
             {
-                string previousLine = lines[i - 1].Trim();
-
-                if (previousLine.EndsWith("-"))
+                // First line of the paragraph
+                if (previousLineEndsWithHyphen)
                 {
-                    // Handle hyphenated word continuation
-                    // Remove the hyphen from the previous line and directly append current line
+                    // Remove the hyphen from the previous line
                     result.Length = result.Length - 1; // Remove the hyphen
-                    result.Append(currentLine);
                 }
-                else
-                {
-                    // Add a space between lines within the same paragraph
-                    result.Append(" ").Append(currentLine);
-                }
+                result.Append(currentLine);
+                continue;
             }
-            else
+            string previousLine = lines[i - 1].Trim();
+
+            if (previousLine.EndsWith('-'))
             {
+                // Handle hyphenated word continuation
+                // Remove the hyphen from the previous line and directly append current line
+                result.Length = result.Length - 1; // Remove the hyphen
                 result.Append(currentLine);
             }
+
+            // Add a space between lines within the same paragraph
+            result.Append(' ').Append(currentLine);
         }
 
         return result.ToString();
@@ -151,11 +151,11 @@ public static class PdfTextUtils
         bool isIndented = currentLine.X0 > previousLine.X0 + 10; // 10 pixels threshold
 
         // Check if line starts with a capital letter potentially indicating new sentence
-        bool startsWithCapital =
-            !string.IsNullOrEmpty(currentLine.Text) && char.IsUpper(currentLine.Text.First());
+        //bool startsWithCapital =
+        //    !string.IsNullOrEmpty(currentLine.Text) && char.IsUpper(currentLine.Text.First());
 
         // Check for bullet points or numbered lists
-        bool isBulletPoint = Regex.IsMatch(currentLine.Text.TrimStart(), @"^[\•\-\*]|^\d+\.");
+        bool isBulletPoint = BulletPointRegex().IsMatch(currentLine.Text.TrimStart());
 
         // Consider it a new paragraph if there's significant vertical gap or indentation
         return verticalGap > 5 || isIndented || isBulletPoint;
@@ -196,56 +196,54 @@ public static class PdfTextUtils
                 // Extract sentences from the paragraph
                 var sentences = TextProcessingUtils.ExtractSentences(paragraph);
 
-                foreach (var sentence in sentences)
+                foreach (var sentence in sentences.Where(s => bugPattern.IsMatch(s)))
                 {
-                    if (bugPattern.IsMatch(sentence))
+                    List<string> words;
+                    Dictionary<string, int> wordCounts;
+
+                    // Extract words from the sentence
+                    if (adjectivesOnly)
                     {
-                        List<string> words;
-                        Dictionary<string, int> wordCounts;
+                        // Use NLP service to get adjectives only
+                        wordCounts = AdjectiveAnalyzer.AnalyzeSentenceAdjectives(sentence);
 
-                        // Extract words from the sentence
-                        if (adjectivesOnly)
-                        {
-                            // Use NLP service to get adjectives only
-                            wordCounts = AdjectiveAnalyzer.AnalyzeSentenceAdjectives(sentence);
-
-                            // Extract the adjective words as a list
-                            words = wordCounts.Keys.ToList();
-                        }
-                        else
-                        {
-                            // Standard word extraction without POS filtering
-                            words = TextProcessingUtils.ExtractWords(sentence);
-                            wordCounts = TextProcessingUtils.CountWords(words);
-                        }
-
-                        // Add to sentence-level data
-                        var bugSentence = new BugSentence
-                        {
-                            Text = sentence,
-                            Page = pageIndex + 1,
-                            // Use paragraph index instead of line index
-                            Line = paragraphIndex + 1,
-                            WordCount = words.Count,
-                            WordFrequency = wordCounts,
-                        };
-
-                        extractionResult.BugSentences.Add(bugSentence);
-                        totalBugSentences++;
-
-                        // Update paper-level word frequency
-                        foreach (var word in wordCounts)
-                        {
-                            if (extractionResult.WordFrequency.ContainsKey(word.Key))
-                                extractionResult.WordFrequency[word.Key] += word.Value;
-                            else
-                                extractionResult.WordFrequency[word.Key] = word.Value;
-                        }
+                        // Extract the adjective words as a list
+                        words = [.. wordCounts.Keys];
                     }
+                    else
+                    {
+                        // Standard word extraction without POS filtering
+                        words = TextProcessingUtils.ExtractWords(sentence);
+                        wordCounts = TextProcessingUtils.CountWords(words);
+                    }
+
+                    // Add to sentence-level data
+                    var bugSentence = new BugSentence
+                    {
+                        Text = sentence,
+                        Page = pageIndex + 1,
+                        // Use paragraph index instead of line index
+                        Line = paragraphIndex + 1,
+                        WordCount = words.Count,
+                        WordFrequency = wordCounts,
+                    };
+
+                    extractionResult.BugSentences.Add(bugSentence);
+                    totalBugSentences++;
+
+                    // Update paper-level word frequency
+                    foreach (var word in wordCounts)
+                        if (extractionResult.WordFrequency.ContainsKey(word.Key))
+                            extractionResult.WordFrequency[word.Key] += word.Value;
+                        else
+                            extractionResult.WordFrequency[word.Key] = word.Value;
                 }
             }
         }
 
         return totalBugSentences;
     }
+
+    [GeneratedRegex(@"^[\•\-\*]|^\d+\.")]
+    private static partial Regex BulletPointRegex();
 }
