@@ -5,7 +5,6 @@
     <EmbeddedResource Remove="build\**" />
     <None Remove="build\**" />
   </ItemGroup>
-
   <ItemGroup>
     <!-- Programming -->
     <PackageReference Include="morelinq" />

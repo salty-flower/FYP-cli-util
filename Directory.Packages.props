@@ -7,22 +7,24 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Functional programming -->
-    <PackageVersion Include="ConsoleAppFramework" Version="5.4.0" />
-    <PackageVersion Include="HtmlAgilityPack" Version="1.11.72" />
-    <PackageVersion Include="MemoryPack" Version="1.21.3" />
+    <PackageVersion Include="morelinq" Version="4.4.0" />
+    <PackageVersion Include="Enums.NET" Version="5.0.0" />
+    <!-- Data -->
+    <PackageVersion Include="HtmlAgilityPack" Version="1.12.1" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="9.0.5" />
+    <PackageVersion Include="MinimalHttpLogger" Version="3.0.0" />
+    <PackageVersion Include="Octokit" Version="14.0.0" />
+    <PackageVersion Include="OpenAI" Version="2.1.0" />
+    <PackageVersion Include="NJsonSchema" Version="11.3.2" />
+    <PackageVersion Include="MemoryPack" Version="1.21.4" />
+    <PackageVersion Include="System.Threading.RateLimiting" Version="9.0.5" />
+    <!-- Hosting -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.5" />
     <PackageVersion
       Include="Microsoft.Extensions.Configuration.EnvironmentVariables"
-      Version="9.0.3"
+      Version="9.0.5"
     />
-    <PackageVersion
-      Include="Microsoft.Extensions.Configuration.Json"
-      Version="9.0.2"
-    />
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.1" />
-    <PackageVersion Include="Microsoft.Extensions.Http" Version="9.0.2" />
-    <PackageVersion Include="MinimalHttpLogger" Version="3.0.0" />
-    <PackageVersion Include="morelinq" Version="4.3.0" />
-    <PackageVersion Include="Enums.NET" Version="5.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="9.0.5" />
     <!-- IDisposable -->
     <PackageVersion Include="Fody" Version="6.9.1">
       <PrivateAssets>all</PrivateAssets>
@@ -34,25 +36,16 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageVersion>
     <!-- Logging -->
-    <PackageVersion Include="Serilog" Version="4.2.0-dev-02328" />
+    <PackageVersion Include="Serilog" Version="4.2.0" />
     <PackageVersion Include="Serilog.Extensions.Hosting" Version="9.0.0" />
-    <PackageVersion
-      Include="Serilog.Settings.Configuration"
-      Version="9.0.0-dev-02304"
-    />
-    <PackageVersion Include="Serilog.Sinks.File" Version="6.0.0" />
+    <PackageVersion Include="Serilog.Settings.Configuration" Version="9.0.0" />
+    <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageVersion Include="Serilog.Sinks.Console" Version="6.0.0" />
     <PackageVersion Include="Serilog.Enrichers.Environment" Version="3.0.1" />
     <PackageVersion Include="Serilog.AspNetCore" Version="8.0.3" />
-    <PackageVersion
-      Include="Microsoft.Extensions.Logging.Abstractions"
-      Version="9.0.0"
-    />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.5" />
     <!-- Memory -->
-    <PackageVersion
-      Include="CommunityToolkit.HighPerformance"
-      Version="8.4.0-preview2"
-    />
+    <PackageVersion Include="CommunityToolkit.HighPerformance" Version="8.4.0-preview2" />
     <!-- Testing -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageVersion Include="NUnit" Version="4.2.2" />
@@ -64,10 +57,11 @@
       </IncludeAssets>
     </PackageVersion>
     <PackageVersion Include="coverlet.collector" Version="6.0.2" />
-    <!-- Others -->
     <PackageVersion Include="Moq" Version="4.20.72" />
+    <!-- Console -->
+    <PackageVersion Include="ConsoleAppFramework" Version="5.4.1" />
+    <PackageVersion Include="Spectre.Console" Version="0.50.0" />
+    <!-- Foreign Language -->
     <PackageVersion Include="pythonnet" Version="3.0.5" />
-    <PackageVersion Include="Spectre.Console" Version="0.49.1" />
-    <PackageVersion Include="System.Threading.RateLimiting" Version="9.0.4" />
   </ItemGroup>
 </Project>

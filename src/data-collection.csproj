@@ -5,17 +5,17 @@
     <SelfContained>false</SelfContained>
     <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
-
   <ItemGroup>
     <PackageReference Include="HtmlAgilityPack" />
     <PackageReference Include="MemoryPack" />
-    <PackageReference
-      Include="Microsoft.Extensions.Configuration.EnvironmentVariables"
-    />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="MinimalHttpLogger" />
+    <PackageReference Include="NJsonSchema" />
+    <PackageReference Include="Octokit" />
+    <PackageReference Include="OpenAI" />
     <PackageReference Include="pythonnet" />
     <PackageReference Include="Serilog.Extensions.Hosting" />
     <PackageReference Include="ConsoleAppFramework">
@@ -27,31 +27,24 @@
     <PackageReference Include="Spectre.Console" />
     <PackageReference Include="System.Threading.RateLimiting" />
   </ItemGroup>
-
   <ItemGroup>
     <None Update="appsettings*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
-
   <Target BeforeTargets="CoreCompile" Name="GenerateBuildConstants">
     <PropertyGroup>
       <BuildConstantsFile>
         $(IntermediateOutputPath)\generated\MSBuildInject\BuildConstants.g.cs
       </BuildConstantsFile>
     </PropertyGroup>
-
     <ItemGroup>
       <BuildConstantsContent Include="namespace $(RootNamespace) %3B" />
       <BuildConstantsContent Include="public static class BuildConstants {" />
-      <BuildConstantsContent
-        Include="public const string SolutionDirectory = @&quot;$(SolutionDir)&quot;%3B"
-      />
+      <BuildConstantsContent Include="public const string SolutionDirectory = @&quot;$(SolutionDir)&quot;%3B" />
       <BuildConstantsContent Include="}" />
-
       <Compile Include="$(BuildConstantsFile)" />
     </ItemGroup>
-
     <WriteLinesToFile
       File="$(BuildConstantsFile)"
       Lines="@(BuildConstantsContent)"
