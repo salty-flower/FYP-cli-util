@@ -22,11 +22,4 @@
     />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
-
-  <!-- prettier settings -->
-  <Import
-    Project="$(MSBuildThisFileDirectory)tools/prettier/prettier.targets"
-  />
-  <!-- csharpier settings -->
-  <Import Project="$(MSBuildThisFileDirectory)tools/csharpier.targets" />
 </Project>
