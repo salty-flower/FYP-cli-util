@@ -15,6 +15,7 @@
     <PackageVersion Include="MinimalHttpLogger" Version="3.0.0" />
     <PackageVersion Include="Octokit" Version="14.0.0" />
     <PackageVersion Include="OpenAI" Version="2.1.0" />
+    <PackageVersion Include="LarchSys.OpenAi.JsonSchema" Version="0.2.3" />
     <PackageVersion Include="NJsonSchema" Version="11.3.2" />
     <PackageVersion Include="MemoryPack" Version="1.21.4" />
     <PackageVersion Include="System.Threading.RateLimiting" Version="9.0.5" />

@@ -3,6 +3,7 @@ using System.Threading.RateLimiting;
 using ConsoleAppFramework;
 using DataCollection.Commands;
 using DataCollection.Commands.Repl;
+using DataCollection.Models.IssueTracker;
 using DataCollection.Options;
 using DataCollection.Services;
 using DataCollection.Utils;
@@ -10,6 +11,9 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Octokit;
+using OpenAI;
+using OpenAI.Chat;
 using Serilog;
 using Serilog.Settings.Configuration;
 
@@ -42,6 +46,11 @@ var app = builder.ConfigureServices(
             config,
             allowDefault: true
         );
+        services.AddOptionsFromOwnSectionAndValidateOnStart<CredentialOptions>(
+            config,
+            allowDefault: true
+        );
+        services.AddOptionsFromOwnSectionAndValidateOnStart<LLMOptions>(config, allowDefault: true);
 
         services
             .AddHttpClient(
@@ -79,6 +88,15 @@ var app = builder.ConfigureServices(
             );
 
         services.UseMinimalHttpLogger();
+        services.AddSingleton<IGitHubClient, GitHubClient>(sp => new GitHubClient(
+            new ProductHeaderValue("bug-agreement")
+        )
+        {
+            Credentials = new Credentials(sp.GetOptions<CredentialOptions>().GitHubToken),
+        });
+        services.AddSingleton(sp => new OpenAIClient(
+            sp.GetOptions<CredentialOptions>().OpenAIToken
+        ));
         services.AddSingleton<AcmScraper>();
         services.AddSingleton<AcmPaperParser>();
         services.AddSingleton<AcmPaperDownloader>();
@@ -86,11 +104,16 @@ var app = builder.ConfigureServices(
         services.AddSingleton<ConsoleRenderingService>();
         services.AddSingleton<PdfSearchService>();
         services.AddSingleton<DataLoadingService>();
+        services.AddSingleton<GitHubService>();
+        services.AddSingleton<IsDeveloperCriterion>();
+        services.AddSingleton<IssueOverallStatusCriterion>();
+        services.AddSingleton<IssueFixedCriterion>();
         services.AddSingleton<ReplCommands>();
         services.AddSingleton<TextLinesReplCommand>();
         services.AddSingleton<PdfReplCommand>();
         services.AddSingleton<MetadataReplCommand>();
         services.AddSingleton<ProcedureCommands>();
+        services.AddSingleton<IssueCommands>();
     }
 );
 

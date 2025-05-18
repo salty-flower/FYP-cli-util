@@ -7,8 +7,3 @@ public class ScraperOptions
     public string AcmBaseUrl { get; set; } = string.Empty;
     public Dictionary<string, string> Cookies { get; set; } = new();
 }
-
-public class ParallelismOptions
-{
-    public int SectionProcessing { get; set; } = 3;
-}
