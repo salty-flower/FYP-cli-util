@@ -30,7 +30,7 @@ public abstract class LargeLanguageModelCriterion<TProfile, TOutcome>(
             var outcome = JsonSerializer.Deserialize<TOutcome>(llmResponse, options);
             if (outcome == null)
                 throw new InvalidOperationException(
-                    $"Failed to deserialize LLM response to {typeof(TOutcome).Name}"
+                    $"Failed to deserialize LLM response to {typeof(TOutcome).Name}: {llmResponse}"
                 );
 
             return outcome;
@@ -51,7 +51,7 @@ public abstract class LargeLanguageModelCriterion<TProfile, TOutcome>(
 
         try
         {
-            logger.LogDebug("Schema: {Schema}", OutcomeSchema);
+            logger.LogTrace("Schema: {Schema}", OutcomeSchema);
             var options = new ChatCompletionOptions
             {
                 ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
@@ -70,9 +70,6 @@ public abstract class LargeLanguageModelCriterion<TProfile, TOutcome>(
             var result = response.Value.Content[0].Text;
             if (string.IsNullOrEmpty(result))
                 throw new InvalidOperationException("Empty result from LLM.");
-
-            logger.LogDebug("Received LLM response: {Response}", result);
-
             return ParseOutcome(result);
         }
         catch (Exception ex)
