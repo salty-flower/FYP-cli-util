@@ -33,6 +33,36 @@ public partial class PathsOptions
         init;
     } = "paper-bin";
 
+    public string IssueTrackerDir
+    {
+        get => CombineWithBase(field);
+        init;
+    } = "issue-tracker";
+
+    public string IssueRepoDir
+    {
+        get => Path.Combine(IssueTrackerDir, field);
+        init;
+    } = "repos";
+
+    public string IssueProfileDir
+    {
+        get => Path.Combine(IssueTrackerDir, field);
+        init;
+    } = "profiles";
+
+    public string IssueAnalysisDir
+    {
+        get => Path.Combine(IssueTrackerDir, field);
+        init;
+    } = "analysis";
+
+    public string IssuePromptCacheDir
+    {
+        get => Path.Combine(IssueTrackerDir, field);
+        init;
+    } = "prompts";
+
     /// <summary>
     /// Path to Python DLL
     /// </summary>
@@ -58,5 +88,10 @@ public partial class PathsOptions
         Directory.CreateDirectory(PaperMetadataDir);
         Directory.CreateDirectory(PdfDataDir);
         Directory.CreateDirectory(PaperBinDir);
+        Directory.CreateDirectory(IssueTrackerDir);
+        Directory.CreateDirectory(IssueRepoDir);
+        Directory.CreateDirectory(IssueProfileDir);
+        Directory.CreateDirectory(IssueAnalysisDir);
+        Directory.CreateDirectory(IssuePromptCacheDir);
     }
 }
