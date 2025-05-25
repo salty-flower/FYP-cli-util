@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Net.Http;
 using System.Text;
 using DataCollection.Options;
 using EnumsNET;
@@ -13,12 +14,16 @@ namespace DataCollection.Models.IssueTracker;
 public class IssueOverallStatusCriterion(
     OpenAIClient client,
     IOptionsSnapshot<LLMOptions> llmOptions,
-    ILogger<IssueOverallStatusCriterion> logger
+    ILogger<IssueOverallStatusCriterion> logger,
+    IOptions<CredentialOptions> credentialOptions,
+    IHttpClientFactory httpClientFactory
 )
     : LargeLanguageModelCriterion<IssueProfile, IssueAnalysisResponse>(
         llmOptions.Value.IssueOverallStatusModel,
         logger,
-        client
+        client,
+        credentialOptions,
+        httpClientFactory
     )
 {
     public bool FilterOutNonDeveloperComments { get; set; } = false;

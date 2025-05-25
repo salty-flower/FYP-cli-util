@@ -52,6 +52,19 @@ var app = builder.ConfigureServices(
         );
         services.AddOptionsFromOwnSectionAndValidateOnStart<LLMOptions>(config, allowDefault: true);
 
+        services.AddHttpClient(
+            "OpenAIBatchApi",
+            (sp, client) =>
+            {
+                var credentialOptions = sp.GetRequiredService<IOptions<CredentialOptions>>().Value;
+                client.DefaultRequestHeaders.Add(
+                    "Authorization",
+                    $"Bearer {credentialOptions.OpenAIToken}"
+                );
+                client.DefaultRequestHeaders.Add("User-Agent", "OpenAI-DotNet-Batch");
+            }
+        );
+
         services
             .AddHttpClient(
                 "acm-scraper",
