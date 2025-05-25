@@ -6,7 +6,8 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using ConsoleAppFramework;
-using DataCollection.Models.IssueTracker;
+using DataCollection.Models.IssueTracker.Criteria;
+using DataCollection.Models.IssueTracker.Profiles;
 using DataCollection.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -309,7 +310,7 @@ public class GitHubService(
                 new OtherEventProfile
                 {
                     EventType = evt.Event.StringValue,
-                    ActorProfile = await GetUserProfileAsync(evt.Actor.Login, repository),
+                    By = await GetUserProfileAsync(evt.Actor.Login, repository),
                     OccurredAt = evt.CreatedAt,
                     EventDescription = JsonConvert.SerializeObject(
                         // only include interested properties

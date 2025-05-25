@@ -5,6 +5,8 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using DataCollection.Models;
 using DataCollection.Models.Export;
+using DataCollection.Models.Export.Results;
+using DataCollection.Models.Export.Search;
 using DataCollection.Options;
 using DataCollection.Services;
 using DataCollection.Utils;

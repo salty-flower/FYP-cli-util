@@ -4,7 +4,8 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using DataCollection.Models;
-using DataCollection.Models.Export;
+using DataCollection.Models.Export.BugAnalysis;
+using DataCollection.Models.Export.PaperAnalysis;
 using DataCollection.Services;
 
 namespace DataCollection.Utils;

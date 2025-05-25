@@ -1,13 +1,11 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
-using DataCollection.Commands;
-using DataCollection.Models.IssueTracker;
+using DataCollection.Models.IssueTracker.Responses;
 using DataCollection.Models.OpenAI;
+using DataCollection.Services;
 
 namespace DataCollection.Serialization;
 
 [JsonSerializable(typeof(IssueAnalysisResponse))]
-[JsonSerializable(typeof(IssueCommands.CachedAnalysisResult))]
 [JsonSerializable(typeof(BatchJobResponse))]
 [JsonSerializable(typeof(BatchResponse))]
 [JsonSerializable(typeof(BatchResponseData))]
@@ -21,11 +19,13 @@ namespace DataCollection.Serialization;
 [JsonSerializable(typeof(ChatCompletionRequest))]
 [JsonSerializable(typeof(ResponseFormatModel))]
 [JsonSerializable(typeof(JsonSchemaModel))]
-[JsonSerializable(typeof(AnalysisResultModel))]
 [JsonSerializable(typeof(object))] // For fallback cases
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     WriteIndented = false,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
+    UseStringEnumConverter = true,
+    RespectNullableAnnotations = true
 )]
-public partial class AppJsonContext : JsonSerializerContext { }
+public partial class OpenAIBatchRequestJsonContext : JsonSerializerContext { }

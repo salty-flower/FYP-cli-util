@@ -3,7 +3,7 @@ using System.Threading.RateLimiting;
 using ConsoleAppFramework;
 using DataCollection.Commands;
 using DataCollection.Commands.Repl;
-using DataCollection.Models.IssueTracker;
+using DataCollection.Models.IssueTracker.Criteria;
 using DataCollection.Options;
 using DataCollection.Services;
 using DataCollection.Utils;
@@ -13,7 +13,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Octokit;
 using OpenAI;
-using OpenAI.Chat;
 using Serilog;
 using Serilog.Settings.Configuration;
 
@@ -118,6 +117,9 @@ var app = builder.ConfigureServices(
         services.AddSingleton<PdfSearchService>();
         services.AddSingleton<DataLoadingService>();
         services.AddSingleton<GitHubService>();
+        services.AddSingleton<IssueAnalysisStorageService>();
+        services.AddSingleton<SingleIssueProcessingService>();
+        services.AddSingleton<IssueBatchProcessingService>();
         services.AddSingleton<IsDeveloperCriterion>();
         services.AddSingleton<IssueOverallStatusCriterion>();
         services.AddSingleton<IssueFixedCriterion>();

@@ -1,5 +1,7 @@
 using System.Text.Json.Serialization;
 using DataCollection.Models.Export;
+using DataCollection.Models.Export.Results;
+using DataCollection.Models.Export.Search;
 
 namespace DataCollection.Commands.Repl;
 

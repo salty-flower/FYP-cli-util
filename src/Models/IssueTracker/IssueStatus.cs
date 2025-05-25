@@ -1,7 +1,9 @@
 ﻿using System.ComponentModel;
+using System.Text.Json.Serialization;
 
 namespace DataCollection.Models.IssueTracker;
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum IssueStatus
 {
     [Description("Issue is Pending.")]

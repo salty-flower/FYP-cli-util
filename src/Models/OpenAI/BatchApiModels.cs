@@ -2,7 +2,6 @@ using System.Text.Json.Nodes;
 
 namespace DataCollection.Models.OpenAI;
 
-
 public record BatchRequestModel(string CustomId, string Method, string Url, object Body);
 
 public record CreateBatchJobRequest(string InputFileId, string Endpoint, string CompletionWindow);
@@ -18,7 +17,6 @@ public record ChatCompletionRequest(
 public record ResponseFormatModel(string Type, JsonSchemaModel JsonSchema);
 
 public record JsonSchemaModel(string Name, JsonNode Schema, bool Strict);
-
 
 public record AnalysisResultModel(
     string Owner,
