@@ -158,7 +158,7 @@ public class SingleIssueProcessingService(
         var repoName = parts[1];
         var repository = await gitHubService.GetRepositoryInfoAsync(owner, repoName);
 
-        var userLogins = new HashSet<string> { issueProfile.OctokitIssue.User.Login };
+        var userLogins = new HashSet<string> { issueProfile.SdkIssue.User?.Login ?? "unknown" };
 
         foreach (var comment in issueProfile.CommentEvents)
             userLogins.Add(comment.By.Login);
@@ -170,6 +170,8 @@ public class SingleIssueProcessingService(
         {
             try
             {
+                // For simplicity, pass null as the user object since we only have login
+                // The service will fetch the user details internally
                 await gitHubService.GetUserProfileAsync(login, repository);
             }
             catch (Exception ex)

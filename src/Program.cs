@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Net.Http.Headers;
 using System.Threading.RateLimiting;
 using ConsoleAppFramework;
 using DataCollection.Commands;
@@ -7,11 +8,13 @@ using DataCollection.Models.IssueTracker.Criteria;
 using DataCollection.Options;
 using DataCollection.Services;
 using DataCollection.Utils;
+using GitHub;
+using GitHub.Octokit.Client;
+using GitHub.Octokit.Client.Authentication;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Octokit;
 using OpenAI;
 using Serilog;
 using Serilog.Settings.Configuration;
@@ -100,12 +103,18 @@ var app = builder.ConfigureServices(
             );
 
         services.UseMinimalHttpLogger();
-        services.AddSingleton<IGitHubClient, GitHubClient>(sp => new GitHubClient(
-            new ProductHeaderValue("bug-agreement")
-        )
+
+        // Register new GitHub SDK components
+        services.AddSingleton<TokenProvider>(sp => new TokenProvider(
+            sp.GetOptions<CredentialOptions>().GitHubToken
+        ));
+        services.AddSingleton<GitHubClient>(sp =>
         {
-            Credentials = new Credentials(sp.GetOptions<CredentialOptions>().GitHubToken),
+            var tokenProvider = sp.GetRequiredService<TokenProvider>();
+            var adapter = RequestAdapter.Create(new TokenAuthProvider(tokenProvider));
+            return new GitHubClient(adapter);
         });
+
         services.AddSingleton(sp => new OpenAIClient(
             sp.GetOptions<CredentialOptions>().OpenAIToken
         ));
@@ -116,6 +125,7 @@ var app = builder.ConfigureServices(
         services.AddSingleton<ConsoleRenderingService>();
         services.AddSingleton<PdfSearchService>();
         services.AddSingleton<DataLoadingService>();
+        services.AddSingleton<GitHubManualApiService>();
         services.AddSingleton<GitHubService>();
         services.AddSingleton<IssueAnalysisStorageService>();
         services.AddSingleton<SingleIssueProcessingService>();
@@ -129,6 +139,20 @@ var app = builder.ConfigureServices(
         services.AddSingleton<MetadataReplCommand>();
         services.AddSingleton<ProcedureCommands>();
         services.AddSingleton<IssueCommands>();
+
+        // Add GitHub API HttpClient with token
+        services.AddHttpClient(
+            "github-api",
+            (sp, client) =>
+            {
+                var credentialOptions = sp.GetRequiredService<IOptions<CredentialOptions>>().Value;
+                client.BaseAddress = new Uri("https://api.github.com/");
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+                    "Bearer",
+                    credentialOptions.GitHubToken
+                );
+            }
+        );
     }
 );
 

@@ -7,7 +7,6 @@ using ConsoleAppFramework;
 using DataCollection.Options;
 using DataCollection.Services;
 using Microsoft.Extensions.Logging;
-using Octokit;
 
 namespace DataCollection.Commands;
 
@@ -82,7 +81,7 @@ public class IssueCommands(
                 saveResults: saveResults
             );
         }
-        catch (ApiException apiEx)
+        catch (Exception apiEx)
         {
             logger.LogError(
                 apiEx,

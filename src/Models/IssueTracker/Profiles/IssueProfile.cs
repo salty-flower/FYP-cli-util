@@ -1,11 +1,11 @@
 ﻿using System;
-using Octokit;
+using GitHub.Models;
 
 namespace DataCollection.Models.IssueTracker.Profiles;
 
 public record CommentEventProfile
 {
-    public required IssueComment Comment { get; init; }
+    public required IssueComment SdkComment { get; init; }
     public required UserProfile By { get; init; }
 }
 
@@ -18,7 +18,7 @@ public enum LabelEventType
 public record LabelEventProfile
 {
     public required DateTimeOffset OccuredAt { get; init; }
-    public required Label Label { get; init; }
+    public required Label SdkLabel { get; init; }
     public required UserProfile By { get; init; }
     public required LabelEventType Event { get; init; }
 }
@@ -37,8 +37,8 @@ public record OtherEventProfile
 
 public record IssueProfile
 {
-    public required Issue OctokitIssue { get; init; }
-    public required Repository OctokitRepository { get; init; }
+    public required Issue SdkIssue { get; init; }
+    public required FullRepository SdkRepository { get; init; }
     public required UserProfile AuthorProfile { get; init; }
     public required string RepositoryFullName { get; init; }
     public bool IsClosed { get; init; }
