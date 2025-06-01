@@ -422,3 +422,8 @@ build/
 data*/
 
 .venv/
+
+
+.idea/
+.vscode/
+.cursor/
