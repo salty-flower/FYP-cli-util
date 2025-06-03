@@ -591,7 +591,7 @@ public class ProcedureCommands(
     /// </summary>
     /// <param name="field">The field value to escape</param>
     /// <returns>Properly escaped CSV field value</returns>
-    private string EscapeCsvField(string field)
+    private static string EscapeCsvField(string field)
     {
         if (string.IsNullOrEmpty(field))
         {

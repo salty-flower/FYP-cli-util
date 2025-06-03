@@ -258,7 +258,7 @@ public class TextLinesReplCommand(
     /// <summary>
     /// Handle the page command
     /// </summary>
-    private void HandlePageCommand(PdfData pdfData, string[] parts)
+    private static void HandlePageCommand(PdfData pdfData, string[] parts)
     {
         if (parts.Length < 2 || !int.TryParse(parts[1], out int pageNum))
         {
@@ -323,7 +323,7 @@ public class TextLinesReplCommand(
             }
 
             var regex = new Regex(pattern, RegexOptions.IgnoreCase);
-            var results = searchService.SearchInPdf(pdfData, regex, pageNumber);
+            var results = PdfSearchService.SearchInPdf(pdfData, regex, pageNumber);
 
             string title = pageNumber.HasValue
                 ? $"Page {pageNumber.Value + 1} in {pdfDescriptionService.GetItemDescription(pdfData)}"
@@ -400,7 +400,7 @@ public class TextLinesReplCommand(
                         continue;
                     }
 
-                    var results = searchService.SearchInPdf(pdf, regex);
+                    var results = PdfSearchService.SearchInPdf(pdf, regex);
 
                     // Skip if no results or all results are null
                     if (results == null || results.Count == 0 || results.All(r => r.Line == null))
@@ -645,7 +645,7 @@ public class TextLinesReplCommand(
                     if (pdf == null || pdf.TextLines == null)
                         continue;
 
-                    var searchResults = searchService.SearchInPdf(pdf, regex);
+                    var searchResults = PdfSearchService.SearchInPdf(pdf, regex);
 
                     if (
                         searchResults == null

@@ -10,11 +10,10 @@ namespace DataCollection.Utils;
 
 public static class StringExtensions
 {
-    // Threshold for parallel processing (can be tuned based on benchmarks)
     private const int ParallelThreshold = 100_000;
 
-    // Threshold for using stack allocation
-    private const int StackAllocThreshold = 256;
+    public static string RemoveLineEndings(this string source) =>
+        source.Replace("\n", " ").Replace("\r", " ");
 
     public static string RemoveSuffix(
         this string source,
@@ -26,7 +25,7 @@ public static class StringExtensions
             return source;
 
         if (source.EndsWith(suffix, comparisonType))
-            return source.Substring(0, source.Length - suffix.Length);
+            return source[..^suffix.Length];
 
         return source;
     }

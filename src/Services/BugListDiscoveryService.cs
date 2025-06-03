@@ -1,13 +1,17 @@
 using System;
+using System.ClientModel;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using DataCollection.Commands;
 using DataCollection.Models;
 using DataCollection.Models.Export.BugAnalysis;
 using DataCollection.Options;
+using DataCollection.Utils;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
@@ -21,7 +25,7 @@ namespace DataCollection.Services;
 /// <summary>
 /// Service for discovering bug lists and artifact repositories from papers
 /// </summary>
-public class BugListDiscoveryService(
+public partial class BugListDiscoveryService(
     IWebSearchService webSearchService,
     DataLoadingService dataLoadingService,
     GitHubService gitHubService,
@@ -32,6 +36,17 @@ public class BugListDiscoveryService(
 )
 {
     private const int MaxSearchAttempts = 3;
+    private const int MaxTextLengthForLlm = 4000;
+    private const int MaxReadmeLength = 3000;
+    private const int ContextWindowSize = 200;
+    private const double HighConfidenceThreshold = 0.7;
+    private const double MinAcceptableConfidence = 0.3;
+    private const double PdfAnalysisConfidence = 0.9;
+    private const double KeywordAnalysisConfidence = 0.95;
+    private const double WebSearchConfidenceMultiplier = 0.6;
+    private const double LlmVerificationMultiplier = 0.7;
+    private const double KeywordLlmConfidenceMultiplier = 0.9;
+
     private static readonly string[] BugTrackingPatterns =
     [
         @"github\.com/[^/]+/[^/]+/issues",
@@ -84,6 +99,17 @@ public class BugListDiscoveryService(
         "tool download",
     ];
 
+    private static readonly string[] ArtifactSections =
+    [
+        "data availability",
+        "artifact availability",
+        "code availability",
+        "replication package",
+        "supplementary material",
+        "source code",
+        "implementation",
+    ];
+
     public async Task<BugListDiscoveryAnalysis> DiscoverBugListsAsync(
         List<string> dois,
         CancellationToken cancellationToken = default
@@ -91,6 +117,14 @@ public class BugListDiscoveryService(
     {
         logger.LogInformation("Starting bug list discovery for {Count} DOIs", dois.Count);
 
+        var papers = LoadTargetPapers(dois);
+        var results = await ProcessPapers(papers, cancellationToken);
+
+        return CreateAnalysisFromResults(results);
+    }
+
+    private List<Paper> LoadTargetPapers(List<string> dois)
+    {
         var papers = dataLoadingService.LoadPapersFromMetadata(pathsOptions.Value.PaperMetadataDir);
         var targetPapers = papers.Where(p => dois.Contains(p.Doi)).ToList();
 
@@ -98,33 +132,30 @@ public class BugListDiscoveryService(
             "Found {Count} papers matching the provided DOIs",
             targetPapers.Count
         );
-
-        var results = new List<BugListDiscoveryResult>();
-        var totalSearchAttempts = 0;
-
-        foreach (var paper in targetPapers)
-        {
-            var result = await DiscoverBugListsForPaperAsync(paper, cancellationToken);
-            results.Add(result);
-            totalSearchAttempts += result.SearchAttempts;
-
-            logger.LogInformation(
-                "Processed paper {Title} - Bug lists: {BugLists}, Artifacts: {Artifacts}",
-                paper.Title,
-                result.BugLists.Count,
-                result.ArtifactRepositories.Count
-            );
-        }
-
-        return CreateAnalysis(results, totalSearchAttempts);
+        return targetPapers;
     }
 
-    /// <summary>
-    /// Discover bug lists for a single paper
-    /// </summary>
-    private async Task<BugListDiscoveryResult> DiscoverBugListsForPaperAsync(
+    private async Task<List<BugListDiscoveryResult>> ProcessPapers(
+        List<Paper> papers,
+        CancellationToken cancellationToken
+    )
+    {
+        var results = new List<BugListDiscoveryResult>();
+
+        foreach (var paper in papers)
+        {
+            var result = await ProcessSinglePaper(paper, cancellationToken);
+            results.Add(result);
+
+            LogPaperProcessingResult(paper, result);
+        }
+
+        return results;
+    }
+
+    private async Task<BugListDiscoveryResult> ProcessSinglePaper(
         Paper paper,
-        CancellationToken cancellationToken = default
+        CancellationToken cancellationToken
     )
     {
         var result = new BugListDiscoveryResult
@@ -137,8 +168,8 @@ public class BugListDiscoveryService(
         try
         {
             await ExtractFromPdfContent(paper, result, cancellationToken);
-            await SearchForArtifacts(paper, result, cancellationToken);
-            result.DiscoverySuccessful = result.BugLists.Any() || result.ArtifactRepositories.Any();
+            await SearchForArtifactsIfNeeded(paper, result, cancellationToken);
+            result.DiscoverySuccessful = HasFoundArtifacts(result);
         }
         catch (Exception ex)
         {
@@ -150,9 +181,19 @@ public class BugListDiscoveryService(
         return result;
     }
 
-    /// <summary>
-    /// Extract bug tracking URLs and repositories from PDF content
-    /// </summary>
+    private void LogPaperProcessingResult(Paper paper, BugListDiscoveryResult result)
+    {
+        logger.LogInformation(
+            "Processed paper {Title} - Bug lists: {BugLists}, Artifacts: {Artifacts}",
+            paper.Title,
+            result.BugLists.Count,
+            result.ArtifactRepositories.Count
+        );
+    }
+
+    private static bool HasFoundArtifacts(BugListDiscoveryResult result) =>
+        result.BugLists.Count != 0 || result.ArtifactRepositories.Count != 0;
+
     private async Task ExtractFromPdfContent(
         Paper paper,
         BugListDiscoveryResult result,
@@ -161,22 +202,15 @@ public class BugListDiscoveryService(
     {
         try
         {
-            var pdfData = dataLoadingService.LoadPdfData(
-                pathsOptions.Value.PdfDataDir,
-                paper.SanitizedDoi
-            );
+            var pdfData = LoadPdfData(paper);
             if (pdfData == null)
-            {
-                logger.LogWarning("No PDF data found for paper {Title}", paper.Title);
                 return;
-            }
 
             var fullText = string.Join(" ", pdfData.Texts);
 
-            ExtractBugTrackingUrls(fullText, result);
-            ExtractRepositoryUrls(fullText, result);
+            ExtractDirectUrls(fullText, result);
             await ExtractArtifactsByKeywords(fullText, result, paper, cancellationToken);
-            await AnalyzeTextWithLLM(paper, fullText, result, cancellationToken);
+            await AnalyzeTextWithLlm(paper, fullText, result, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -188,9 +222,27 @@ public class BugListDiscoveryService(
         }
     }
 
-    /// <summary>
-    /// Extract bug tracking URLs using regex patterns
-    /// </summary>
+    private PdfData? LoadPdfData(Paper paper)
+    {
+        var pdfData = dataLoadingService.LoadPdfData(
+            pathsOptions.Value.PdfDataDir,
+            paper.SanitizedDoi
+        );
+
+        if (pdfData == null)
+        {
+            logger.LogWarning("No PDF data found for paper {Title}", paper.Title);
+        }
+
+        return pdfData;
+    }
+
+    private void ExtractDirectUrls(string text, BugListDiscoveryResult result)
+    {
+        ExtractBugTrackingUrls(text, result);
+        ExtractRepositoryUrls(text, result);
+    }
+
     private void ExtractBugTrackingUrls(string text, BugListDiscoveryResult result)
     {
         foreach (var pattern in BugTrackingPatterns)
@@ -198,27 +250,22 @@ public class BugListDiscoveryService(
             var matches = Regex.Matches(text, pattern, RegexOptions.IgnoreCase);
             foreach (Match match in matches)
             {
-                var url = match.Value;
-                if (!url.StartsWith("http"))
-                    url = "https://" + url;
-
+                var url = EnsureHttpsUrl(match.Value);
                 var type = GetBugTrackingType(url);
+
                 result.BugLists.Add(
                     new BugListSource
                     {
                         Url = url,
                         Type = type,
                         DiscoveryMethod = "PDF Text Analysis",
-                        Confidence = 0.9,
+                        Confidence = PdfAnalysisConfidence,
                     }
                 );
             }
         }
     }
 
-    /// <summary>
-    /// Extract repository URLs using regex patterns
-    /// </summary>
     private void ExtractRepositoryUrls(string text, BugListDiscoveryResult result)
     {
         foreach (var pattern in RepositoryPatterns)
@@ -226,27 +273,25 @@ public class BugListDiscoveryService(
             var matches = Regex.Matches(text, pattern, RegexOptions.IgnoreCase);
             foreach (Match match in matches)
             {
-                var url = match.Value;
-                if (!url.StartsWith("http"))
-                    url = "https://" + url;
-
+                var url = EnsureHttpsUrl(match.Value);
                 var type = GetRepositoryType(url);
+
                 result.ArtifactRepositories.Add(
                     new ArtifactRepository
                     {
                         Url = url,
                         Type = type,
                         DiscoveryMethod = "PDF Text Analysis",
-                        Confidence = 0.9,
+                        Confidence = PdfAnalysisConfidence,
                     }
                 );
             }
         }
     }
 
-    /// <summary>
-    /// Extract artifact links using keyword-based search (fast initial pass)
-    /// </summary>
+    private static string EnsureHttpsUrl(string url) =>
+        url.StartsWith("http") ? url : "https://" + url;
+
     private async Task ExtractArtifactsByKeywords(
         string text,
         BugListDiscoveryResult result,
@@ -254,199 +299,232 @@ public class BugListDiscoveryService(
         CancellationToken cancellationToken
     )
     {
-        // Normalize text by removing line breaks within URLs and sentences
-        var normalizedText = text.Replace("\n", " ").Replace("\r", " ");
+        var normalizedText = text.RemoveLineEndings();
 
-        // Look for specific sections that mention artifacts
-        var artifactSections = new[]
-        {
-            "data availability",
-            "artifact availability",
-            "code availability",
-            "replication package",
-            "supplementary material",
-            "source code",
-            "implementation",
-        };
+        await ProcessArtifactSections(normalizedText, result, paper, cancellationToken);
+        ProcessKeywordSentences(normalizedText, result);
+    }
 
+    private async Task ProcessArtifactSections(
+        string normalizedText,
+        BugListDiscoveryResult result,
+        Paper paper,
+        CancellationToken cancellationToken
+    )
+    {
         var lowerText = normalizedText.ToLowerInvariant();
-        logger.LogDebug(
-            "Searching for artifacts in text of length {Length}",
-            normalizedText.Length
+        var hasArtifactSection = ArtifactSections.Any(lowerText.Contains);
+
+        if (!hasArtifactSection)
+        {
+            logger.LogDebug("No artifact-related sections found in PDF text");
+            return;
+        }
+
+        logger.LogInformation("Found artifact-related section in PDF text");
+        await ProcessUrlsInText(normalizedText, result, paper, cancellationToken);
+    }
+
+    private async Task ProcessUrlsInText(
+        string text,
+        BugListDiscoveryResult result,
+        Paper paper,
+        CancellationToken cancellationToken
+    )
+    {
+        var urlPattern = @"https?://[^\s\)]+";
+        var matches = Regex.Matches(text, urlPattern, RegexOptions.IgnoreCase);
+
+        logger.LogDebug("Found {Count} potential URLs in text", matches.Count);
+
+        foreach (Match match in matches)
+        {
+            var url = CleanUrl(match.Value);
+            await ProcessFoundUrl(url, text, result, paper, cancellationToken);
+        }
+    }
+
+    private static string CleanUrl(string url)
+    {
+        return url.TrimEnd(',', '.', ')', ']', '}', ';');
+    }
+
+    private async Task ProcessFoundUrl(
+        string url,
+        string fullText,
+        BugListDiscoveryResult result,
+        Paper paper,
+        CancellationToken cancellationToken
+    )
+    {
+        logger.LogDebug("Processing URL: {Url}", url);
+
+        if (IsRepositoryUrl(url))
+        {
+            await ProcessRepositoryUrl(url, fullText, result, paper, cancellationToken);
+        }
+        else if (IsBugTrackingUrl(url))
+        {
+            ProcessBugTrackingUrl(url, result);
+        }
+    }
+
+    private static bool IsRepositoryUrl(string url)
+    {
+        return RepositoryPatterns.Any(pattern =>
+            Regex.IsMatch(url, pattern, RegexOptions.IgnoreCase)
+        );
+    }
+
+    private static bool IsBugTrackingUrl(string url)
+    {
+        return BugTrackingPatterns.Any(pattern =>
+            Regex.IsMatch(url, pattern, RegexOptions.IgnoreCase)
+        );
+    }
+
+    private async Task ProcessRepositoryUrl(
+        string url,
+        string fullText,
+        BugListDiscoveryResult result,
+        Paper paper,
+        CancellationToken cancellationToken
+    )
+    {
+        if (result.ArtifactRepositories.Any(r => r.Url == url))
+            return;
+
+        var context = ExtractUrlContext(url, fullText);
+        var (isValid, confidence, reasoning) = await VerifyArtifactWithContext(
+            paper,
+            url,
+            context,
+            cancellationToken
         );
 
-        // Check if any artifact section exists
-        bool hasArtifactSection = artifactSections.Any(section => lowerText.Contains(section));
-
-        if (hasArtifactSection)
+        if (isValid && confidence >= MinAcceptableConfidence)
         {
-            logger.LogInformation("Found artifact-related section in PDF text");
-
-            // Extract all URLs from the entire text when artifact sections are found
-            var urlPattern = @"https?://[^\s\)]+";
-            var matches = Regex.Matches(normalizedText, urlPattern, RegexOptions.IgnoreCase);
-
-            logger.LogDebug("Found {Count} potential URLs in text", matches.Count);
-
-            foreach (Match match in matches)
-            {
-                var url = match.Value.TrimEnd(',', '.', ')', ']', '}', ';');
-                logger.LogDebug("Processing URL: {Url}", url);
-
-                // Check if it's a repository URL
-                if (
-                    RepositoryPatterns.Any(pattern =>
-                        Regex.IsMatch(url, pattern, RegexOptions.IgnoreCase)
-                    )
-                )
-                {
-                    var type = GetRepositoryType(url);
-                    var existingRepo = result.ArtifactRepositories.FirstOrDefault(r =>
-                        r.Url == url
-                    );
-
-                    if (existingRepo == null)
-                    {
-                        // Get context around the URL for LLM verification
-                        var urlIndex = normalizedText.IndexOf(
-                            url,
-                            StringComparison.OrdinalIgnoreCase
-                        );
-                        var contextStart = Math.Max(0, urlIndex - 200);
-                        var contextEnd = Math.Min(
-                            normalizedText.Length,
-                            urlIndex + url.Length + 200
-                        );
-                        var context = normalizedText.Substring(
-                            contextStart,
-                            contextEnd - contextStart
-                        );
-
-                        // Verify with LLM using context
-                        var (isValid, confidence, reasoning) = await VerifyArtifactWithContext(
-                            paper,
-                            url,
-                            context,
-                            cancellationToken
-                        );
-
-                        if (isValid && confidence >= 0.3)
-                        {
-                            result.ArtifactRepositories.Add(
-                                new ArtifactRepository
-                                {
-                                    Url = url,
-                                    Type = type,
-                                    DiscoveryMethod = "PDF Keyword Analysis + LLM Verification",
-                                    Confidence = Math.Min(confidence * 0.9, 1.0), // Slightly lower than pure keyword
-                                }
-                            );
-
-                            logger.LogInformation(
-                                "Verified artifact repository via keywords: {Url} - {Reasoning}",
-                                url,
-                                reasoning
-                            );
-                        }
-                        else
-                        {
-                            logger.LogDebug(
-                                "Rejected keyword-found URL {Url}: {Reasoning}",
-                                url,
-                                reasoning
-                            );
-                        }
-                    }
-                }
-                // Check if it's a bug tracking URL
-                else if (
-                    BugTrackingPatterns.Any(pattern =>
-                        Regex.IsMatch(url, pattern, RegexOptions.IgnoreCase)
-                    )
-                )
-                {
-                    var type = GetBugTrackingType(url);
-                    var existingBugList = result.BugLists.FirstOrDefault(b => b.Url == url);
-
-                    if (existingBugList == null)
-                    {
-                        result.BugLists.Add(
-                            new BugListSource
-                            {
-                                Url = url,
-                                Type = type,
-                                DiscoveryMethod = "PDF Keyword Analysis",
-                                Confidence = 0.95, // High confidence for explicit mentions
-                            }
-                        );
-
-                        logger.LogInformation("Found bug tracking URL via keywords: {Url}", url);
-                    }
-                }
-            }
+            AddVerifiedRepository(url, result, confidence, reasoning);
         }
         else
         {
-            logger.LogDebug("No artifact-related sections found in PDF text");
+            LogRejectedUrl(url, reasoning);
         }
+    }
 
-        // Also do the original sentence-by-sentence analysis for other artifact keywords
-        var sentences = normalizedText.Split(['.', '\n'], StringSplitOptions.RemoveEmptyEntries);
+    private static string ExtractUrlContext(string url, string fullText)
+    {
+        var urlIndex = fullText.IndexOf(url, StringComparison.OrdinalIgnoreCase);
+        var contextStart = Math.Max(0, urlIndex - ContextWindowSize);
+        var contextEnd = Math.Min(fullText.Length, urlIndex + url.Length + ContextWindowSize);
+
+        return fullText.Substring(contextStart, contextEnd - contextStart);
+    }
+
+    private void AddVerifiedRepository(
+        string url,
+        BugListDiscoveryResult result,
+        double confidence,
+        string reasoning
+    )
+    {
+        var type = GetRepositoryType(url);
+        result.ArtifactRepositories.Add(
+            new ArtifactRepository
+            {
+                Url = url,
+                Type = type,
+                DiscoveryMethod = "PDF Keyword Analysis + LLM Verification",
+                Confidence = Math.Min(confidence * KeywordLlmConfidenceMultiplier, 1.0),
+            }
+        );
+
+        logger.LogInformation(
+            "Verified artifact repository via keywords: {Url} - {Reasoning}",
+            url,
+            reasoning
+        );
+    }
+
+    private void LogRejectedUrl(string url, string reasoning)
+    {
+        logger.LogDebug("Rejected keyword-found URL {Url}: {Reasoning}", url, reasoning);
+    }
+
+    private void ProcessBugTrackingUrl(string url, BugListDiscoveryResult result)
+    {
+        if (result.BugLists.Any(b => b.Url == url))
+            return;
+
+        var type = GetBugTrackingType(url);
+        result.BugLists.Add(
+            new BugListSource
+            {
+                Url = url,
+                Type = type,
+                DiscoveryMethod = "PDF Keyword Analysis",
+                Confidence = KeywordAnalysisConfidence,
+            }
+        );
+
+        logger.LogInformation("Found bug tracking URL via keywords: {Url}", url);
+    }
+
+    private void ProcessKeywordSentences(string normalizedText, BugListDiscoveryResult result)
+    {
+        var sentences = normalizedText.Split(
+            new char[] { '.', '\n' },
+            StringSplitOptions.RemoveEmptyEntries
+        );
 
         foreach (var sentence in sentences)
         {
-            var lowerSentence = sentence.ToLowerInvariant();
-
-            // Check if sentence contains artifact keywords
-            if (ArtifactKeywords.Any(keyword => lowerSentence.Contains(keyword.ToLowerInvariant())))
+            if (ContainsArtifactKeywords(sentence))
             {
-                // Look for URLs in this sentence
-                var urlPattern = @"https?://[^\s\)]+";
-                var matches = Regex.Matches(sentence, urlPattern, RegexOptions.IgnoreCase);
-
-                foreach (Match match in matches)
-                {
-                    var url = match.Value.TrimEnd(',', '.', ')', ']', '}', ';');
-
-                    // Check if it's a repository URL
-                    if (
-                        RepositoryPatterns.Any(pattern =>
-                            Regex.IsMatch(url, pattern, RegexOptions.IgnoreCase)
-                        )
-                    )
-                    {
-                        var type = GetRepositoryType(url);
-                        var existingRepo = result.ArtifactRepositories.FirstOrDefault(r =>
-                            r.Url == url
-                        );
-
-                        if (existingRepo == null)
-                        {
-                            result.ArtifactRepositories.Add(
-                                new ArtifactRepository
-                                {
-                                    Url = url,
-                                    Type = type,
-                                    DiscoveryMethod = "PDF Keyword Analysis",
-                                    Confidence = 0.95, // High confidence for explicit mentions
-                                }
-                            );
-
-                            logger.LogInformation(
-                                "Found artifact repository via sentence keywords: {Url}",
-                                url
-                            );
-                        }
-                    }
-                }
+                ProcessUrlsInSentence(sentence, result);
             }
         }
     }
 
-    /// <summary>
-    /// Use LLM to analyze text for potential artifacts
-    /// </summary>
-    private async Task AnalyzeTextWithLLM(
+    private static bool ContainsArtifactKeywords(string sentence)
+    {
+        var lowerSentence = sentence.ToLowerInvariant();
+        return ArtifactKeywords.Any(keyword => lowerSentence.Contains(keyword.ToLowerInvariant()));
+    }
+
+    private void ProcessUrlsInSentence(string sentence, BugListDiscoveryResult result)
+    {
+        var urlPattern = @"https?://[^\s\)]+";
+        var matches = Regex.Matches(sentence, urlPattern, RegexOptions.IgnoreCase);
+
+        foreach (Match match in matches)
+        {
+            var url = CleanUrl(match.Value);
+
+            if (IsRepositoryUrl(url) && !result.ArtifactRepositories.Any(r => r.Url == url))
+            {
+                AddKeywordFoundRepository(url, result);
+            }
+        }
+    }
+
+    private void AddKeywordFoundRepository(string url, BugListDiscoveryResult result)
+    {
+        var type = GetRepositoryType(url);
+        result.ArtifactRepositories.Add(
+            new ArtifactRepository
+            {
+                Url = url,
+                Type = type,
+                DiscoveryMethod = "PDF Keyword Analysis",
+                Confidence = KeywordAnalysisConfidence,
+            }
+        );
+
+        logger.LogInformation("Found artifact repository via sentence keywords: {Url}", url);
+    }
+
+    private async Task AnalyzeTextWithLlm(
         Paper paper,
         string fullText,
         BugListDiscoveryResult result,
@@ -455,52 +533,17 @@ public class BugListDiscoveryService(
     {
         try
         {
-            var request = new BugListAnalysisRequest(
-                paper.Title,
-                fullText.Substring(0, Math.Min(fullText.Length, 4000))
-            );
-
-            var schema = new DefaultSchemaGenerator()
-                .Generate<BugListAnalysisResponse>(new JsonSchemaOptions())
-                .ToJson();
-
-            var messages = new ChatMessage[]
-            {
-                new SystemChatMessage(
-                    "Analyze research paper text and identify any mentions of bug tracking systems, issue trackers, software repositories, or project websites. Look for indirect references like 'Our code is available at...', 'Issues can be reported at...', 'The implementation can be found...', repository names without full URLs, or project names that might have public repositories."
-                ),
-                new UserChatMessage(
-                    $"Paper Title: {request.PaperTitle}\n\nText: {request.PaperText}"
-                ),
-            };
-
-            var options = new ChatCompletionOptions
-            {
-                ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
-                    jsonSchemaFormatName: "bug-list-analysis",
-                    jsonSchema: BinaryData.FromString(schema),
-                    jsonSchemaIsStrict: true
-                ),
-            };
-
-            var chatClient = kernel.GetRequiredService<ChatClient>();
-            var response = await chatClient.CompleteChatAsync(messages, options, cancellationToken);
-
-            if (response.Value.Content.Count == 0)
-                return;
-
-            var result_text = response.Value.Content[0].Text;
-            if (string.IsNullOrEmpty(result_text))
-                return;
-
-            var analysisResponse = JsonSerializer.Deserialize<BugListAnalysisResponse>(
-                result_text,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
-            );
+            var truncatedText = TruncateTextForLlm(fullText);
+            var analysisResponse = await GetLlmAnalysis(paper, truncatedText, cancellationToken);
 
             if (analysisResponse?.Mentions != null)
             {
-                await ProcessLLMResponse(analysisResponse, result, paper, cancellationToken);
+                await ProcessLlmMentions(
+                    analysisResponse.Mentions,
+                    result,
+                    paper,
+                    cancellationToken
+                );
             }
         }
         catch (Exception ex)
@@ -509,22 +552,145 @@ public class BugListDiscoveryService(
         }
     }
 
-    /// <summary>
-    /// Process LLM response and search for mentioned projects
-    /// </summary>
-    private async Task ProcessLLMResponse(
-        BugListAnalysisResponse response,
+    private static string TruncateTextForLlm(string fullText)
+    {
+        return fullText.Substring(0, Math.Min(fullText.Length, MaxTextLengthForLlm));
+    }
+
+    private async Task<BugListAnalysisResponse?> GetLlmAnalysis(
+        Paper paper,
+        string text,
+        CancellationToken cancellationToken
+    )
+    {
+        var request = new BugListAnalysisRequest(paper.Title, text);
+        var schema = GenerateJsonSchema<BugListAnalysisResponse>();
+
+        var messages = CreateAnalysisMessages(request);
+        var options = CreateChatOptions("bug-list-analysis", schema);
+
+        var chatClient = kernel.GetRequiredService<ChatClient>();
+        var response = await chatClient.CompleteChatAsync(messages, options, cancellationToken);
+
+        return DeserializeLlmResponse<BugListAnalysisResponse>(
+            response,
+            ExportModelJsonContext.Default.BugListAnalysisResponse
+        );
+    }
+
+    private async Task ProcessLlmMentions(
+        List<ArtifactMention> mentions,
         BugListDiscoveryResult result,
         Paper paper,
         CancellationToken cancellationToken
     )
     {
-        foreach (var mention in response.Mentions)
+        foreach (var mention in mentions)
         {
             if (!string.IsNullOrWhiteSpace(mention.ProjectName))
             {
-                await SearchForProject(
-                    mention.ProjectName,
+                await SearchForProject(mention, result, paper, cancellationToken);
+            }
+        }
+    }
+
+    private async Task SearchForArtifactsIfNeeded(
+        Paper paper,
+        BugListDiscoveryResult result,
+        CancellationToken cancellationToken
+    )
+    {
+        if (HasHighConfidenceArtifacts(result))
+        {
+            LogSkippingWebSearch(result);
+            return;
+        }
+
+        logger.LogDebug(
+            "No high-confidence artifacts found (total artifacts: {Count}), proceeding with web search",
+            result.ArtifactRepositories.Count
+        );
+
+        await PerformWebSearch(paper, result, cancellationToken);
+    }
+
+    private bool HasHighConfidenceArtifacts(BugListDiscoveryResult result)
+    {
+        return result.ArtifactRepositories.Any(a => a.Confidence >= HighConfidenceThreshold);
+    }
+
+    private void LogSkippingWebSearch(BugListDiscoveryResult result)
+    {
+        var highConfidenceArtifacts = result
+            .ArtifactRepositories.Where(a => a.Confidence >= HighConfidenceThreshold)
+            .ToList();
+
+        logger.LogInformation(
+            "Found {Count} high-confidence artifacts via keyword analysis (confidence >= {Threshold}), skipping web search",
+            highConfidenceArtifacts.Count,
+            HighConfidenceThreshold
+        );
+
+        foreach (var artifact in highConfidenceArtifacts)
+        {
+            logger.LogDebug(
+                "High-confidence artifact: {Url} (confidence: {Confidence})",
+                artifact.Url,
+                artifact.Confidence
+            );
+        }
+    }
+
+    private async Task PerformWebSearch(
+        Paper paper,
+        BugListDiscoveryResult result,
+        CancellationToken cancellationToken
+    )
+    {
+        var searchQueries = GenerateSearchQueries(paper);
+
+        foreach (var query in searchQueries.Take(MaxSearchAttempts))
+        {
+            result.SearchAttempts++;
+            logger.LogInformation("Searching for artifacts with query: {Query}", query);
+
+            var searchResults = await webSearchService.SearchAsync(query, 10, cancellationToken);
+            await ProcessSearchResults(searchResults, result, paper, cancellationToken);
+
+            if (HasFoundArtifacts(result))
+                break;
+        }
+    }
+
+    private async Task ProcessSearchResults(
+        List<WebSearchResult> searchResults,
+        BugListDiscoveryResult result,
+        Paper paper,
+        CancellationToken cancellationToken
+    )
+    {
+        foreach (var searchResult in searchResults)
+        {
+            await ProcessSingleSearchResult(searchResult, result, paper, cancellationToken);
+        }
+    }
+
+    private async Task SearchForProject(
+        ArtifactMention mention,
+        BugListDiscoveryResult result,
+        Paper paper,
+        CancellationToken cancellationToken
+    )
+    {
+        var query = $"{mention.ProjectName} github repository";
+        var searchResults = await webSearchService.SearchAsync(query, 5, cancellationToken);
+
+        foreach (var searchResult in searchResults)
+        {
+            if (IsKnownRepositoryHost(searchResult.Url))
+            {
+                await VerifyAndAddProjectRepository(
+                    searchResult,
                     mention,
                     result,
                     paper,
@@ -534,288 +700,301 @@ public class BugListDiscoveryService(
         }
     }
 
-    /// <summary>
-    /// Search for artifacts online using web search
-    /// </summary>
-    private async Task SearchForArtifacts(
-        Paper paper,
-        BugListDiscoveryResult result,
-        CancellationToken cancellationToken
-    )
+    private static bool IsKnownRepositoryHost(string url)
     {
-        // Skip expensive web search if we already found high-confidence artifacts
-        var highConfidenceArtifacts = result
-            .ArtifactRepositories.Where(a => a.Confidence >= 0.7)
-            .ToList();
-        if (highConfidenceArtifacts.Any())
+        var hosts = new[]
         {
-            logger.LogInformation(
-                "Found {Count} high-confidence artifacts via keyword analysis (confidence >= 0.7), skipping web search",
-                highConfidenceArtifacts.Count
-            );
-            foreach (var artifact in highConfidenceArtifacts)
-            {
-                logger.LogDebug(
-                    "High-confidence artifact: {Url} (confidence: {Confidence})",
-                    artifact.Url,
-                    artifact.Confidence
-                );
-            }
-            return;
-        }
+            "github.com",
+            "gitlab.com",
+            "bitbucket.org",
+            "zenodo.org",
+            "figshare.com",
+            "osf.io",
+        };
 
-        logger.LogDebug(
-            "No high-confidence artifacts found (total artifacts: {Count}), proceeding with web search",
-            result.ArtifactRepositories.Count
-        );
-
-        var searchQueries = GenerateSearchQueries(paper);
-
-        foreach (var query in searchQueries.Take(MaxSearchAttempts))
-        {
-            result.SearchAttempts++;
-            logger.LogInformation("Searching for artifacts with query: {Query}", query);
-
-            var searchResults = await webSearchService.SearchAsync(query, 10, cancellationToken);
-
-            foreach (var searchResult in searchResults)
-            {
-                await ProcessSearchResultAsync(searchResult, result, paper, cancellationToken);
-            }
-
-            if (result.BugLists.Any() || result.ArtifactRepositories.Any())
-            {
-                break;
-            }
-        }
+        return hosts.Any(host => url.Contains(host));
     }
 
-    /// <summary>
-    /// Search for a specific project mentioned in the paper
-    /// </summary>
-    private async Task SearchForProject(
-        string projectName,
+    private async Task VerifyAndAddProjectRepository(
+        WebSearchResult searchResult,
         ArtifactMention mention,
         BugListDiscoveryResult result,
         Paper paper,
         CancellationToken cancellationToken
     )
     {
-        var query = $"{projectName} github repository";
-        var searchResults = await webSearchService.SearchAsync(query, 5, cancellationToken);
+        var (isValid, confidence, reasoning) = await VerifyRepositoryAsync(
+            paper,
+            searchResult.Url,
+            cancellationToken
+        );
 
-        foreach (var searchResult in searchResults)
+        if (isValid && confidence >= MinAcceptableConfidence)
         {
-            if (
-                searchResult.Url.Contains("github.com")
-                || searchResult.Url.Contains("gitlab.com")
-                || searchResult.Url.Contains("bitbucket.org")
-                || searchResult.Url.Contains("zenodo.org")
-                || searchResult.Url.Contains("figshare.com")
-                || searchResult.Url.Contains("osf.io")
-            )
-            {
-                // Verify if this is actually an artifact repository for the paper
-                var (isValid, confidence, reasoning) = await VerifyRepositoryAsync(
-                    paper,
-                    searchResult.Url,
-                    cancellationToken
-                );
-
-                if (isValid && confidence >= 0.3)
-                {
-                    var type = GetRepositoryType(searchResult.Url);
-                    result.ArtifactRepositories.Add(
-                        new ArtifactRepository
-                        {
-                            Url = searchResult.Url,
-                            Type = type,
-                            DiscoveryMethod =
-                                $"LLM Analysis + Web Search + Verification ({projectName})",
-                            Confidence = Math.Min(mention.Confidence * confidence * 0.7, 1.0),
-                        }
-                    );
-
-                    logger.LogInformation(
-                        "Verified project repository {Url} for {ProjectName}: {Reasoning}",
-                        searchResult.Url,
-                        projectName,
-                        reasoning
-                    );
-                }
-                else
-                {
-                    logger.LogDebug(
-                        "Project repository {Url} rejected for {ProjectName}: {Reasoning}",
-                        searchResult.Url,
-                        projectName,
-                        reasoning
-                    );
-                }
-            }
+            AddProjectRepository(searchResult.Url, mention, result, confidence, reasoning);
+        }
+        else
+        {
+            LogRejectedProjectRepository(searchResult.Url, mention.ProjectName, reasoning);
         }
     }
 
-    /// <summary>
-    /// Generate search queries for finding artifacts
-    /// </summary>
+    private void AddProjectRepository(
+        string url,
+        ArtifactMention mention,
+        BugListDiscoveryResult result,
+        double confidence,
+        string reasoning
+    )
+    {
+        var type = GetRepositoryType(url);
+        var finalConfidence = Math.Min(
+            mention.Confidence * confidence * LlmVerificationMultiplier,
+            1.0
+        );
+
+        result.ArtifactRepositories.Add(
+            new ArtifactRepository
+            {
+                Url = url,
+                Type = type,
+                DiscoveryMethod =
+                    $"LLM Analysis + Web Search + Verification ({mention.ProjectName})",
+                Confidence = finalConfidence,
+            }
+        );
+
+        logger.LogInformation(
+            "Verified project repository {Url} for {ProjectName}: {Reasoning}",
+            url,
+            mention.ProjectName,
+            reasoning
+        );
+    }
+
+    private void LogRejectedProjectRepository(string url, string projectName, string reasoning)
+    {
+        logger.LogDebug(
+            "Project repository {Url} rejected for {ProjectName}: {Reasoning}",
+            url,
+            projectName,
+            reasoning
+        );
+    }
+
     private List<string> GenerateSearchQueries(Paper paper)
     {
         var queries = new List<string>();
-        var firstAuthor = paper.Authors.FirstOrDefault()?.Split(' ').LastOrDefault() ?? "";
+        var firstAuthor = ExtractFirstAuthorLastName(paper);
+        var titleWords = ExtractSignificantTitleWords(paper);
 
-        var titleWords = paper
-            .Title.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .Where(w => w.Length > 3 && char.IsUpper(w[0]))
-            .Take(3);
-
-        foreach (var word in titleWords)
-        {
-            queries.Add($"{word} {firstAuthor} github repository");
-            queries.Add($"{word} {firstAuthor} zenodo");
-            queries.Add($"{word} {firstAuthor} figshare");
-            queries.Add($"{word} source code implementation");
-            queries.Add($"{word} replication package");
-        }
-
-        // Add general paper searches
-        queries.Add($"\"{paper.Title}\" artifact repository");
-        queries.Add($"\"{paper.Title}\" replication package");
-        queries.Add($"\"{paper.Title}\" zenodo figshare");
-        queries.Add($"{firstAuthor} {DateTime.Now.Year} software repository");
-        queries.Add($"{firstAuthor} {DateTime.Now.Year} artifact doi");
+        AddWordBasedQueries(queries, titleWords, firstAuthor);
+        AddPaperBasedQueries(queries, paper, firstAuthor);
 
         return queries;
     }
 
-    /// <summary>
-    /// Process search result and extract relevant URLs with verification
-    /// </summary>
-    private async Task ProcessSearchResultAsync(
+    private static string ExtractFirstAuthorLastName(Paper paper)
+    {
+        return paper.Authors.FirstOrDefault()?.Split(' ').LastOrDefault() ?? "";
+    }
+
+    private static IEnumerable<string> ExtractSignificantTitleWords(Paper paper)
+    {
+        return paper
+            .Title.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => w.Length > 3 && char.IsUpper(w[0]))
+            .Take(3);
+    }
+
+    private static void AddWordBasedQueries(
+        List<string> queries,
+        IEnumerable<string> titleWords,
+        string firstAuthor
+    )
+    {
+        foreach (var word in titleWords)
+        {
+            queries.AddRange(
+                new[]
+                {
+                    $"{word} {firstAuthor} github repository",
+                    $"{word} {firstAuthor} zenodo",
+                    $"{word} {firstAuthor} figshare",
+                    $"{word} source code implementation",
+                    $"{word} replication package",
+                }
+            );
+        }
+    }
+
+    private void AddPaperBasedQueries(List<string> queries, Paper paper, string firstAuthor)
+    {
+        var currentYear = DateTime.Now.Year;
+
+        queries.AddRange(
+            new[]
+            {
+                $"\"{paper.Title}\" artifact repository",
+                $"\"{paper.Title}\" replication package",
+                $"\"{paper.Title}\" zenodo figshare",
+                $"{firstAuthor} {currentYear} software repository",
+                $"{firstAuthor} {currentYear} artifact doi",
+            }
+        );
+    }
+
+    private async Task ProcessSingleSearchResult(
         WebSearchResult searchResult,
         BugListDiscoveryResult result,
         Paper paper,
         CancellationToken cancellationToken
     )
     {
-        foreach (var pattern in RepositoryPatterns)
+        if (IsRepositoryUrl(searchResult.Url))
         {
-            if (Regex.IsMatch(searchResult.Url, pattern, RegexOptions.IgnoreCase))
-            {
-                // Verify if this is actually an artifact repository for the paper
-                var (isValid, confidence, reasoning) = await VerifyRepositoryAsync(
-                    paper,
-                    searchResult.Url,
-                    cancellationToken
-                );
-
-                if (isValid && confidence >= 0.3) // Only add repositories with reasonable confidence
-                {
-                    var type = GetRepositoryType(searchResult.Url);
-                    result.ArtifactRepositories.Add(
-                        new ArtifactRepository
-                        {
-                            Url = searchResult.Url,
-                            Type = type,
-                            DiscoveryMethod = "Web Search + LLM Verification",
-                            Confidence = confidence * 0.6, // Reduce confidence for web search results
-                        }
-                    );
-
-                    logger.LogInformation(
-                        "Verified repository {Url} for paper {Title}: {Reasoning}",
-                        searchResult.Url,
-                        paper.Title,
-                        reasoning
-                    );
-                }
-                else
-                {
-                    logger.LogDebug(
-                        "Repository {Url} rejected for paper {Title}: {Reasoning}",
-                        searchResult.Url,
-                        paper.Title,
-                        reasoning
-                    );
-                }
-                return;
-            }
+            await ProcessRepositorySearchResult(searchResult, result, paper, cancellationToken);
         }
-
-        foreach (var pattern in BugTrackingPatterns)
+        else if (IsBugTrackingUrl(searchResult.Url))
         {
-            if (Regex.IsMatch(searchResult.Url, pattern, RegexOptions.IgnoreCase))
-            {
-                var type = GetBugTrackingType(searchResult.Url);
-                result.BugLists.Add(
-                    new BugListSource
-                    {
-                        Url = searchResult.Url,
-                        Type = type,
-                        DiscoveryMethod = "Web Search",
-                        Confidence = 0.6,
-                    }
-                );
-                return;
-            }
+            ProcessBugTrackingSearchResult(searchResult, result);
         }
     }
 
-    /// <summary>
-    /// Determine bug tracking system type from URL
-    /// </summary>
+    private async Task ProcessRepositorySearchResult(
+        WebSearchResult searchResult,
+        BugListDiscoveryResult result,
+        Paper paper,
+        CancellationToken cancellationToken
+    )
+    {
+        var (isValid, confidence, reasoning) = await VerifyRepositoryAsync(
+            paper,
+            searchResult.Url,
+            cancellationToken
+        );
+
+        if (isValid && confidence >= MinAcceptableConfidence)
+        {
+            AddWebSearchRepository(searchResult.Url, result, confidence, reasoning, paper);
+        }
+        else
+        {
+            LogRejectedWebSearchRepository(searchResult.Url, paper.Title, reasoning);
+        }
+    }
+
+    private void AddWebSearchRepository(
+        string url,
+        BugListDiscoveryResult result,
+        double confidence,
+        string reasoning,
+        Paper paper
+    )
+    {
+        var type = GetRepositoryType(url);
+        result.ArtifactRepositories.Add(
+            new ArtifactRepository
+            {
+                Url = url,
+                Type = type,
+                DiscoveryMethod = "Web Search + LLM Verification",
+                Confidence = confidence * WebSearchConfidenceMultiplier,
+            }
+        );
+
+        logger.LogInformation(
+            "Verified repository {Url} for paper {Title}: {Reasoning}",
+            url,
+            paper.Title,
+            reasoning
+        );
+    }
+
+    private void LogRejectedWebSearchRepository(string url, string paperTitle, string reasoning)
+    {
+        logger.LogDebug(
+            "Repository {Url} rejected for paper {Title}: {Reasoning}",
+            url,
+            paperTitle,
+            reasoning
+        );
+    }
+
+    private void ProcessBugTrackingSearchResult(
+        WebSearchResult searchResult,
+        BugListDiscoveryResult result
+    )
+    {
+        var type = GetBugTrackingType(searchResult.Url);
+        result.BugLists.Add(
+            new BugListSource
+            {
+                Url = searchResult.Url,
+                Type = type,
+                DiscoveryMethod = "Web Search",
+                Confidence = WebSearchConfidenceMultiplier,
+            }
+        );
+    }
+
     private string GetBugTrackingType(string url)
     {
-        if (url.Contains("github.com"))
-            return "GitHub Issues";
-        if (url.Contains("jira"))
-            return "Jira";
-        if (url.Contains("bugzilla"))
-            return "Bugzilla";
-        if (url.Contains("launchpad"))
-            return "Launchpad";
-        if (url.Contains("sourceforge"))
-            return "SourceForge";
-        return "Unknown";
+        return url switch
+        {
+            var u when u.Contains("github.com") => "GitHub Issues",
+            var u when u.Contains("jira") => "Jira",
+            var u when u.Contains("bugzilla") => "Bugzilla",
+            var u when u.Contains("launchpad") => "Launchpad",
+            var u when u.Contains("sourceforge") => "SourceForge",
+            _ => "Unknown",
+        };
     }
 
-    /// <summary>
-    /// Determine repository type from URL
-    /// </summary>
     private string GetRepositoryType(string url)
     {
-        if (url.Contains("github.com"))
-            return "GitHub";
-        if (url.Contains("gitlab.com"))
-            return "GitLab";
-        if (url.Contains("bitbucket.org"))
-            return "Bitbucket";
-        if (url.Contains("sourceforge.net"))
-            return "SourceForge";
-        if (url.Contains("zenodo.org"))
-            return "Zenodo";
-        if (url.Contains("figshare.com"))
-            return "Figshare";
-        if (url.Contains("osf.io"))
-            return "OSF";
-        if (url.Contains("ieee-dataport.org"))
-            return "IEEE DataPort";
-        if (url.Contains("researchgate.net"))
-            return "ResearchGate";
-        if (url.Contains("archive.org"))
-            return "Internet Archive";
-        if (url.Contains("doi.org"))
-            return "DOI";
-        return "Unknown";
+        return url switch
+        {
+            var u when u.Contains("github.com") => "GitHub",
+            var u when u.Contains("gitlab.com") => "GitLab",
+            var u when u.Contains("bitbucket.org") => "Bitbucket",
+            var u when u.Contains("sourceforge.net") => "SourceForge",
+            var u when u.Contains("zenodo.org") => "Zenodo",
+            var u when u.Contains("figshare.com") => "Figshare",
+            var u when u.Contains("osf.io") => "OSF",
+            var u when u.Contains("ieee-dataport.org") => "IEEE DataPort",
+            var u when u.Contains("researchgate.net") => "ResearchGate",
+            var u when u.Contains("archive.org") => "Internet Archive",
+            var u when u.Contains("doi.org") => "DOI",
+            _ => "Unknown",
+        };
     }
 
-    /// <summary>
-    /// Create analysis summary from individual results
-    /// </summary>
-    private BugListDiscoveryAnalysis CreateAnalysis(
-        List<BugListDiscoveryResult> results,
-        int totalSearchAttempts
-    )
+    private BugListDiscoveryAnalysis CreateAnalysisFromResults(List<BugListDiscoveryResult> results)
+    {
+        var totalSearchAttempts = results.Sum(r => r.SearchAttempts);
+        var (bugTrackingStats, repositoryStats) = CalculateStatistics(results);
+
+        return new BugListDiscoveryAnalysis
+        {
+            Summary = new BugListDiscoverySummary
+            {
+                TotalPapers = results.Count,
+                PapersWithBugLists = results.Count(r => r.BugLists.Any()),
+                PapersWithArtifacts = results.Count(r => r.ArtifactRepositories.Any()),
+                FailedDiscoveries = results.Count(r => !r.DiscoverySuccessful),
+                TotalSearchAttempts = totalSearchAttempts,
+            },
+            PaperResults = results,
+            BugTrackingSystemStats = bugTrackingStats,
+            RepositoryTypeStats = repositoryStats,
+        };
+    }
+
+    private static (
+        Dictionary<string, int> bugTracking,
+        Dictionary<string, int> repository
+    ) CalculateStatistics(List<BugListDiscoveryResult> results)
     {
         var bugTrackingStats = new Dictionary<string, int>();
         var repositoryStats = new Dictionary<string, int>();
@@ -834,25 +1013,9 @@ public class BugListDiscoveryService(
             }
         }
 
-        return new BugListDiscoveryAnalysis
-        {
-            Summary = new BugListDiscoverySummary
-            {
-                TotalPapers = results.Count,
-                PapersWithBugLists = results.Count(r => r.BugLists.Any()),
-                PapersWithArtifacts = results.Count(r => r.ArtifactRepositories.Any()),
-                FailedDiscoveries = results.Count(r => !r.DiscoverySuccessful),
-                TotalSearchAttempts = totalSearchAttempts,
-            },
-            PaperResults = results,
-            BugTrackingSystemStats = bugTrackingStats,
-            RepositoryTypeStats = repositoryStats,
-        };
+        return (bugTrackingStats, repositoryStats);
     }
 
-    /// <summary>
-    /// Verify if a repository is actually an artifact repository for the paper
-    /// </summary>
     private async Task<(bool isValid, double confidence, string reasoning)> VerifyRepositoryAsync(
         Paper paper,
         string repositoryUrl,
@@ -861,116 +1024,21 @@ public class BugListDiscoveryService(
     {
         try
         {
-            // Extract owner and repo name from GitHub URL
-            var match = Regex.Match(repositoryUrl, @"github\.com/([^/]+)/([^/]+)/?$");
-            if (!match.Success)
+            if (!IsGitHubRepository(repositoryUrl))
             {
-                logger.LogDebug(
-                    "Non-GitHub repository, skipping verification: {Url}",
-                    repositoryUrl
-                );
                 return (true, 0.5, "Non-GitHub repository - cannot verify");
             }
 
-            var owner = match.Groups[1].Value;
-            var repoName = match.Groups[2].Value;
-
-            // Get repository info and README
+            var (owner, repoName) = ExtractGitHubInfo(repositoryUrl);
             var repoInfo = await gitHubService.GetRepositoryInfoAsync(owner, repoName);
-            var readmeContent = await gitHubService.GetRepositoryReadmeAsync(owner, repoName);
+            var readmeContent = await GetRepositoryReadme(owner, repoName);
 
-            if (string.IsNullOrEmpty(readmeContent))
-            {
-                logger.LogDebug(
-                    "No README found for {Owner}/{RepoName}, using basic verification",
-                    owner,
-                    repoName
-                );
-                readmeContent = "No README available";
-            }
-
-            // Prepare verification request
-            var request = new RepositoryVerificationRequest(
-                paper.Title,
-                string.Join(", ", paper.Authors),
-                repoInfo.FullName ?? $"{owner}/{repoName}",
-                repoInfo.Description ?? "",
-                readmeContent.Length > 3000
-                    ? readmeContent.Substring(0, 3000) + "..."
-                    : readmeContent
-            );
-
-            var schema = new DefaultSchemaGenerator()
-                .Generate<RepositoryVerificationResponse>(new JsonSchemaOptions())
-                .ToJson();
-
-            var messages = new ChatMessage[]
-            {
-                new SystemChatMessage(
-                    "You are tasked with determining if a GitHub repository is an artifact repository for a specific research paper. "
-                        + "An artifact repository should contain the actual implementation, data, or tools described in the paper, "
-                        + "not just a collection of papers or general-purpose tools. "
-                        + "Look for evidence that this repository specifically implements or supports the research described in the paper. "
-                        + "Consider repository name, description, README content, and whether it matches the paper's focus."
-                ),
-                new UserChatMessage(
-                    $"Paper Title: {request.PaperTitle}\n"
-                        + $"Authors: {request.PaperAuthors}\n"
-                        + $"Repository: {request.RepositoryName}\n"
-                        + $"Description: {request.RepositoryDescription}\n"
-                        + $"README Content: {request.ReadmeContent}"
-                ),
-            };
-
-            var options = new ChatCompletionOptions
-            {
-                ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
-                    jsonSchemaFormatName: "repository-verification",
-                    jsonSchema: BinaryData.FromString(schema),
-                    jsonSchemaIsStrict: true
-                ),
-            };
-
-            // Use SMALL model for verification
-            var smallModelClient = kernel
-                .GetRequiredService<OpenAIClient>()
-                .GetChatClient(credentialOptions.Value.SmallModel);
-            var response = await smallModelClient.CompleteChatAsync(
-                messages,
-                options,
+            return await PerformRepositoryVerification(
+                paper,
+                repoInfo,
+                readmeContent,
                 cancellationToken
             );
-
-            if (response.Value.Content.Count == 0)
-                return (false, 0.1, "No response from verification");
-
-            var resultText = response.Value.Content[0].Text;
-            if (string.IsNullOrEmpty(resultText))
-                return (false, 0.1, "Empty response from verification");
-
-            var verificationResponse = JsonSerializer.Deserialize<RepositoryVerificationResponse>(
-                resultText,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
-            );
-
-            if (verificationResponse != null)
-            {
-                logger.LogDebug(
-                    "Repository verification for {Repo}: {IsValid} (confidence: {Confidence}) - {Reasoning}",
-                    repositoryUrl,
-                    verificationResponse.IsArtifactRepository,
-                    verificationResponse.Confidence,
-                    verificationResponse.Reasoning
-                );
-
-                return (
-                    verificationResponse.IsArtifactRepository,
-                    verificationResponse.Confidence,
-                    verificationResponse.Reasoning
-                );
-            }
-
-            return (false, 0.1, "Failed to parse verification response");
         }
         catch (Exception ex)
         {
@@ -979,9 +1047,74 @@ public class BugListDiscoveryService(
         }
     }
 
-    /// <summary>
-    /// Verify if a URL is actually an artifact for the paper
-    /// </summary>
+    private static bool IsGitHubRepository(string url) => GithubComPattern().IsMatch(url);
+
+    private static (string owner, string repoName) ExtractGitHubInfo(string repositoryUrl)
+    {
+        var match = GithubComPattern().Match(repositoryUrl);
+        return (match.Groups[1].Value, match.Groups[2].Value);
+    }
+
+    private async Task<string> GetRepositoryReadme(string owner, string repoName)
+    {
+        var readmeContent = await gitHubService.GetRepositoryReadmeAsync(owner, repoName);
+
+        if (string.IsNullOrEmpty(readmeContent))
+        {
+            logger.LogDebug(
+                "No README found for {Owner}/{RepoName}, using basic verification",
+                owner,
+                repoName
+            );
+            return "No README available";
+        }
+
+        return readmeContent.Length > MaxReadmeLength
+            ? string.Concat(readmeContent.AsSpan(0, MaxReadmeLength), "...")
+            : readmeContent;
+    }
+
+    private async Task<(
+        bool isValid,
+        double confidence,
+        string reasoning
+    )> PerformRepositoryVerification(
+        Paper paper,
+        dynamic repoInfo,
+        string readmeContent,
+        CancellationToken cancellationToken
+    )
+    {
+        var request = new RepositoryVerificationRequest(
+            paper.Title,
+            string.Join(", ", paper.Authors),
+            repoInfo.FullName ?? $"{repoInfo.Owner}/{repoInfo.Name}",
+            repoInfo.Description ?? "",
+            readmeContent
+        );
+
+        var response = await GetVerificationResponse<RepositoryVerificationResponse>(
+            request,
+            "repository-verification",
+            CreateRepositoryVerificationMessages,
+            ExportModelJsonContext.Default.RepositoryVerificationResponse,
+            cancellationToken
+        );
+
+        if (response != null)
+        {
+            LogVerificationResult(
+                request.RepositoryName,
+                response.IsArtifactRepository,
+                response.Confidence,
+                response.Reasoning
+            );
+            return (response.IsArtifactRepository, response.Confidence, response.Reasoning);
+        }
+
+        return (false, 0.1, "Failed to parse verification response");
+    }
+
     private async Task<(
         bool isValid,
         double confidence,
@@ -995,7 +1128,6 @@ public class BugListDiscoveryService(
     {
         try
         {
-            // Prepare verification request
             var request = new ArtifactVerificationRequest(
                 paper.Title,
                 string.Join(", ", paper.Authors),
@@ -1003,73 +1135,23 @@ public class BugListDiscoveryService(
                 context
             );
 
-            var schema = new DefaultSchemaGenerator()
-                .Generate<ArtifactVerificationResponse>(new JsonSchemaOptions())
-                .ToJson();
-
-            var messages = new ChatMessage[]
-            {
-                new SystemChatMessage(
-                    "You are tasked with determining if a URL is an artifact for a specific research paper. "
-                        + "An artifact should contain the actual implementation, data, or tools described in the paper, "
-                        + "not just a collection of papers or general-purpose tools. "
-                        + "Look for evidence that this URL specifically implements or supports the research described in the paper. "
-                        + "Consider the URL itself, the context around the URL, and whether it matches the paper's focus."
-                ),
-                new UserChatMessage(
-                    $"Paper Title: {request.PaperTitle}\n"
-                        + $"Authors: {request.PaperAuthors}\n"
-                        + $"URL: {request.Url}\n"
-                        + $"Context: {request.Context}"
-                ),
-            };
-
-            var options = new ChatCompletionOptions
-            {
-                ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
-                    jsonSchemaFormatName: "artifact-verification",
-                    jsonSchema: BinaryData.FromString(schema),
-                    jsonSchemaIsStrict: true
-                ),
-            };
-
-            // Use SMALL model for verification
-            var smallModelClient = kernel
-                .GetRequiredService<OpenAIClient>()
-                .GetChatClient(credentialOptions.Value.SmallModel);
-            var response = await smallModelClient.CompleteChatAsync(
-                messages,
-                options,
+            var response = await GetVerificationResponse<ArtifactVerificationResponse>(
+                request,
+                "artifact-verification",
+                CreateArtifactVerificationMessages,
+                ExportModelJsonContext.Default.ArtifactVerificationResponse,
                 cancellationToken
             );
 
-            if (response.Value.Content.Count == 0)
-                return (false, 0.1, "No response from verification");
-
-            var resultText = response.Value.Content[0].Text;
-            if (string.IsNullOrEmpty(resultText))
-                return (false, 0.1, "Empty response from verification");
-
-            var verificationResponse = JsonSerializer.Deserialize<ArtifactVerificationResponse>(
-                resultText,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
-            );
-
-            if (verificationResponse != null)
+            if (response != null)
             {
-                logger.LogDebug(
-                    "Artifact verification for {Url}: {IsValid} (confidence: {Confidence}) - {Reasoning}",
+                LogArtifactVerificationResult(
                     url,
-                    verificationResponse.IsArtifact,
-                    verificationResponse.Confidence,
-                    verificationResponse.Reasoning
+                    response.IsArtifact,
+                    response.Confidence,
+                    response.Reasoning
                 );
-
-                return (
-                    verificationResponse.IsArtifact,
-                    verificationResponse.Confidence,
-                    verificationResponse.Reasoning
-                );
+                return (response.IsArtifact, response.Confidence, response.Reasoning);
             }
 
             return (false, 0.1, "Failed to parse verification response");
@@ -1080,6 +1162,142 @@ public class BugListDiscoveryService(
             return (false, 0.1, $"Verification error: {ex.Message}");
         }
     }
+
+    private async Task<T?> GetVerificationResponse<T>(
+        object request,
+        string schemaName,
+        Func<object, ChatMessage[]> messageFactory,
+        JsonTypeInfo<T> jsonTypeInfo,
+        CancellationToken cancellationToken
+    )
+        where T : class
+    {
+        var schema = GenerateJsonSchema<T>();
+        var messages = messageFactory(request);
+        var options = CreateChatOptions(schemaName, schema);
+
+        var smallModelClient = kernel
+            .GetRequiredService<OpenAIClient>()
+            .GetChatClient(credentialOptions.Value.SmallModel);
+
+        var response = await smallModelClient.CompleteChatAsync(
+            messages,
+            options,
+            cancellationToken
+        );
+        return DeserializeLlmResponse<T>(response, jsonTypeInfo);
+    }
+
+    private void LogVerificationResult(
+        string repoName,
+        bool isValid,
+        double confidence,
+        string reasoning
+    ) =>
+        logger.LogDebug(
+            "Repository verification for {Repo}: {IsValid} (confidence: {Confidence}) - {Reasoning}",
+            repoName,
+            isValid,
+            confidence,
+            reasoning
+        );
+
+    private void LogArtifactVerificationResult(
+        string url,
+        bool isValid,
+        double confidence,
+        string reasoning
+    ) =>
+        logger.LogDebug(
+            "Artifact verification for {Url}: {IsValid} (confidence: {Confidence}) - {Reasoning}",
+            url,
+            isValid,
+            confidence,
+            reasoning
+        );
+
+    private static string GenerateJsonSchema<T>() =>
+        new DefaultSchemaGenerator().Generate<T>(new JsonSchemaOptions()).ToJson();
+
+    private static ChatMessage[] CreateAnalysisMessages(BugListAnalysisRequest request) =>
+        [
+            new SystemChatMessage(
+                "Analyze research paper text and identify any mentions of bug tracking systems, issue trackers, software repositories, or project websites. Look for indirect references like 'Our code is available at...', 'Issues can be reported at...', 'The implementation can be found...', repository names without full URLs, or project names that might have public repositories."
+            ),
+            new UserChatMessage($"Paper Title: {request.PaperTitle}\n\nText: {request.PaperText}"),
+        ];
+
+    private static ChatMessage[] CreateRepositoryVerificationMessages(object request)
+    {
+        var req = (RepositoryVerificationRequest)request;
+        return
+        [
+            new SystemChatMessage(
+                "You are tasked with determining if a GitHub repository is an artifact repository for a specific research paper. "
+                    + "An artifact repository should contain the actual implementation, data, or tools described in the paper, "
+                    + "not just a collection of papers or general-purpose tools. "
+                    + "Look for evidence that this repository specifically implements or supports the research described in the paper. "
+                    + "Consider repository name, description, README content, and whether it matches the paper's focus."
+            ),
+            new UserChatMessage(
+                $"Paper Title: {req.PaperTitle}\n"
+                    + $"Authors: {req.PaperAuthors}\n"
+                    + $"Repository: {req.RepositoryName}\n"
+                    + $"Description: {req.RepositoryDescription}\n"
+                    + $"README Content: {req.ReadmeContent}"
+            ),
+        ];
+    }
+
+    private static ChatMessage[] CreateArtifactVerificationMessages(object request)
+    {
+        var req = (ArtifactVerificationRequest)request;
+        return
+        [
+            new SystemChatMessage(
+                "You are tasked with determining if a URL is an artifact for a specific research paper. "
+                    + "An artifact should contain the actual implementation, data, or tools described in the paper, "
+                    + "not just a collection of papers or general-purpose tools. "
+                    + "Look for evidence that this URL specifically implements or supports the research described in the paper. "
+                    + "Consider the URL itself, the context around the URL, and whether it matches the paper's focus."
+            ),
+            new UserChatMessage(
+                $"Paper Title: {req.PaperTitle}\n"
+                    + $"Authors: {req.PaperAuthors}\n"
+                    + $"URL: {req.Url}\n"
+                    + $"Context: {req.Context}"
+            ),
+        ];
+    }
+
+    private static ChatCompletionOptions CreateChatOptions(string schemaName, string schema) =>
+        new()
+        {
+            ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
+                jsonSchemaFormatName: schemaName,
+                jsonSchema: BinaryData.FromString(schema),
+                jsonSchemaIsStrict: true
+            ),
+        };
+
+    private static T? DeserializeLlmResponse<T>(
+        ClientResult<ChatCompletion> response,
+        JsonTypeInfo<T> jsonTypeInfo
+    )
+        where T : class
+    {
+        if (response.Value.Content.Count == 0)
+            return null;
+
+        var resultText = response.Value.Content[0].Text;
+        if (string.IsNullOrEmpty(resultText))
+            return null;
+
+        return JsonSerializer.Deserialize(resultText, jsonTypeInfo);
+    }
+
+    [GeneratedRegex(@"github\.com/([^/]+)/([^/]+)/?$")]
+    private static partial Regex GithubComPattern();
 }
 
 /// <summary>

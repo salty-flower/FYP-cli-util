@@ -425,7 +425,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Handle the count command
     /// </summary>
-    private void HandleCountCommand(Paper paper, string[] parts)
+    private static void HandleCountCommand(Paper paper, string[] parts)
     {
         if (parts.Length < 2)
         {
@@ -449,7 +449,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Handle the eval command
     /// </summary>
-    private void HandleEvalCommand(Paper paper, string expression)
+    private static void HandleEvalCommand(Paper paper, string expression)
     {
         if (string.IsNullOrWhiteSpace(expression))
         {
@@ -819,7 +819,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Handle the filter command
     /// </summary>
-    private void HandleFilterCommand(List<Paper> papers, string expression)
+    private static void HandleFilterCommand(List<Paper> papers, string expression)
     {
         if (string.IsNullOrWhiteSpace(expression))
         {
@@ -955,7 +955,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Handle the stats command
     /// </summary>
-    private void HandleStatsCommand(List<Paper> papers, string[] parts)
+    private static void HandleStatsCommand(List<Paper> papers, string[] parts)
     {
         if (parts.Length < 2)
         {
@@ -1005,7 +1005,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Handle the rank command
     /// </summary>
-    private void HandleRankCommand(List<Paper> papers, string[] parts)
+    private static void HandleRankCommand(List<Paper> papers, string[] parts)
     {
         if (parts.Length < 2)
         {

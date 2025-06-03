@@ -6,7 +6,6 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using ConsoleAppFramework;
-using DataCollection.Filters;
 using DataCollection.Models.Export.BugAnalysis;
 using DataCollection.Options;
 using DataCollection.Services;
@@ -27,26 +26,45 @@ public class BugListDiscoveryCommands(
     IOptions<PathsOptions> pathsOptions
 )
 {
+    private const int MaxDisplayResults = 10;
+    private const int MaxTitleLength = 50;
+    private const int TitleTruncateLength = 47;
+    private const string DefaultOutputFileName = "bug-list-discovery.json";
+
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
 
-    /// <summary>
-    /// Discover bug lists and artifact repositories for papers by DOI
-    /// </summary>
-    /// <param name="dois">Comma-separated list of DOIs to process</param>
-    /// <param name="outputPath">Output path for the analysis results (JSON)</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Number of papers processed</returns>
     public async Task<int> Discover(
         string dois,
         string? outputPath = null,
         CancellationToken cancellationToken = default
     )
     {
+        var doiList = ValidateAndParseDois(dois);
+        if (doiList == null)
+            return 1;
+
+        return await ExecuteDiscovery(doiList, outputPath, cancellationToken);
+    }
+
+    public async Task<int> FromFile(
+        string doiFile,
+        string? outputPath = null,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var doiList = await LoadDoisFromFile(doiFile, cancellationToken);
+        if (doiList == null)
+            return 1;
+
+        return await ExecuteDiscovery(doiList, outputPath, cancellationToken);
+    }
+
+    private List<string>? ValidateAndParseDois(string dois)
+    {
         if (string.IsNullOrWhiteSpace(dois))
         {
-            logger.LogError("DOIs parameter is required");
-            AnsiConsole.MarkupLine("[red]Error:[/] DOIs parameter is required");
-            return 1;
+            LogAndDisplayError("DOIs parameter is required");
+            return null;
         }
 
         var doiList = dois.Split(',', StringSplitOptions.RemoveEmptyEntries)
@@ -55,11 +73,57 @@ public class BugListDiscoveryCommands(
 
         if (doiList.Count == 0)
         {
-            logger.LogError("No valid DOIs provided");
-            AnsiConsole.MarkupLine("[red]Error:[/] No valid DOIs provided");
-            return 1;
+            LogAndDisplayError("No valid DOIs provided");
+            return null;
         }
 
+        return doiList;
+    }
+
+    private async Task<List<string>?> LoadDoisFromFile(
+        string doiFile,
+        CancellationToken cancellationToken
+    )
+    {
+        if (!File.Exists(doiFile))
+        {
+            LogAndDisplayError($"DOI file not found: {doiFile}");
+            return null;
+        }
+
+        try
+        {
+            var doiLines = await File.ReadAllLinesAsync(doiFile, cancellationToken);
+            var cleanedDois = doiLines
+                .Where(line =>
+                    !string.IsNullOrWhiteSpace(line) && !line.TrimStart().StartsWith("#")
+                )
+                .Select(line => line.Trim())
+                .ToList();
+
+            if (cleanedDois.Count == 0)
+            {
+                LogAndDisplayError("No valid DOIs found in file");
+                return null;
+            }
+
+            AnsiConsole.MarkupLine($"[blue]Loaded {cleanedDois.Count} DOIs from file {doiFile}[/]");
+            return cleanedDois;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error reading DOI file {DoiFile}: {Message}", doiFile, ex.Message);
+            AnsiConsole.MarkupLine($"[red]Error reading file:[/] {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task<int> ExecuteDiscovery(
+        List<string> doiList,
+        string? outputPath,
+        CancellationToken cancellationToken
+    )
+    {
         AnsiConsole.MarkupLine(
             $"[blue]Starting bug list discovery for {doiList.Count} papers...[/]"
         );
@@ -72,27 +136,8 @@ public class BugListDiscoveryCommands(
             );
 
             DisplayResults(analysis);
-
-            // Export results if output path is provided
-            if (!string.IsNullOrWhiteSpace(outputPath))
-            {
-                await ExportResults(analysis, outputPath);
-                AnsiConsole.MarkupLine($"[green]Results exported to:[/] {outputPath}");
-            }
-            else
-            {
-                // Default export path
-                var defaultPath = Path.Combine(_pathsOptions.BaseDir, "bug-list-discovery.json");
-                await ExportResults(analysis, defaultPath);
-                AnsiConsole.MarkupLine($"[green]Results exported to:[/] {defaultPath}");
-            }
-
-            logger.LogInformation(
-                "Bug list discovery completed. Processed {TotalPapers} papers, found bug lists for {BugListPapers} papers, artifacts for {ArtifactPapers} papers",
-                analysis.Summary.TotalPapers,
-                analysis.Summary.PapersWithBugLists,
-                analysis.Summary.PapersWithArtifacts
-            );
+            await ExportAndReportResults(analysis, outputPath);
+            LogSuccessfulCompletion(analysis);
 
             return 0;
         }
@@ -104,134 +149,106 @@ public class BugListDiscoveryCommands(
         }
     }
 
-    /// <summary>
-    /// Discover bug lists from a file containing DOIs (one per line)
-    /// </summary>
-    /// <param name="doiFile">Path to file containing DOIs (one per line)</param>
-    /// <param name="outputPath">Output path for the analysis results (JSON)</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Number of papers processed</returns>
-    public async Task<int> FromFile(
-        string doiFile,
-        string? outputPath = null,
-        CancellationToken cancellationToken = default
-    )
+    private async Task ExportAndReportResults(BugListDiscoveryAnalysis analysis, string? outputPath)
     {
-        if (!File.Exists(doiFile))
-        {
-            logger.LogError("DOI file not found: {DoiFile}", doiFile);
-            AnsiConsole.MarkupLine($"[red]Error:[/] DOI file not found: {doiFile}");
-            return 1;
-        }
-
-        try
-        {
-            var doiList = await File.ReadAllLinesAsync(doiFile, cancellationToken);
-            var cleanedDois = doiList
-                .Where(line =>
-                    !string.IsNullOrWhiteSpace(line) && !line.TrimStart().StartsWith("#")
-                )
-                .Select(line => line.Trim())
-                .ToList();
-
-            if (cleanedDois.Count == 0)
-            {
-                logger.LogError("No valid DOIs found in file: {DoiFile}", doiFile);
-                AnsiConsole.MarkupLine($"[red]Error:[/] No valid DOIs found in file");
-                return 1;
-            }
-
-            AnsiConsole.MarkupLine($"[blue]Loaded {cleanedDois.Count} DOIs from file {doiFile}[/]");
-
-            return await Discover(string.Join(",", cleanedDois), outputPath, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error reading DOI file {DoiFile}: {Message}", doiFile, ex.Message);
-            AnsiConsole.MarkupLine($"[red]Error reading file:[/] {ex.Message}");
-            return 1;
-        }
+        var finalPath = outputPath ?? Path.Combine(_pathsOptions.BaseDir, DefaultOutputFileName);
+        await ExportResults(analysis, finalPath);
+        AnsiConsole.MarkupLine($"[green]Results exported to:[/] {finalPath}");
     }
 
-    /// <summary>
-    /// Display results in a formatted table
-    /// </summary>
-    private void DisplayResults(BugListDiscoveryAnalysis analysis)
+    private void LogSuccessfulCompletion(BugListDiscoveryAnalysis analysis)
     {
-        // Summary table
-        var summaryTable = new Table();
+        logger.LogInformation(
+            "Bug list discovery completed. Processed {TotalPapers} papers, found bug lists for {BugListPapers} papers, artifacts for {ArtifactPapers} papers",
+            analysis.Summary.TotalPapers,
+            analysis.Summary.PapersWithBugLists,
+            analysis.Summary.PapersWithArtifacts
+        );
+    }
+
+    private static void DisplayResults(BugListDiscoveryAnalysis analysis)
+    {
+        DisplaySummaryTable(analysis.Summary);
+        DisplayStatsTables(analysis);
+        DisplayIndividualResults(analysis.PaperResults);
+    }
+
+    private static void DisplaySummaryTable(BugListDiscoverySummary summary)
+    {
+        var summaryTable = new Table
+        {
+            Title = new TableTitle("[bold]Bug List Discovery Summary[/]"),
+        };
+
         summaryTable.AddColumn("Metric");
         summaryTable.AddColumn("Value");
-        summaryTable.Title = new TableTitle("[bold]Bug List Discovery Summary[/]");
 
-        summaryTable.AddRow("Total Papers", analysis.Summary.TotalPapers.ToString());
-        summaryTable.AddRow(
-            "Papers with Bug Lists",
-            analysis.Summary.PapersWithBugLists.ToString()
-        );
-        summaryTable.AddRow(
-            "Papers with Artifacts",
-            analysis.Summary.PapersWithArtifacts.ToString()
-        );
-        summaryTable.AddRow("Failed Discoveries", analysis.Summary.FailedDiscoveries.ToString());
-        summaryTable.AddRow("Success Rate", $"{analysis.Summary.SuccessRate:F1}%");
-        summaryTable.AddRow(
-            "Total Search Attempts",
-            analysis.Summary.TotalSearchAttempts.ToString()
-        );
+        summaryTable.AddRow("Total Papers", summary.TotalPapers.ToString());
+        summaryTable.AddRow("Papers with Bug Lists", summary.PapersWithBugLists.ToString());
+        summaryTable.AddRow("Papers with Artifacts", summary.PapersWithArtifacts.ToString());
+        summaryTable.AddRow("Failed Discoveries", summary.FailedDiscoveries.ToString());
+        summaryTable.AddRow("Success Rate", $"{summary.SuccessRate:F1}%");
+        summaryTable.AddRow("Total Search Attempts", summary.TotalSearchAttempts.ToString());
 
         AnsiConsole.Write(summaryTable);
+    }
 
-        // Bug tracking systems statistics
-        if (analysis.BugTrackingSystemStats.Any())
+    private static void DisplayStatsTables(BugListDiscoveryAnalysis analysis)
+    {
+        DisplayStatsTable(
+            analysis.BugTrackingSystemStats,
+            "Bug Tracking System",
+            "[bold]Bug Tracking Systems Found[/]"
+        );
+
+        DisplayStatsTable(
+            analysis.RepositoryTypeStats,
+            "Repository Type",
+            "[bold]Repository Types Found[/]"
+        );
+    }
+
+    private static void DisplayStatsTable(
+        Dictionary<string, int> stats,
+        string columnName,
+        string title
+    )
+    {
+        if (!stats.Any())
+            return;
+
+        var table = new Table { Title = new TableTitle(title) };
+
+        table.AddColumn(columnName);
+        table.AddColumn("Count");
+
+        foreach (var stat in stats.OrderByDescending(s => s.Value))
         {
-            var bugTable = new Table();
-            bugTable.AddColumn("Bug Tracking System");
-            bugTable.AddColumn("Count");
-            bugTable.Title = new TableTitle("[bold]Bug Tracking Systems Found[/]");
-
-            foreach (var stat in analysis.BugTrackingSystemStats.OrderByDescending(s => s.Value))
-            {
-                bugTable.AddRow(stat.Key, stat.Value.ToString());
-            }
-
-            AnsiConsole.Write(bugTable);
+            table.AddRow(stat.Key, stat.Value.ToString());
         }
 
-        // Repository types statistics
-        if (analysis.RepositoryTypeStats.Any())
+        AnsiConsole.Write(table);
+    }
+
+    private static void DisplayIndividualResults(List<BugListDiscoveryResult> results)
+    {
+        var detailsTable = new Table
         {
-            var repoTable = new Table();
-            repoTable.AddColumn("Repository Type");
-            repoTable.AddColumn("Count");
-            repoTable.Title = new TableTitle("[bold]Repository Types Found[/]");
+            Title = new TableTitle($"[bold]Individual Results (Top {MaxDisplayResults})[/]"),
+        };
 
-            foreach (var stat in analysis.RepositoryTypeStats.OrderByDescending(s => s.Value))
-            {
-                repoTable.AddRow(stat.Key, stat.Value.ToString());
-            }
-
-            AnsiConsole.Write(repoTable);
-        }
-
-        // Individual results (top 10)
-        var detailsTable = new Table();
         detailsTable.AddColumn("Paper Title");
         detailsTable.AddColumn("Bug Lists");
         detailsTable.AddColumn("Artifacts");
         detailsTable.AddColumn("Status");
-        detailsTable.Title = new TableTitle("[bold]Individual Results (Top 10)[/]");
 
-        foreach (var result in analysis.PaperResults.Take(10))
+        foreach (var result in results.Take(MaxDisplayResults))
         {
-            var status = result.DiscoverySuccessful ? "[green]Success[/]" : "[red]Failed[/]";
-            if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
-            {
-                status = $"[red]Error[/]";
-            }
+            var status = GetResultStatus(result);
+            var truncatedTitle = TruncateTitle(result.Title);
 
             detailsTable.AddRow(
-                result.Title.Length > 50 ? result.Title.Substring(0, 47) + "..." : result.Title,
+                truncatedTitle,
                 result.BugLists.Count.ToString(),
                 result.ArtifactRepositories.Count.ToString(),
                 status
@@ -240,20 +257,31 @@ public class BugListDiscoveryCommands(
 
         AnsiConsole.Write(detailsTable);
 
-        if (analysis.PaperResults.Count > 10)
+        if (results.Count > MaxDisplayResults)
         {
             AnsiConsole.MarkupLine(
-                $"[dim]... and {analysis.PaperResults.Count - 10} more results (see exported JSON for full details)[/]"
+                $"[dim]... and {results.Count - MaxDisplayResults} more results (see exported JSON for full details)[/]"
             );
         }
     }
 
-    /// <summary>
-    /// Export results to JSON file
-    /// </summary>
+    private static string GetResultStatus(BugListDiscoveryResult result)
+    {
+        if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
+            return "[red]Error[/]";
+
+        return result.DiscoverySuccessful ? "[green]Success[/]" : "[red]Failed[/]";
+    }
+
+    private static string TruncateTitle(string title)
+    {
+        return title.Length > MaxTitleLength
+            ? title.Substring(0, TitleTruncateLength) + "..."
+            : title;
+    }
+
     private async Task ExportResults(BugListDiscoveryAnalysis analysis, string outputPath)
     {
-        // Ensure directory exists
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
         {
@@ -267,5 +295,11 @@ public class BugListDiscoveryCommands(
 
         await File.WriteAllTextAsync(outputPath, json);
         logger.LogInformation("Results exported to {OutputPath}", outputPath);
+    }
+
+    private void LogAndDisplayError(string message)
+    {
+        logger.LogError(message);
+        AnsiConsole.MarkupLine($"[red]Error:[/] {message}");
     }
 }

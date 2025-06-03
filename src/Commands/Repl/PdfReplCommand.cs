@@ -301,7 +301,7 @@ public class PdfReplCommand(
     /// <summary>
     /// Handle the count command
     /// </summary>
-    private void HandleCountCommand(PdfData pdfData, string[] parts)
+    private static void HandleCountCommand(PdfData pdfData, string[] parts)
     {
         if (parts.Length < 2)
         {
@@ -640,7 +640,7 @@ public class PdfReplCommand(
     /// <summary>
     /// Handle the stats command
     /// </summary>
-    private void HandleStatsCommand(List<PdfData> allPdfData, string[] parts)
+    private static void HandleStatsCommand(List<PdfData> allPdfData, string[] parts)
     {
         if (parts.Length < 2)
         {

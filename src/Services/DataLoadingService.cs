@@ -15,6 +15,9 @@ public class DataLoadingService(
     PdfDescriptionService pdfDescriptionService
 )
 {
+    private const string BinaryFileExtension = "*.bin";
+    private const string PdfBinaryFileExtension = ".pdf.bin";
+
     /// <summary>
     /// Load PDF data from a directory
     /// </summary>
@@ -26,43 +29,15 @@ public class DataLoadingService(
         var pdfDataDir = new DirectoryInfo(directoryPath);
         var pdfDataList = new List<PdfData>();
 
-        if (!pdfDataDir.Exists || pdfDataDir.GetFiles("*.bin").Length == 0)
+        if (!IsValidDataDirectory(pdfDataDir))
         {
             return pdfDataList;
         }
 
         logger.LogInformation("Loading PDF data...");
 
-        foreach (var file in pdfDataDir.GetFiles("*.bin"))
-        {
-            try
-            {
-                var bin = File.ReadAllBytes(file.FullName);
-                var pdfData = MemoryPackSerializer.Deserialize<PdfData>(bin);
-                if (pdfData != null)
-                {
-                    pdfDataList.Add(pdfData);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(
-                    "Error loading PDF data {FileName}: {Error}",
-                    file.Name,
-                    ex.Message
-                );
-            }
-        }
-
-        // Try to load paper metadata if a path is provided
-        if (!string.IsNullOrEmpty(paperMetadataDir))
-        {
-            var papers = LoadPapersFromMetadata(paperMetadataDir);
-            if (papers.Count > 0)
-            {
-                pdfDescriptionService.UpdatePaperCache(papers);
-            }
-        }
+        LoadPdfDataFiles(pdfDataDir, pdfDataList);
+        LoadPaperMetadataIfProvided(paperMetadataDir);
 
         logger.LogInformation("Loaded {Count} PDF documents", pdfDataList.Count);
         return pdfDataList;
@@ -83,22 +58,7 @@ public class DataLoadingService(
 
         logger.LogInformation("Loading papers from metadata...");
 
-        foreach (var file in metadataDir.GetFiles("*.bin"))
-        {
-            try
-            {
-                var bin = File.ReadAllBytes(file.FullName);
-                var paper = MemoryPackSerializer.Deserialize<Paper>(bin);
-                if (paper != null)
-                {
-                    papers.Add(paper);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning("Error loading paper {FileName}: {Error}", file.Name, ex.Message);
-            }
-        }
+        LoadPaperFiles(metadataDir, papers);
 
         logger.LogInformation("Loaded {Count} papers", papers.Count);
         return papers;
@@ -111,15 +71,15 @@ public class DataLoadingService(
     {
         try
         {
-            var filePath = Path.Combine(pdfDataDir, $"{sanitizedDoi}.pdf.bin");
+            var filePath = Path.Combine(pdfDataDir, $"{sanitizedDoi}{PdfBinaryFileExtension}");
+
             if (!File.Exists(filePath))
             {
                 logger.LogWarning("PDF data file not found: {FilePath}", filePath);
                 return null;
             }
 
-            var bin = File.ReadAllBytes(filePath);
-            var pdfData = MemoryPackSerializer.Deserialize<PdfData>(bin);
+            var pdfData = DeserializeBinaryFile<PdfData>(filePath);
 
             if (pdfData != null)
             {
@@ -134,6 +94,68 @@ public class DataLoadingService(
                 ex,
                 "Error loading PDF data for DOI {SanitizedDoi}: {Error}",
                 sanitizedDoi,
+                ex.Message
+            );
+            return null;
+        }
+    }
+
+    private static bool IsValidDataDirectory(DirectoryInfo directory)
+    {
+        return directory.Exists && directory.GetFiles(BinaryFileExtension).Length > 0;
+    }
+
+    private void LoadPdfDataFiles(DirectoryInfo directory, List<PdfData> pdfDataList)
+    {
+        foreach (var file in directory.GetFiles(BinaryFileExtension))
+        {
+            var pdfData = DeserializeBinaryFile<PdfData>(file.FullName);
+            if (pdfData != null)
+            {
+                pdfDataList.Add(pdfData);
+            }
+        }
+    }
+
+    private void LoadPaperFiles(DirectoryInfo directory, List<Paper> papers)
+    {
+        foreach (var file in directory.GetFiles(BinaryFileExtension))
+        {
+            var paper = DeserializeBinaryFile<Paper>(file.FullName);
+            if (paper != null)
+            {
+                papers.Add(paper);
+            }
+        }
+    }
+
+    private void LoadPaperMetadataIfProvided(string? paperMetadataDir)
+    {
+        if (string.IsNullOrEmpty(paperMetadataDir))
+            return;
+
+        var papers = LoadPapersFromMetadata(paperMetadataDir);
+        if (papers.Count > 0)
+        {
+            pdfDescriptionService.UpdatePaperCache(papers);
+        }
+    }
+
+    private T? DeserializeBinaryFile<T>(string filePath)
+        where T : class
+    {
+        try
+        {
+            var bin = File.ReadAllBytes(filePath);
+            return MemoryPackSerializer.Deserialize<T>(bin);
+        }
+        catch (Exception ex)
+        {
+            var fileName = Path.GetFileName(filePath);
+            logger.LogWarning(
+                "Error loading {Type} {FileName}: {Error}",
+                typeof(T).Name,
+                fileName,
                 ex.Message
             );
             return null;

@@ -48,6 +48,10 @@
       <BuildConstantsContent Include="}" />
       <Compile Include="$(BuildConstantsFile)" />
     </ItemGroup>
-    <WriteLinesToFile File="$(BuildConstantsFile)" Lines="@(BuildConstantsContent)" Overwrite="true" />
+    <WriteLinesToFile
+      File="$(BuildConstantsFile)"
+      Lines="@(BuildConstantsContent)"
+      Overwrite="true"
+    />
   </Target>
 </Project>

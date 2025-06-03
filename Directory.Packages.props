@@ -8,13 +8,15 @@
   <ItemGroup>
     <!-- Functional programming -->
     <PackageVersion Include="GitHub.Octokit.SDK" Version="0.0.31" />
+    <PackageVersion Include="Microsoft.SemanticKernel" Version="1.54.0" />
+    <PackageVersion Include="Microsoft.SemanticKernel.Plugins.Web" Version="1.54.0-alpha" />
     <PackageVersion Include="morelinq" Version="4.4.0" />
     <PackageVersion Include="Enums.NET" Version="5.0.0" />
     <!-- Data -->
     <PackageVersion Include="HtmlAgilityPack" Version="1.12.1" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="9.0.5" />
     <PackageVersion Include="MinimalHttpLogger" Version="3.0.0" />
-    <PackageVersion Include="OpenAI" Version="2.1.0" />
+    <PackageVersion Include="OpenAI" Version="2.2.0-beta.4" />
     <PackageVersion Include="LarchSys.OpenAi.JsonSchema" Version="0.2.3" />
     <PackageVersion Include="NJsonSchema" Version="11.3.2" />
     <PackageVersion Include="MemoryPack" Version="1.21.4" />

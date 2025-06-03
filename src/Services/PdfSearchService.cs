@@ -24,12 +24,12 @@ public class PdfSearchService
             return string.Empty;
 
         string pattern = parts[1];
-        if (pattern.StartsWith("\"") && parts.Length > 2)
+        if (pattern.StartsWith('\"') && parts.Length > 2)
         {
             // Reconstruct quoted search term
             var searchTermParts = new List<string> { parts[1] };
             int i = 2;
-            while (i < parts.Length && !parts[i - 1].EndsWith("\""))
+            while (i < parts.Length && !parts[i - 1].EndsWith('\"'))
             {
                 searchTermParts.Add(parts[i]);
                 i++;
@@ -37,7 +37,7 @@ public class PdfSearchService
             pattern = string.Join(" ", searchTermParts);
 
             // Remove quotes
-            if (pattern.StartsWith("\"") && pattern.EndsWith("\""))
+            if (pattern.StartsWith('\"') && pattern.EndsWith('\"'))
             {
                 pattern = pattern.Substring(1, pattern.Length - 2);
             }
@@ -114,7 +114,7 @@ public class PdfSearchService
     /// <summary>
     /// Search in all pages of a PDF
     /// </summary>
-    public List<(int PageNum, int LineNum, MatchObject Line)> SearchInPdf(
+    public static List<(int PageNum, int LineNum, MatchObject Line)> SearchInPdf(
         PdfData pdfData,
         Regex regex,
         int? specificPage = null,
