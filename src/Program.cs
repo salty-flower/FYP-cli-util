@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.RateLimiting;
@@ -189,18 +190,51 @@ var app = builder.ConfigureServices(
         services.AddSingleton<BugListDiscoveryCommands>();
 
         // Add GitHub API HttpClient with token
-        services.AddHttpClient(
-            "github-api",
-            (sp, client) =>
-            {
-                var credentialOptions = sp.GetRequiredService<IOptions<CredentialOptions>>().Value;
-                client.BaseAddress = new Uri("https://api.github.com/");
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-                    "Bearer",
-                    credentialOptions.GitHubToken
-                );
-            }
-        );
+        services
+            .AddHttpClient(
+                "github-api",
+                (sp, client) =>
+                {
+                    var credentialOptions = sp.GetRequiredService<
+                        IOptions<CredentialOptions>
+                    >().Value;
+                    client.BaseAddress = new Uri("https://api.github.com/");
+                    client.DefaultRequestHeaders.Accept.Add(
+                        new MediaTypeWithQualityHeaderValue("text/html")
+                    );
+                    client.DefaultRequestHeaders.Accept.Add(
+                        new MediaTypeWithQualityHeaderValue("application/xhtml+xml")
+                    );
+                    client.DefaultRequestHeaders.Accept.Add(
+                        new MediaTypeWithQualityHeaderValue("application/xml")
+                    );
+                    client.DefaultRequestHeaders.Accept.Add(
+                        new MediaTypeWithQualityHeaderValue("application/json")
+                    );
+                    client.DefaultRequestHeaders.Accept.Add(
+                        new MediaTypeWithQualityHeaderValue("application/vnd.github+json")
+                    );
+                    client.DefaultRequestHeaders.AcceptEncoding.Add(
+                        new StringWithQualityHeaderValue("gzip")
+                    );
+                    client.DefaultRequestHeaders.AcceptEncoding.Add(
+                        new StringWithQualityHeaderValue("deflate")
+                    );
+                    client.DefaultRequestHeaders.Add("User-Agent", "BugMiner/1.0");
+                    client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+                        "Bearer",
+                        credentialOptions.GitHubToken
+                    );
+                }
+            )
+            .ConfigurePrimaryHttpMessageHandler(() =>
+                new HttpClientHandler
+                {
+                    AutomaticDecompression =
+                        DecompressionMethods.GZip | DecompressionMethods.Deflate,
+                }
+            );
     }
 );
 

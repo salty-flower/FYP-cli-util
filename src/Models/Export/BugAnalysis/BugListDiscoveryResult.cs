@@ -67,6 +67,16 @@ public class BugListSource
     /// Confidence score (0.0 to 1.0) of this being a valid bug list
     /// </summary>
     public double Confidence { get; set; }
+
+    /// <summary>
+    /// List of issue numbers extracted from PDF tables (e.g., "#123", "issue-456")
+    /// </summary>
+    public List<string> IssueNumbers { get; set; } = new();
+
+    /// <summary>
+    /// The table or context where this bug list was found
+    /// </summary>
+    public string? TableContext { get; set; }
 }
 
 /// <summary>

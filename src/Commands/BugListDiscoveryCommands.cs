@@ -239,6 +239,7 @@ public class BugListDiscoveryCommands(
 
         detailsTable.AddColumn("Paper Title");
         detailsTable.AddColumn("Bug Lists");
+        detailsTable.AddColumn("Issue Numbers");
         detailsTable.AddColumn("Artifacts");
         detailsTable.AddColumn("Status");
 
@@ -246,10 +247,12 @@ public class BugListDiscoveryCommands(
         {
             var status = GetResultStatus(result);
             var truncatedTitle = TruncateTitle(result.Title);
+            var issueNumbersDisplay = GetIssueNumbersDisplay(result.BugLists);
 
             detailsTable.AddRow(
                 truncatedTitle,
                 result.BugLists.Count.ToString(),
+                issueNumbersDisplay,
                 result.ArtifactRepositories.Count.ToString(),
                 status
             );
@@ -262,6 +265,98 @@ public class BugListDiscoveryCommands(
             AnsiConsole.MarkupLine(
                 $"[dim]... and {results.Count - MaxDisplayResults} more results (see exported JSON for full details)[/]"
             );
+        }
+
+        // Display detailed bug lists for papers with extracted issue numbers
+        DisplayBugListDetails(results.Take(MaxDisplayResults).ToList());
+    }
+
+    private static string GetIssueNumbersDisplay(List<BugListSource> bugLists)
+    {
+        var totalIssues = bugLists.Sum(bl => bl.IssueNumbers.Count);
+        if (totalIssues == 0)
+            return "0";
+
+        var sampleIssues = bugLists.SelectMany(bl => bl.IssueNumbers).Take(3).ToList();
+
+        var display = string.Join(", ", sampleIssues.Select(ConsoleRenderingService.SafeMarkup));
+        if (totalIssues > 3)
+            display += $" +{totalIssues - 3} more";
+
+        return display;
+    }
+
+    private static void DisplayBugListDetails(List<BugListDiscoveryResult> results)
+    {
+        var resultsWithBugLists = results
+            .Where(r => r.BugLists.Any(bl => bl.IssueNumbers.Count > 0))
+            .ToList();
+
+        if (!resultsWithBugLists.Any())
+            return;
+
+        AnsiConsole.Write(new Rule("[bold]Extracted Bug Lists[/]").RuleStyle("green"));
+
+        foreach (var result in resultsWithBugLists)
+        {
+            var bugListsWithIssues = result.BugLists.Where(bl => bl.IssueNumbers.Count > 0);
+
+            foreach (var bugList in bugListsWithIssues)
+            {
+                var safeTableContext = ConsoleRenderingService.SafeMarkup(
+                    bugList.TableContext ?? "Unknown"
+                );
+                var safeUrl = ConsoleRenderingService.SafeMarkup(bugList.Url);
+                var safeIssueNumbers = ConsoleRenderingService.SafeMarkup(
+                    string.Join(", ", bugList.IssueNumbers)
+                );
+
+                var panel = new Panel(
+                    $"""
+                    [bold]Table Context:[/] {safeTableContext}
+                    [bold]Repository:[/] {safeUrl}
+                    [bold]Issue Numbers:[/] {safeIssueNumbers}
+                    [bold]Confidence:[/] {bugList.Confidence:F2}
+                    [bold]Discovery Method:[/] {ConsoleRenderingService.SafeMarkup(
+                        bugList.DiscoveryMethod
+                    )}
+                    """
+                )
+                {
+                    Header = new PanelHeader(
+                        $"[bold]{ConsoleRenderingService.SafeMarkup(TruncateTitle(result.Title))}[/]"
+                    ),
+                    Border = BoxBorder.Rounded,
+                };
+
+                AnsiConsole.Write(panel);
+            }
+        }
+
+        // Also display bug lists without issue numbers (URL-only findings)
+        var resultsWithUrlBugLists = results
+            .Where(r => r.BugLists.Any(bl => bl.IssueNumbers.Count == 0))
+            .ToList();
+
+        if (resultsWithUrlBugLists.Any())
+        {
+            AnsiConsole.Write(new Rule("[bold]Bug Tracking URLs Found[/]").RuleStyle("yellow"));
+
+            foreach (var result in resultsWithUrlBugLists)
+            {
+                var urlOnlyBugLists = result.BugLists.Where(bl => bl.IssueNumbers.Count == 0);
+
+                foreach (var bugList in urlOnlyBugLists)
+                {
+                    var safeUrl = ConsoleRenderingService.SafeMarkup(bugList.Url);
+                    var safeType = ConsoleRenderingService.SafeMarkup(bugList.Type);
+                    var safeMethod = ConsoleRenderingService.SafeMarkup(bugList.DiscoveryMethod);
+
+                    AnsiConsole.MarkupLine(
+                        $"  [blue]•[/] [bold]{safeType}:[/] {safeUrl} [dim]({safeMethod}, confidence: {bugList.Confidence:F2})[/]"
+                    );
+                }
+            }
         }
     }
 

@@ -21,14 +21,14 @@ using JsonSerializer = System.Text.Json.JsonSerializer;
 namespace DataCollection.Services;
 
 [ConsoleAppFilter<PathsOptions.Filter>]
-public class GitHubService
+public class GitHubService(
+    GitHubClient gitHubClient,
+    GitHubManualApiService manualApiService,
+    ILogger<GitHubService> logger,
+    IsDeveloperCriterion isDeveloperCriterion,
+    IOptions<PathsOptions> pathsOptions
+    )
 {
-    private readonly GitHubClient gitHubClient;
-    private readonly GitHubManualApiService manualApiService;
-    private readonly ILogger<GitHubService> logger;
-    private readonly IsDeveloperCriterion isDeveloperCriterion;
-    private readonly IOptions<PathsOptions> pathsOptions;
-
     private readonly ConcurrentDictionary<long, IReadOnlyList<Contributor>> repoContributorsCache =
     [];
     private readonly ConcurrentDictionary<
@@ -36,27 +36,6 @@ public class GitHubService
         UserProfile
     > userProfileCache = [];
     private readonly ConcurrentDictionary<string, FullRepository> repositoryCache = [];
-
-    private readonly JsonSerializerOptions jsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNameCaseInsensitive = true,
-    };
-
-    public GitHubService(
-        GitHubClient gitHubClient,
-        GitHubManualApiService manualApiService,
-        ILogger<GitHubService> logger,
-        IsDeveloperCriterion isDeveloperCriterion,
-        IOptions<PathsOptions> pathsOptions
-    )
-    {
-        this.gitHubClient = gitHubClient;
-        this.manualApiService = manualApiService;
-        this.logger = logger;
-        this.isDeveloperCriterion = isDeveloperCriterion;
-        this.pathsOptions = pathsOptions;
-    }
 
     /// <summary>
     /// Gets information about a repository and caches it
@@ -100,7 +79,7 @@ public class GitHubService
 
         try
         {
-            var repository = await gitHubClient.Repos[owner][repoName].GetAsync();
+            var repository = await gitHubClient.Repos[owner][repoName].GetAsync();   
             if (repository == null)
                 throw new InvalidOperationException($"Repository {owner}/{repoName} not found");
 
@@ -110,7 +89,7 @@ public class GitHubService
             if (!Directory.Exists(repoDir))
                 Directory.CreateDirectory(repoDir);
 
-            var json = JsonSerializer.Serialize(repository, jsonOptions);
+            var json = JsonSerializer.Serialize(repository, GitHubAPIJsonContext.Default.FullRepository);
             await File.WriteAllTextAsync(repoFile, json);
 
             return repository;
@@ -159,7 +138,7 @@ public class GitHubService
             try
             {
                 var json = await File.ReadAllTextAsync(userFile);
-                var profile = JsonSerializer.Deserialize<UserProfile>(json, jsonOptions);
+                var profile = JsonSerializer.Deserialize<UserProfile>(json, GitHubAPIJsonContext.Default.UserProfile);
                 if (profile != null)
                 {
                     userProfileCache[cacheKey] = profile;
@@ -187,7 +166,7 @@ public class GitHubService
         // Save to disk cache
         try
         {
-            var json = JsonSerializer.Serialize(userProfile, jsonOptions);
+            var json = JsonSerializer.Serialize(userProfile, GitHubAPIJsonContext.Default.WithUsernameGetResponse);
             await File.WriteAllTextAsync(userFile, json);
         }
         catch (Exception ex)
@@ -451,7 +430,7 @@ public class GitHubService
     /// </summary>
     /// <param name="owner">Repository owner</param>
     /// <param name="repoName">Repository name</param>
-    /// <returns>README content as string, or null if not found</returns>
+    /// <returns>README content or null if not found</returns>
     public async Task<string?> GetRepositoryReadmeAsync(string owner, string repoName)
     {
         try
@@ -461,28 +440,20 @@ public class GitHubService
 
             foreach (var readmeName in readmeNames)
             {
-                try
+                var readmeContent = await manualApiService.GetRepositoryFileContentAsync(
+                    owner,
+                    repoName,
+                    readmeName
+                );
+                if (!string.IsNullOrEmpty(readmeContent))
                 {
-                    var readmeContent = await manualApiService.GetRepositoryFileContentAsync(
+                    logger.LogDebug(
+                        "Found README for {Owner}/{RepoName}: {ReadmeName}",
                         owner,
                         repoName,
                         readmeName
                     );
-                    if (!string.IsNullOrEmpty(readmeContent))
-                    {
-                        logger.LogDebug(
-                            "Found README for {Owner}/{RepoName}: {ReadmeName}",
-                            owner,
-                            repoName,
-                            readmeName
-                        );
-                        return readmeContent;
-                    }
-                }
-                catch (Exception)
-                {
-                    // Continue to next README name
-                    continue;
+                    return readmeContent;
                 }
             }
 
@@ -495,4 +466,50 @@ public class GitHubService
             return null;
         }
     }
+
+    /// <summary>
+    /// Gets the repository directory tree
+    /// </summary>
+    /// <param name="owner">Repository owner</param>
+    /// <param name="repoName">Repository name</param>
+    /// <param name="recursive">Whether to get tree recursively</param>
+    /// <returns>Repository tree</returns>
+    public async Task<RepositoryTree?> GetRepositoryTreeAsync(
+        string owner,
+        string repoName,
+        bool recursive = true
+    )
+    {
+        try
+        {
+            var repo = await GetRepositoryInfoAsync(owner, repoName);
+            var defaultBranch = repo.DefaultBranch ?? "main";
+
+            var url = $"repos/{owner}/{repoName}/git/trees/{defaultBranch}";
+            if (recursive)
+                url += "?recursive=1";
+
+            var json = await manualApiService.GetJsonAsync(url);
+            return json != null ? JsonSerializer.Deserialize<RepositoryTree>(json, GitHubAPIJsonContext.Default.RepositoryTree) : null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Could not get repository tree for {Owner}/{RepoName}",
+                owner,
+                repoName
+            );
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Gets the content of a specific file in the repository
+    /// </summary>
+    /// <param name="owner">Repository owner</param>
+    /// <param name="repoName">Repository name</param>
+    /// <param name="filePath">Path to the file</param>
+    /// <returns>File content as string</returns>
+    public async Task<string?> GetFileContentAsync(string owner, string repoName, string filePath) => await manualApiService.GetRepositoryFileContentAsync(owner, repoName, filePath);
 }

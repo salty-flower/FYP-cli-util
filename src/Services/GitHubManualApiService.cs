@@ -4,8 +4,10 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 using DataCollection.Models.GitHub;
+using DataCollection.Options;
 using GitHub.Models;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using JsonSerializer = System.Text.Json.JsonSerializer;
 
@@ -19,7 +21,6 @@ public class GitHubManualApiService
     private readonly HttpClient httpClient;
     private readonly ILogger<GitHubManualApiService> logger;
     private readonly JsonSerializerOptions jsonOptions;
-
     public GitHubManualApiService(
         IHttpClientFactory httpClientFactory,
         ILogger<GitHubManualApiService> logger
@@ -243,5 +244,38 @@ public class GitHubManualApiService
         public string? Encoding { get; set; }
         public string? Name { get; set; }
         public string? Path { get; set; }
+    }
+
+    /// <summary>
+    /// Make a generic GET request to the GitHub API and return raw JSON
+    /// </summary>
+    public async Task<string?> GetJsonAsync(string endpoint)
+    {
+        try
+        {
+            logger.LogDebug("Making GET request to {Endpoint}", endpoint);
+
+            var response = await httpClient.GetAsync(endpoint);
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync();
+            logger.LogDebug("Successfully fetched data from {Endpoint}", endpoint);
+
+            return json;
+        }
+        catch (HttpRequestException ex)
+            when (ex.Message.Contains("401") || ex.Message.Contains("403"))
+        {
+            logger.LogWarning(
+                "Unauthorized access to GitHub API for {Endpoint}. Check your token permissions.",
+                endpoint
+            );
+            return null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to fetch data from {Endpoint}", endpoint);
+            return null;
+        }
     }
 }

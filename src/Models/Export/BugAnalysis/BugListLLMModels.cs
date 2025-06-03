@@ -35,3 +35,9 @@ public record ArtifactVerificationRequest(
 );
 
 public record ArtifactVerificationResponse(bool IsArtifact, double Confidence, string Reasoning);
+
+public record RepositoryBugFileAnalysisRequest(List<string> FilePaths);
+
+public record RepositoryBugFileAnalysisResponse(List<BugRelatedFile> BugRelatedFiles);
+
+public record BugRelatedFile(string Path, string Type, string Description, double Confidence);

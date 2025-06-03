@@ -19,6 +19,7 @@ using OpenAI;
 using OpenAI.Chat;
 using OpenAi.JsonSchema.Generator;
 using OpenAi.JsonSchema.Serialization;
+using DataCollection.Models.GitHub;
 
 namespace DataCollection.Services;
 
@@ -110,6 +111,34 @@ public partial class BugListDiscoveryService(
         "implementation",
     ];
 
+    private static readonly string[] BugListPatterns =
+    [
+        @"Table\s*\d*[:\s]*.*?bug",
+        @"Table\s*\d*[:\s]*.*?issue",
+        @"Table\s*\d*[:\s]*.*?defect",
+        @"Table\s*\d*[:\s]*.*?fault",
+        @"bugs?\s*(?:fixed|found|reported|identified)",
+        @"issues?\s*(?:fixed|found|reported|identified)",
+        @"defects?\s*(?:fixed|found|reported|identified)",
+        @"faults?\s*(?:fixed|found|reported|identified)",
+        @"bug\s*(?:list|table|ids?)",
+        @"issue\s*(?:list|table|ids?)",
+        @"defect\s*(?:list|table|ids?)",
+        @"fault\s*(?:list|table|ids?)",
+    ];
+
+    private static readonly string[] IssueNumberPatterns =
+    [
+        @"#\d+",
+        @"issue[-\s]*\d+",
+        @"bug[-\s]*\d+",
+        @"defect[-\s]*\d+",
+        @"fault[-\s]*\d+",
+        @"\b\d{3,6}\b(?=\s*[,\s]|\s*$)",
+        @"[A-Z]+-\d+",
+        @"\[\d+\]",
+    ];
+
     public async Task<BugListDiscoveryAnalysis> DiscoverBugListsAsync(
         List<string> dois,
         CancellationToken cancellationToken = default
@@ -169,6 +198,7 @@ public partial class BugListDiscoveryService(
         {
             await ExtractFromPdfContent(paper, result, cancellationToken);
             await SearchForArtifactsIfNeeded(paper, result, cancellationToken);
+            await ExploreRepositoryBugLists(result, cancellationToken);
             result.DiscoverySuccessful = HasFoundArtifacts(result);
         }
         catch (Exception ex)
@@ -209,6 +239,7 @@ public partial class BugListDiscoveryService(
             var fullText = string.Join(" ", pdfData.Texts);
 
             ExtractDirectUrls(fullText, result);
+            await ExtractStructuredBugLists(pdfData, result, cancellationToken);
             await ExtractArtifactsByKeywords(fullText, result, paper, cancellationToken);
             await AnalyzeTextWithLlm(paper, fullText, result, cancellationToken);
         }
@@ -291,6 +322,217 @@ public partial class BugListDiscoveryService(
 
     private static string EnsureHttpsUrl(string url) =>
         url.StartsWith("http") ? url : "https://" + url;
+
+    private async Task ExtractStructuredBugLists(
+        PdfData pdfData,
+        BugListDiscoveryResult result,
+        CancellationToken cancellationToken
+    )
+    {
+        logger.LogDebug("Extracting structured bug lists from PDF content");
+
+        var fullText = string.Join(" ", pdfData.Texts);
+        var potentialBugTables = FindBugTables(fullText);
+
+        foreach (var tableInfo in potentialBugTables)
+        {
+            var tableContent = string.Join(" ", tableInfo.Tables);
+            var issueNumbers = ExtractIssueNumbers(tableContent);
+
+            if (issueNumbers.Count > 0)
+            {
+                var repositoryUrl = await InferRepositoryFromContext(
+                    tableInfo,
+                    fullText,
+                    cancellationToken
+                );
+
+                var bugList = new BugListSource
+                {
+                    Url = repositoryUrl ?? "Unknown Repository",
+                    Type = GetBugListType(repositoryUrl),
+                    DiscoveryMethod = "PDF Table Analysis",
+                    Confidence = CalculateBugListConfidence(tableInfo, issueNumbers.Count),
+                    IssueNumbers = issueNumbers,
+                    TableContext = tableInfo.Title,
+                };
+
+                result.BugLists.Add(bugList);
+
+                logger.LogInformation(
+                    "Found bug list with {Count} issues in table: {TableTitle}",
+                    issueNumbers.Count,
+                    tableInfo.Title
+                );
+            }
+        }
+    }
+
+    private List<BugTableInfo> FindBugTables(string text)
+    {
+        var tables = new List<BugTableInfo>();
+        var normalizedText = text.RemoveLineEndings();
+
+        foreach (var pattern in BugListPatterns)
+        {
+            var matches = Regex.Matches(normalizedText, pattern, RegexOptions.IgnoreCase);
+
+            foreach (Match match in matches)
+            {
+                var context = ExtractTableContext(normalizedText, match.Index);
+
+                tables.Add(
+                    new BugTableInfo
+                    {
+                        Title = match.Value.Trim(),
+                        TableCount = 1,
+                        Tables = new List<string> { context.Content },
+                    }
+                );
+            }
+        }
+
+        return tables;
+    }
+
+    private (string Content, int StartIndex, int EndIndex) ExtractTableContext(
+        string text,
+        int matchIndex
+    )
+    {
+        const int ContextWindowSize = 1000;
+
+        var startIndex = Math.Max(0, matchIndex - ContextWindowSize / 2);
+        var endIndex = Math.Min(text.Length, matchIndex + ContextWindowSize / 2);
+
+        var content = text.Substring(startIndex, endIndex - startIndex);
+
+        return (content, startIndex, endIndex);
+    }
+
+    private List<string> ExtractIssueNumbers(string tableContent)
+    {
+        var issueNumbers = new List<string>();
+        var seenNumbers = new HashSet<string>();
+
+        foreach (var pattern in IssueNumberPatterns)
+        {
+            var matches = Regex.Matches(tableContent, pattern, RegexOptions.IgnoreCase);
+
+            foreach (Match match in matches)
+            {
+                var issueNumber = match.Value.Trim();
+
+                if (IsValidIssueNumber(issueNumber) && seenNumbers.Add(issueNumber))
+                {
+                    issueNumbers.Add(issueNumber);
+                }
+            }
+        }
+
+        return issueNumbers;
+    }
+
+    private static bool IsValidIssueNumber(string issueNumber)
+    {
+        if (string.IsNullOrWhiteSpace(issueNumber))
+            return false;
+
+        // Filter out common false positives
+        if (issueNumber.Length < 2 || issueNumber.Length > 20)
+            return false;
+
+        // Check for obvious non-issue patterns
+        var commonFalsePositives = new[] { "2021", "2022", "2023", "2024", "100", "200", "300" };
+        if (commonFalsePositives.Contains(issueNumber.Trim('#', '-', ' ')))
+            return false;
+
+        return true;
+    }
+
+    private async Task<string?> InferRepositoryFromContext(
+        BugTableInfo tableInfo,
+        string fullText,
+        CancellationToken cancellationToken
+    )
+    {
+        // First, look for explicit repository URLs in the table context
+        foreach (var pattern in RepositoryPatterns)
+        {
+            var match = Regex.Match(
+                string.Join(" ", tableInfo.Tables),
+                pattern,
+                RegexOptions.IgnoreCase
+            );
+            if (match.Success)
+            {
+                return EnsureHttpsUrl(match.Value);
+            }
+        }
+
+        // Look for repository URLs in the broader document context
+        var contextWindow = ExtractSurroundingContext(fullText, tableInfo.Title);
+        foreach (var pattern in RepositoryPatterns)
+        {
+            var match = Regex.Match(contextWindow, pattern, RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                return EnsureHttpsUrl(match.Value);
+            }
+        }
+
+        // Could add LLM-based inference here in the future
+        return null;
+    }
+
+    private string ExtractSurroundingContext(string fullText, string tableTitle)
+    {
+        const int ContextSize = 2000;
+
+        var index = fullText.IndexOf(tableTitle, StringComparison.OrdinalIgnoreCase);
+        if (index == -1)
+            return "";
+
+        var start = Math.Max(0, index - ContextSize);
+        var end = Math.Min(fullText.Length, index + ContextSize);
+
+        return fullText.Substring(start, end - start);
+    }
+
+    private string GetBugListType(string? repositoryUrl)
+    {
+        if (string.IsNullOrEmpty(repositoryUrl))
+            return "Unknown";
+
+        if (repositoryUrl.Contains("github.com"))
+            return "GitHub Issues";
+        if (repositoryUrl.Contains("gitlab.com"))
+            return "GitLab Issues";
+        if (repositoryUrl.Contains("jira"))
+            return "Jira";
+        if (repositoryUrl.Contains("bugzilla"))
+            return "Bugzilla";
+
+        return "Repository Issues";
+    }
+
+    private double CalculateBugListConfidence(BugTableInfo tableInfo, int issueCount)
+    {
+        double confidence = 0.5; // Base confidence
+
+        // Higher confidence for explicit table titles
+        if (tableInfo.Title.ToLowerInvariant().Contains("table"))
+            confidence += 0.2;
+
+        // Higher confidence for more issues found
+        if (issueCount >= 10)
+            confidence += 0.2;
+        else if (issueCount >= 5)
+            confidence += 0.1;
+
+        // Cap at reasonable maximum
+        return Math.Min(confidence, 0.9);
+    }
 
     private async Task ExtractArtifactsByKeywords(
         string text,
@@ -1222,9 +1464,36 @@ public partial class BugListDiscoveryService(
     private static ChatMessage[] CreateAnalysisMessages(BugListAnalysisRequest request) =>
         [
             new SystemChatMessage(
-                "Analyze research paper text and identify any mentions of bug tracking systems, issue trackers, software repositories, or project websites. Look for indirect references like 'Our code is available at...', 'Issues can be reported at...', 'The implementation can be found...', repository names without full URLs, or project names that might have public repositories."
+                """
+                You are an expert at analyzing research papers to find bug lists and artifact repositories.
+
+                Your task is to identify:
+                1. ARTIFACT REPOSITORIES - GitHub, GitLab, Zenodo, etc. repositories containing code/data
+                2. BUG LISTS - Tables, lists, or mentions of specific bug/issue numbers within the paper
+
+                For bug lists, look for:
+                - Tables with bug IDs (e.g., "Table 2: Bug IDs: #123, #456")
+                - Lists of issue numbers (e.g., "Issues #789, #101, #202 were fixed")
+                - References to specific bugs/issues by number
+                - Bug tracking system mentions with issue numbers
+
+                For artifact repositories, look for:
+                - Direct repository URLs
+                - Project names that could be searched for
+                - Mentions of code/data availability
+
+                Return a JSON object with "mentions" array containing all findings.
+                """
             ),
-            new UserChatMessage($"Paper Title: {request.PaperTitle}\n\nText: {request.PaperText}"),
+            new UserChatMessage(
+                $"""
+                Paper Title: {request.PaperTitle}
+
+                Please analyze this paper text and identify any bug lists (with issue numbers) and artifact repositories:
+
+                {request.PaperText}
+                """
+            ),
         ];
 
     private static ChatMessage[] CreateRepositoryVerificationMessages(object request)
@@ -1298,6 +1567,357 @@ public partial class BugListDiscoveryService(
 
     [GeneratedRegex(@"github\.com/([^/]+)/([^/]+)/?$")]
     private static partial Regex GithubComPattern();
+
+    private async Task ExploreRepositoryBugLists(
+        BugListDiscoveryResult result,
+        CancellationToken cancellationToken
+    )
+    {
+        // Check if we have found substantial bug lists in PDF
+        var pdfBugListsWithIssues = result
+            .BugLists.Where(bl => bl.DiscoveryMethod.Contains("PDF") && bl.IssueNumbers.Count > 0)
+            .ToList();
+
+        var githubRepos = result
+            .ArtifactRepositories.Where(ar =>
+                ar.Type == "GitHub" && ar.Confidence >= MinAcceptableConfidence
+            )
+            .ToList();
+
+        if (!githubRepos.Any())
+        {
+            logger.LogDebug("No high-confidence GitHub repositories found for exploration");
+            return;
+        }
+
+        // Debug GitHub token configuration
+        var token = credentialOptions.Value.GitHubToken;
+        if (string.IsNullOrEmpty(token))
+        {
+            logger.LogError(
+                "GitHub token not configured! Set GITHUB_TOKEN environment variable or GitHubToken in appsettings.json"
+            );
+            return;
+        }
+        else
+        {
+            logger.LogDebug("GitHub token configured (length: {tok})", token);
+        }
+
+        logger.LogInformation(
+            "Exploring {Count} GitHub repositories for additional bug lists (found {PDFBugLists} PDF bug lists)",
+            githubRepos.Count,
+            pdfBugListsWithIssues.Count
+        );
+
+        foreach (var repo in githubRepos.Take(2)) // Limit to 2 repos to avoid API rate limits
+        {
+            try
+            {
+                await ExploreRepositoryForBugs(repo, result, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+                when (ex.Message.Contains("GitHub API access denied"))
+            {
+                logger.LogError("GitHub API access denied: {Message}", ex.Message);
+                logger.LogError("To fix this issue:");
+                logger.LogError(
+                    "1. Set GITHUB_TOKEN environment variable with a valid GitHub Personal Access Token"
+                );
+                logger.LogError("2. Or configure GitHubToken in appsettings.json");
+                logger.LogError(
+                    "3. Ensure token has 'repo' scope for private repos or 'public_repo' for public repos"
+                );
+                throw; // Re-throw to terminate as requested
+            }
+        }
+    }
+
+    private async Task ExploreRepositoryForBugs(
+        ArtifactRepository repository,
+        BugListDiscoveryResult result,
+        CancellationToken cancellationToken
+    )
+    {
+        try
+        {
+            if (!IsGitHubRepository(repository.Url))
+                return;
+
+            var (owner, repoName) = ExtractGitHubInfo(repository.Url);
+            logger.LogDebug(
+                "Exploring repository {Owner}/{RepoName} for bug information",
+                owner,
+                repoName
+            );
+
+            var directoryTree = await GetRepositoryTreeWithRetry(
+                owner,
+                repoName,
+                cancellationToken
+            );
+            if (directoryTree == null)
+            {
+                logger.LogWarning(
+                    "Could not access repository tree for {Owner}/{RepoName} - skipping exploration",
+                    owner,
+                    repoName
+                );
+                return;
+            }
+
+            var bugRelatedFiles = await IdentifyBugRelatedFiles(directoryTree, cancellationToken);
+            if (bugRelatedFiles == null || bugRelatedFiles.Count == 0)
+            {
+                logger.LogDebug(
+                    "No bug-related files identified in {Owner}/{RepoName}",
+                    owner,
+                    repoName
+                );
+                return;
+            }
+
+            var filesToProcess = bugRelatedFiles.Take(3).ToList(); // Now properly typed
+            foreach (var bugFile in filesToProcess)
+            {
+                await ExtractBugsFromRepositoryFile(
+                    owner,
+                    repoName,
+                    bugFile,
+                    repository,
+                    result,
+                    cancellationToken
+                );
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Error exploring repository {Url} for bugs", repository.Url);
+        }
+    }
+
+    private async Task<RepositoryTree?> GetRepositoryTreeWithRetry(
+        string owner,
+        string repoName,
+        CancellationToken cancellationToken,
+        int maxRetries = 2
+    )
+    {
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                var tree = await gitHubService.GetRepositoryTreeAsync(owner, repoName);
+                if (tree != null)
+                    return tree;
+
+                logger.LogDebug(
+                    "Attempt {Attempt}: Repository tree was null for {Owner}/{RepoName}",
+                    attempt,
+                    owner,
+                    repoName
+                );
+            }
+            catch (Exception ex) when (ex.Message.Contains("403"))
+            {
+                logger.LogWarning(
+                    "Attempt {Attempt}: 403 Forbidden accessing {Owner}/{RepoName}: {Message}",
+                    attempt,
+                    owner,
+                    repoName,
+                    ex.Message
+                );
+
+                if (attempt == maxRetries)
+                {
+                    throw new InvalidOperationException(
+                        $"GitHub API access denied for {owner}/{repoName}. "
+                            + "Please check your GitHub token permissions and API rate limits.",
+                        ex
+                    );
+                }
+
+                // Wait before retry
+                await Task.Delay(1000 * attempt, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Attempt {Attempt}: Error accessing repository tree for {Owner}/{RepoName}",
+                    attempt,
+                    owner,
+                    repoName
+                );
+
+                if (attempt == maxRetries)
+                    throw;
+
+                await Task.Delay(500 * attempt, cancellationToken);
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<List<BugRelatedFile>> IdentifyBugRelatedFiles(
+        RepositoryTree directoryTree,
+        CancellationToken cancellationToken
+    )
+    {
+        var allFiles = ExtractFilePathsFromTree(directoryTree);
+        var request = new RepositoryBugFileAnalysisRequest(allFiles);
+
+        var response = await GetVerificationResponse<RepositoryBugFileAnalysisResponse>(
+            request,
+            "repository-bug-analysis",
+            CreateRepositoryBugAnalysisMessages,
+            ExportModelJsonContext.Default.RepositoryBugFileAnalysisResponse,
+            cancellationToken
+        );
+
+        return response?.BugRelatedFiles ?? [];
+    }
+
+    private List<string> ExtractFilePathsFromTree(RepositoryTree tree)
+    {
+        var files = new List<string>();
+
+        try
+        {
+            if (tree?.Tree != null)
+            {
+                foreach (var item in tree.Tree)
+                {
+                    if (item?.Path != null)
+                    {
+                        files.Add(item.Path.ToString());
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Error extracting file paths from repository tree");
+        }
+
+        return files;
+    }
+
+    private async Task ExtractBugsFromRepositoryFile(
+        string owner,
+        string repoName,
+        BugRelatedFile bugFile,
+        ArtifactRepository sourceRepo,
+        BugListDiscoveryResult result,
+        CancellationToken cancellationToken
+    )
+    {
+        try
+        {
+            var fileContent = await gitHubService.GetFileContentAsync(
+                owner,
+                repoName,
+                bugFile.Path
+            );
+            if (string.IsNullOrEmpty(fileContent))
+                return;
+
+            var issueNumbers = ExtractIssueNumbers(fileContent);
+            if (issueNumbers.Count == 0)
+                return;
+
+            var bugList = new BugListSource
+            {
+                Url = $"{sourceRepo.Url}/blob/main/{bugFile.Path}",
+                Type = "Repository File",
+                DiscoveryMethod = $"Repository File Analysis ({bugFile.Type})",
+                Confidence = CalculateRepositoryBugConfidence(bugFile, issueNumbers.Count),
+                IssueNumbers = issueNumbers,
+                TableContext = $"File: {bugFile.Path} - {bugFile.Description}",
+            };
+
+            result.BugLists.Add(bugList);
+
+            logger.LogInformation(
+                "Found {Count} issue numbers in repository file {Path}: {Issues}",
+                issueNumbers.Count,
+                bugFile.Path,
+                string.Join(", ", issueNumbers.Take(5))
+            );
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Error extracting bugs from file {Path}", bugFile.Path);
+        }
+    }
+
+    private double CalculateRepositoryBugConfidence(BugRelatedFile bugFile, int issueCount)
+    {
+        double confidence = 0.3; // Base confidence for repository files
+
+        // Higher confidence for specific file types
+        confidence += bugFile.Type.ToLowerInvariant() switch
+        {
+            "changelog" => 0.3,
+            "bug_report" => 0.4,
+            "issue_list" => 0.4,
+            "commit_history" => 0.2,
+            "documentation" => 0.1,
+            _ => 0.1,
+        };
+
+        // Boost based on number of issues
+        if (issueCount >= 10)
+            confidence += 0.2;
+        else if (issueCount >= 5)
+            confidence += 0.1;
+
+        return Math.Min(confidence, 0.8); // Cap at 0.8 since it's not from the paper directly
+    }
+
+    private static ChatMessage[] CreateRepositoryBugAnalysisMessages(object request)
+    {
+        var req = (RepositoryBugFileAnalysisRequest)request;
+        var fileList = string.Join("\n", req.FilePaths.Take(100)); // Limit to avoid token limits
+
+        return
+        [
+            new SystemChatMessage(
+                """
+                You are an expert at analyzing repository structures to identify files that might contain bug lists, issue numbers, or bug-related information.
+
+                Analyze the provided file paths and identify files that are likely to contain:
+                1. Bug lists or issue numbers
+                2. Changelogs with bug fixes
+                3. Bug reports or issue tracking files
+                4. Documentation mentioning specific bugs
+
+                Focus on files like:
+                - CHANGELOG.md, CHANGES.txt, HISTORY.md
+                - bugs.txt, issues.txt, buglist.md
+                - Bug reports, issue templates
+                - Release notes with bug fixes
+                - Documentation with bug references
+
+                Ignore:
+                - Source code files unless they have obvious bug-related names
+                - General documentation without bug focus
+                - Configuration files
+                - Test files (unless specifically bug-related)
+
+                Return up to 5 most promising files with their type and description.
+                """
+            ),
+            new UserChatMessage(
+                $"""
+                Repository file paths to analyze:
+
+                {fileList}
+                """
+            ),
+        ];
+    }
 }
 
 /// <summary>

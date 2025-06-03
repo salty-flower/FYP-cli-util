@@ -30,4 +30,7 @@ namespace DataCollection.Commands;
 [JsonSerializable(typeof(RepositoryVerificationResponse))]
 [JsonSerializable(typeof(ArtifactVerificationRequest))]
 [JsonSerializable(typeof(ArtifactVerificationResponse))]
+[JsonSerializable(typeof(RepositoryBugFileAnalysisRequest))]
+[JsonSerializable(typeof(RepositoryBugFileAnalysisResponse))]
+[JsonSerializable(typeof(BugRelatedFile))]
 public partial class ExportModelJsonContext : JsonSerializerContext { }
