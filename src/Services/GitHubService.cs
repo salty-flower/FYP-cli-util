@@ -445,4 +445,54 @@ public class GitHubService
             OtherEvents = [.. otherEvents],
         };
     }
+
+    /// <summary>
+    /// Gets the README content of a repository
+    /// </summary>
+    /// <param name="owner">Repository owner</param>
+    /// <param name="repoName">Repository name</param>
+    /// <returns>README content as string, or null if not found</returns>
+    public async Task<string?> GetRepositoryReadmeAsync(string owner, string repoName)
+    {
+        try
+        {
+            // Try common README file names
+            var readmeNames = new[] { "README.md", "readme.md", "README.MD", "README", "readme" };
+
+            foreach (var readmeName in readmeNames)
+            {
+                try
+                {
+                    var readmeContent = await manualApiService.GetRepositoryFileContentAsync(
+                        owner,
+                        repoName,
+                        readmeName
+                    );
+                    if (!string.IsNullOrEmpty(readmeContent))
+                    {
+                        logger.LogDebug(
+                            "Found README for {Owner}/{RepoName}: {ReadmeName}",
+                            owner,
+                            repoName,
+                            readmeName
+                        );
+                        return readmeContent;
+                    }
+                }
+                catch (Exception)
+                {
+                    // Continue to next README name
+                    continue;
+                }
+            }
+
+            logger.LogDebug("No README found for {Owner}/{RepoName}", owner, repoName);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to get README for {Owner}/{RepoName}", owner, repoName);
+            return null;
+        }
+    }
 }

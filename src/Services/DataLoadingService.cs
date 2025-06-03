@@ -103,4 +103,40 @@ public class DataLoadingService(
         logger.LogInformation("Loaded {Count} papers", papers.Count);
         return papers;
     }
+
+    /// <summary>
+    /// Load a single PDF data file by sanitized DOI
+    /// </summary>
+    public PdfData? LoadPdfData(string pdfDataDir, string sanitizedDoi)
+    {
+        try
+        {
+            var filePath = Path.Combine(pdfDataDir, $"{sanitizedDoi}.pdf.bin");
+            if (!File.Exists(filePath))
+            {
+                logger.LogWarning("PDF data file not found: {FilePath}", filePath);
+                return null;
+            }
+
+            var bin = File.ReadAllBytes(filePath);
+            var pdfData = MemoryPackSerializer.Deserialize<PdfData>(bin);
+
+            if (pdfData != null)
+            {
+                logger.LogDebug("Loaded PDF data for DOI: {SanitizedDoi}", sanitizedDoi);
+            }
+
+            return pdfData;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Error loading PDF data for DOI {SanitizedDoi}: {Error}",
+                sanitizedDoi,
+                ex.Message
+            );
+            return null;
+        }
+    }
 }

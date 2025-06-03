@@ -172,4 +172,76 @@ public class GitHubManualApiService
             return [];
         }
     }
+
+    /// <summary>
+    /// Get repository file content
+    /// </summary>
+    public async Task<string?> GetRepositoryFileContentAsync(
+        string owner,
+        string repoName,
+        string filePath
+    )
+    {
+        try
+        {
+            logger.LogDebug(
+                "Fetching file content for {Owner}/{Repo}/{FilePath}",
+                owner,
+                repoName,
+                filePath
+            );
+
+            var response = await httpClient.GetAsync(
+                $"repos/{owner}/{repoName}/contents/{filePath}"
+            );
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync();
+            var contentInfo = JsonSerializer.Deserialize<GitHubFileContent>(json, jsonOptions);
+
+            if (contentInfo?.Content != null && contentInfo.Encoding == "base64")
+            {
+                var bytes = Convert.FromBase64String(contentInfo.Content.Replace("\n", ""));
+                var text = System.Text.Encoding.UTF8.GetString(bytes);
+
+                logger.LogDebug(
+                    "Successfully fetched file content for {Owner}/{Repo}/{FilePath}",
+                    owner,
+                    repoName,
+                    filePath
+                );
+                return text;
+            }
+
+            return null;
+        }
+        catch (HttpRequestException ex)
+            when (ex.Message.Contains("404") || ex.Message.Contains("403"))
+        {
+            logger.LogDebug("File not found: {Owner}/{Repo}/{FilePath}", owner, repoName, filePath);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to fetch file content for {Owner}/{Repo}/{FilePath}",
+                owner,
+                repoName,
+                filePath
+            );
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// GitHub file content response model
+    /// </summary>
+    public class GitHubFileContent
+    {
+        public string? Content { get; set; }
+        public string? Encoding { get; set; }
+        public string? Name { get; set; }
+        public string? Path { get; set; }
+    }
 }

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.RateLimiting;
 using ConsoleAppFramework;
@@ -15,6 +16,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.SemanticKernel;
 using OpenAI;
 using Serilog;
 using Serilog.Settings.Configuration;
@@ -118,6 +120,51 @@ var app = builder.ConfigureServices(
         services.AddSingleton(sp => new OpenAIClient(
             sp.GetOptions<CredentialOptions>().OpenAIToken
         ));
+
+        services.AddSingleton<Kernel>(sp =>
+        {
+            var credentialOptions = sp.GetRequiredService<IOptions<CredentialOptions>>().Value;
+            var openAIClient = sp.GetRequiredService<OpenAIClient>();
+
+            var kernelBuilder = Kernel.CreateBuilder();
+            kernelBuilder.AddOpenAIChatCompletion(
+                credentialOptions.BigModel,
+                credentialOptions.OpenAIToken
+            );
+
+            // Register both big and small model chat clients
+            kernelBuilder.Services.AddSingleton(openAIClient);
+            kernelBuilder.Services.AddSingleton(
+                openAIClient.GetChatClient(credentialOptions.BigModel)
+            );
+            kernelBuilder.Services.AddSingleton(
+                openAIClient.GetChatClient(credentialOptions.SmallModel)
+            );
+
+            return kernelBuilder.Build();
+        });
+
+        // Register web search services
+        services
+            .AddHttpClient<DuckDuckGoSearchService>(client =>
+            {
+                client.DefaultRequestHeaders.Add(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0"
+                );
+            })
+            .ConfigurePrimaryHttpMessageHandler(() =>
+                new HttpClientHandler()
+                {
+                    AutomaticDecompression = System.Net.DecompressionMethods.All,
+                }
+            );
+
+        services.AddSingleton<IWebSearchService, DuckDuckGoSearchService>();
+
+        // Register bug list discovery service
+        services.AddSingleton<BugListDiscoveryService>();
+
         services.AddSingleton<AcmScraper>();
         services.AddSingleton<AcmPaperParser>();
         services.AddSingleton<AcmPaperDownloader>();
@@ -139,6 +186,7 @@ var app = builder.ConfigureServices(
         services.AddSingleton<MetadataReplCommand>();
         services.AddSingleton<ProcedureCommands>();
         services.AddSingleton<IssueCommands>();
+        services.AddSingleton<BugListDiscoveryCommands>();
 
         // Add GitHub API HttpClient with token
         services.AddHttpClient(
