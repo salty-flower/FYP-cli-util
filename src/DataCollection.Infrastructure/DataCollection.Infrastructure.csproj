@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\DataCollection.Core\DataCollection.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="GitHub.Octokit.SDK" />
+    <PackageReference Include="HtmlAgilityPack" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" />
+    <PackageReference Include="Newtonsoft.Json" />
+    <PackageReference Include="Refit.HttpClientFactory" />
+    <PackageReference Include="System.Threading.RateLimiting" />
+  </ItemGroup>
+</Project>

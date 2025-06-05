@@ -1,0 +1,12 @@
+namespace DataCollection.Application.Models.Export.Search;
+
+public class MetadataSearchResult
+{
+    public required string Pattern { get; set; }
+
+    public int TotalMatches { get; set; }
+
+    public DateTime Timestamp { get; set; }
+
+    public required List<MetadataSearchItem> Results { get; set; }
+}
