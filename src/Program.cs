@@ -194,6 +194,8 @@ var app = builder.ConfigureServices(
         services.AddSingleton<PdfSearchService>();
         services.AddSingleton<DataLoadingService>();
         services.AddScoped<DatabaseDataLoadingService>();
+        services.AddScoped<DatabaseIssueAnalysisStorageService>();
+        services.AddScoped<DatabaseBugListDiscoveryStorageService>();
         services.AddSingleton<GitHubService>();
         services.AddSingleton<IssueAnalysisStorageService>();
         services.AddSingleton<SingleIssueProcessingService>();
@@ -208,7 +210,6 @@ var app = builder.ConfigureServices(
         services.AddSingleton<ProcedureCommands>();
         services.AddSingleton<IssueCommands>();
         services.AddSingleton<BugListDiscoveryCommands>();
-        services.AddSingleton<MigrateCommands>();
 
         // Add GitHub API HttpClient with token
         services

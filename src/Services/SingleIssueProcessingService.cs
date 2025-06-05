@@ -17,7 +17,7 @@ public class SingleIssueProcessingService(
     ILogger<SingleIssueProcessingService> logger,
     GitHubService gitHubService,
     IssueOverallStatusCriterion statusCriterion,
-    IssueAnalysisStorageService storageService,
+    DatabaseIssueAnalysisStorageService storageService,
     IOptions<PathsOptions> pathsOptions
 )
 {

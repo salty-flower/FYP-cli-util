@@ -10,6 +10,8 @@ public class DataCollectionDbContext : DbContext
 
     public DbSet<PaperEntity> Papers { get; set; }
     public DbSet<PdfDataEntity> PdfData { get; set; }
+    public DbSet<IssueAnalysisEntity> IssueAnalyses { get; set; }
+    public DbSet<BugListDiscoveryEntity> BugListDiscoveries { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -47,6 +49,34 @@ public class DataCollectionDbContext : DbContext
                 })
                 .IsUnique();
             entity.HasIndex(e => new { e.Conf, e.Year });
+        });
+
+        modelBuilder.Entity<IssueAnalysisEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity
+                .HasIndex(e => new
+                {
+                    e.Owner,
+                    e.Repository,
+                    e.IssueNumber
+                })
+                .IsUnique();
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.CreatedAt);
+        });
+
+        modelBuilder.Entity<BugListDiscoveryEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity
+                .HasIndex(e => new
+                {
+                    e.Conf,
+                    e.Year
+                })
+                .IsUnique();
+            entity.HasIndex(e => e.CreatedAt);
         });
     }
 }

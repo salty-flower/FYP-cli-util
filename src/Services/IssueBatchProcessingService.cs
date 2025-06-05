@@ -15,7 +15,7 @@ public class IssueBatchProcessingService(
     GitHubService gitHubService,
     IssueOverallStatusCriterion statusCriterion,
     SingleIssueProcessingService singleIssueService,
-    IssueAnalysisStorageService storageService
+    DatabaseIssueAnalysisStorageService storageService
 )
 {
     /// <summary>

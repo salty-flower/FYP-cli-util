@@ -9,6 +9,7 @@ using ConsoleAppFramework;
 using DataCollection.Models.Export.BugAnalysis;
 using DataCollection.Options;
 using DataCollection.Services;
+using DataCollection.Utils;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Spectre.Console;
@@ -23,7 +24,9 @@ namespace DataCollection.Commands;
 public class BugListDiscoveryCommands(
     ILogger<BugListDiscoveryCommands> logger,
     BugListDiscoveryService bugListDiscoveryService,
-    IOptions<PathsOptions> pathsOptions
+    DatabaseBugListDiscoveryStorageService databaseStorageService,
+    IOptions<PathsOptions> pathsOptions,
+    IOptions<RootOptions> rootOptions
 )
 {
     private const int MaxDisplayResults = 10;
@@ -153,6 +156,7 @@ public class BugListDiscoveryCommands(
     {
         var finalPath = outputPath ?? Path.Combine(_pathsOptions.BaseDir, DefaultOutputFileName);
         await ExportResults(analysis, finalPath);
+        await SaveToDatabase(analysis);
         AnsiConsole.MarkupLine($"[green]Results exported to:[/] {finalPath}");
     }
 
@@ -390,6 +394,19 @@ public class BugListDiscoveryCommands(
 
         await File.WriteAllTextAsync(outputPath, json);
         logger.LogInformation("Results exported to {OutputPath}", outputPath);
+    }
+
+    private async Task SaveToDatabase(BugListDiscoveryAnalysis analysis)
+    {
+        try
+        {
+            await databaseStorageService.SaveBugListDiscoveryAsync(rootOptions.Value.JobName, analysis);
+            logger.LogInformation("Bug list discovery analysis saved to database");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to save bug list discovery to database: {Error}", ex.Message);
+        }
     }
 
     private void LogAndDisplayError(string message)

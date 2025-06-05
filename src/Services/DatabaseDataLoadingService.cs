@@ -11,7 +11,8 @@ namespace DataCollection.Services;
 public class DatabaseDataLoadingService(
     ILogger<DatabaseDataLoadingService> logger,
     DataCollectionDbContext dbContext,
-    IOptionsSnapshot<RootOptions> rootOptions
+    IOptionsSnapshot<RootOptions> rootOptions,
+    IOptionsSnapshot<PathsOptions> pathsOptions
 )
 {
     private readonly string _jobName = rootOptions.Value.JobName;
@@ -175,5 +176,26 @@ public class DatabaseDataLoadingService(
             _confYear.Conf,
             _confYear.Year
         );
+    }
+
+    public string GetPdfPath(string doi)
+    {
+        var sanitizedDoi = doi.Replace("/", "-");
+        return Path.Combine(pathsOptions.Value.BaseDir, "paper-PDFs", $"{sanitizedDoi}.pdf");
+    }
+
+    public async Task<string?> GetPdfPathByDoiAsync(string doi)
+    {
+        var paper = await dbContext.Papers.FirstOrDefaultAsync(p =>
+            p.Doi == doi && p.Conf == _confYear.Conf && p.Year == _confYear.Year
+        );
+
+        if (paper == null)
+        {
+            return null;
+        }
+
+        var pdfPath = paper.GetPdfPath(pathsOptions.Value.BaseDir);
+        return File.Exists(pdfPath) ? pdfPath : null;
     }
 }
