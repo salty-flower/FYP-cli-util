@@ -19,6 +19,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
 using OpenAI;
+using Refit;
 using Serilog;
 using Serilog.Settings.Configuration;
 
@@ -163,8 +164,15 @@ var app = builder.ConfigureServices(
 
         services.AddSingleton<IWebSearchService, DuckDuckGoSearchService>();
 
-        // Register bug list discovery service
+        // Register bug list discovery services
+        services.AddTransient(sp =>
+            sp.GetRequiredService<OpenAIClient>()
+                .GetChatClient(sp.GetOptions<LLMOptions>().IssueOverallStatusModel)
+        );
         services.AddSingleton<BugListDiscoveryService>();
+        services.AddSingleton<PdfContentAnalysisService>();
+        services.AddSingleton<RepositoryAnalysisService>();
+        services.AddSingleton<WebSearchAnalysisService>();
 
         services.AddSingleton<AcmScraper>();
         services.AddSingleton<AcmPaperParser>();
@@ -173,7 +181,6 @@ var app = builder.ConfigureServices(
         services.AddSingleton<ConsoleRenderingService>();
         services.AddSingleton<PdfSearchService>();
         services.AddSingleton<DataLoadingService>();
-        services.AddSingleton<GitHubManualApiService>();
         services.AddSingleton<GitHubService>();
         services.AddSingleton<IssueAnalysisStorageService>();
         services.AddSingleton<SingleIssueProcessingService>();
@@ -219,6 +226,38 @@ var app = builder.ConfigureServices(
                     );
                     client.DefaultRequestHeaders.AcceptEncoding.Add(
                         new StringWithQualityHeaderValue("deflate")
+                    );
+                    client.DefaultRequestHeaders.Add("User-Agent", "BugMiner/1.0");
+                    client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+                        "Bearer",
+                        credentialOptions.GitHubToken
+                    );
+                }
+            )
+            .ConfigurePrimaryHttpMessageHandler(() =>
+                new HttpClientHandler
+                {
+                    AutomaticDecompression =
+                        DecompressionMethods.GZip | DecompressionMethods.Deflate,
+                }
+            );
+
+        // Register Refit client for GitHub API
+        services
+            .AddRefitClient<IGitHubApi>()
+            .ConfigureHttpClient(
+                (sp, client) =>
+                {
+                    var credentialOptions = sp.GetRequiredService<
+                        IOptions<CredentialOptions>
+                    >().Value;
+                    client.BaseAddress = new Uri("https://api.github.com/");
+                    client.DefaultRequestHeaders.Accept.Add(
+                        new MediaTypeWithQualityHeaderValue("application/json")
+                    );
+                    client.DefaultRequestHeaders.Accept.Add(
+                        new MediaTypeWithQualityHeaderValue("application/vnd.github+json")
                     );
                     client.DefaultRequestHeaders.Add("User-Agent", "BugMiner/1.0");
                     client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");

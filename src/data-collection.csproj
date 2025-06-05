@@ -20,6 +20,7 @@
     <PackageReference Include="NJsonSchema" />
     <PackageReference Include="OpenAI" />
     <PackageReference Include="pythonnet" />
+    <PackageReference Include="Refit.HttpClientFactory" />
     <PackageReference Include="Serilog.Extensions.Hosting" />
     <PackageReference Include="ConsoleAppFramework">
       <PrivateAssets>all</PrivateAssets>

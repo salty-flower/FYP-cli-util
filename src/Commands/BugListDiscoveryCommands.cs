@@ -188,7 +188,7 @@ public class BugListDiscoveryCommands(
         summaryTable.AddRow("Papers with Artifacts", summary.PapersWithArtifacts.ToString());
         summaryTable.AddRow("Failed Discoveries", summary.FailedDiscoveries.ToString());
         summaryTable.AddRow("Success Rate", $"{summary.SuccessRate:F1}%");
-        summaryTable.AddRow("Total Search Attempts", summary.TotalSearchAttempts.ToString());
+        summaryTable.AddRow("Total Bug Lists Found", summary.TotalBugListsFound.ToString());
 
         AnsiConsole.Write(summaryTable);
     }

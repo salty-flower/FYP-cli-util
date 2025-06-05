@@ -149,8 +149,23 @@ public class DuckDuckGoSearchService(HttpClient httpClient, ILogger<DuckDuckGoSe
         var queryParams = BuildQueryParameters(query, vqd);
         var searchUrl = BuildSearchUrl(queryParams);
 
-        var response = await httpClient.GetAsync(searchUrl, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        bool isSuccess = false;
+        HttpResponseMessage? response = null;
+
+        while (!isSuccess)
+        {
+            response = await httpClient.GetAsync(searchUrl, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            isSuccess =
+                response.StatusCode != System.Net.HttpStatusCode.NoContent
+                && response.StatusCode != System.Net.HttpStatusCode.Accepted;
+            if (!isSuccess)
+            // sleep
+            {
+                logger.LogWarning("DuckDuckGo returned no content, retrying in 3 seconds...");
+                await Task.Delay(3000, cancellationToken);
+            }
+        }
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
         return ParseSearchResults(content, maxResults);

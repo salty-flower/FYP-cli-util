@@ -36,7 +36,7 @@ public class BugListDiscoverySummary
     /// <summary>
     /// Total number of papers processed
     /// </summary>
-    public int TotalPapers { get; set; }
+    public int TotalPapersProcessed { get; set; }
 
     /// <summary>
     /// Number of papers with successfully discovered bug lists
@@ -49,20 +49,34 @@ public class BugListDiscoverySummary
     public int PapersWithArtifacts { get; set; }
 
     /// <summary>
-    /// Number of papers with failed discovery
+    /// Total number of bug lists found across all papers
     /// </summary>
-    public int FailedDiscoveries { get; set; }
+    public int TotalBugListsFound { get; set; }
 
     /// <summary>
-    /// Total number of search attempts made
+    /// Total number of artifact repositories found across all papers
     /// </summary>
-    public int TotalSearchAttempts { get; set; }
+    public int TotalArtifactsFound { get; set; }
 
     /// <summary>
-    /// Success rate as a percentage
+    /// Success rate as a ratio (0.0 to 1.0) representing papers with any findings
+    /// This avoids double-counting papers that have both bug lists and artifacts
     /// </summary>
-    public double SuccessRate =>
-        TotalPapers > 0
-            ? (double)(PapersWithBugLists + PapersWithArtifacts) / TotalPapers * 100
-            : 0;
+    public double SuccessRate { get; set; }
+
+    /// <summary>
+    /// Legacy property for backward compatibility - returns TotalPapersProcessed
+    /// </summary>
+    public int TotalPapers => TotalPapersProcessed;
+
+    /// <summary>
+    /// Number of papers with failed discovery (no findings)
+    /// </summary>
+    public int FailedDiscoveries => TotalPapersProcessed - PapersWithSuccessfulDiscovery;
+
+    /// <summary>
+    /// Number of papers with any successful discovery (bug lists or artifacts)
+    /// </summary>
+    public int PapersWithSuccessfulDiscovery =>
+        TotalPapersProcessed > 0 ? (int)(SuccessRate * TotalPapersProcessed) : 0;
 }

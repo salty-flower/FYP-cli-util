@@ -1,12 +1,17 @@
+using System;
+using System.Text.Json.Serialization;
 using DataCollection.Models.GitHub;
 using DataCollection.Models.IssueTracker.Profiles;
 using GitHub.Models;
 using GitHub.Users.Item;
-using System.Text.Json.Serialization;
 
 namespace DataCollection.Serialization;
 
-[JsonSourceGenerationOptions(WriteIndented = false, PropertyNameCaseInsensitive =true, PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNameCaseInsensitive = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower
+)]
 [JsonSerializable(typeof(GitHubUser))]
 [JsonSerializable(typeof(GitHubLabel))]
 [JsonSerializable(typeof(GitHubMilestone))]
@@ -18,4 +23,7 @@ namespace DataCollection.Serialization;
 [JsonSerializable(typeof(WithUsernameItemRequestBuilder.WithUsernameGetResponse))]
 [JsonSerializable(typeof(RepositoryTree))]
 [JsonSerializable(typeof(UserProfile))]
+[JsonSerializable(typeof(NullableRepository_merge_commit_message))]
+[JsonSerializable(typeof(Repository_merge_commit_message?))]
+[JsonSerializable(typeof(Repository_merge_commit_message))]
 public partial class GitHubAPIJsonContext : JsonSerializerContext { }

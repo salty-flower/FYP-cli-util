@@ -23,11 +23,11 @@ namespace DataCollection.Services;
 [ConsoleAppFilter<PathsOptions.Filter>]
 public class GitHubService(
     GitHubClient gitHubClient,
-    GitHubManualApiService manualApiService,
+    IGitHubApi gitHubApi,
     ILogger<GitHubService> logger,
     IsDeveloperCriterion isDeveloperCriterion,
     IOptions<PathsOptions> pathsOptions
-    )
+)
 {
     private readonly ConcurrentDictionary<long, IReadOnlyList<Contributor>> repoContributorsCache =
     [];
@@ -79,7 +79,7 @@ public class GitHubService(
 
         try
         {
-            var repository = await gitHubClient.Repos[owner][repoName].GetAsync();   
+            var repository = await gitHubClient.Repos[owner][repoName].GetAsync();
             if (repository == null)
                 throw new InvalidOperationException($"Repository {owner}/{repoName} not found");
 
@@ -89,7 +89,7 @@ public class GitHubService(
             if (!Directory.Exists(repoDir))
                 Directory.CreateDirectory(repoDir);
 
-            var json = JsonSerializer.Serialize(repository, GitHubAPIJsonContext.Default.FullRepository);
+            var json = JsonSerializer.Serialize(repository);
             await File.WriteAllTextAsync(repoFile, json);
 
             return repository;
@@ -138,7 +138,10 @@ public class GitHubService(
             try
             {
                 var json = await File.ReadAllTextAsync(userFile);
-                var profile = JsonSerializer.Deserialize<UserProfile>(json, GitHubAPIJsonContext.Default.UserProfile);
+                var profile = JsonSerializer.Deserialize<UserProfile>(
+                    json,
+                    GitHubAPIJsonContext.Default.UserProfile
+                );
                 if (profile != null)
                 {
                     userProfileCache[cacheKey] = profile;
@@ -166,7 +169,10 @@ public class GitHubService(
         // Save to disk cache
         try
         {
-            var json = JsonSerializer.Serialize(userProfile, GitHubAPIJsonContext.Default.WithUsernameGetResponse);
+            var json = JsonSerializer.Serialize(
+                userProfile,
+                GitHubAPIJsonContext.Default.WithUsernameGetResponse
+            );
             await File.WriteAllTextAsync(userFile, json);
         }
         catch (Exception ex)
@@ -342,9 +348,9 @@ public class GitHubService(
                 $"Issue {issueNumber} not found in repository {owner}/{repoName}"
             );
 
-        // Use manual API service to avoid SDK integer overflow bug
-        var issueEvents = await manualApiService.GetIssueEventsAsync(owner, repoName, issueNumber);
-        var comments = await manualApiService.GetIssueCommentsAsync(owner, repoName, issueNumber);
+        // Use Refit API client to avoid SDK integer overflow bug
+        var issueEvents = await gitHubApi.GetIssueEventsAsync(owner, repoName, issueNumber) ?? [];
+        var comments = await gitHubApi.GetIssueCommentsAsync(owner, repoName, issueNumber) ?? [];
 
         // Try to use cached user profile for author first
         var authorProfile = await GetUserProfileAsync(
@@ -440,11 +446,7 @@ public class GitHubService(
 
             foreach (var readmeName in readmeNames)
             {
-                var readmeContent = await manualApiService.GetRepositoryFileContentAsync(
-                    owner,
-                    repoName,
-                    readmeName
-                );
+                var readmeContent = await GetFileContentAsync(owner, repoName, readmeName);
                 if (!string.IsNullOrEmpty(readmeContent))
                 {
                     logger.LogDebug(
@@ -489,8 +491,13 @@ public class GitHubService(
             if (recursive)
                 url += "?recursive=1";
 
-            var json = await manualApiService.GetJsonAsync(url);
-            return json != null ? JsonSerializer.Deserialize<RepositoryTree>(json, GitHubAPIJsonContext.Default.RepositoryTree) : null;
+            var json = await gitHubApi.GetJsonAsync(url);
+            return json != null
+                ? JsonSerializer.Deserialize<RepositoryTree>(
+                    json,
+                    GitHubAPIJsonContext.Default.RepositoryTree
+                )
+                : null;
         }
         catch (Exception ex)
         {
@@ -511,5 +518,58 @@ public class GitHubService(
     /// <param name="repoName">Repository name</param>
     /// <param name="filePath">Path to the file</param>
     /// <returns>File content as string</returns>
-    public async Task<string?> GetFileContentAsync(string owner, string repoName, string filePath) => await manualApiService.GetRepositoryFileContentAsync(owner, repoName, filePath);
+    public async Task<string?> GetFileContentAsync(string owner, string repoName, string filePath)
+    {
+        try
+        {
+            var fileContent = await gitHubApi.GetRepositoryFileContentAsync(
+                owner,
+                repoName,
+                filePath
+            );
+
+            if (fileContent?.Content != null && fileContent.Encoding == "base64")
+            {
+                var bytes = Convert.FromBase64String(fileContent.Content.Replace("\n", ""));
+                return System.Text.Encoding.UTF8.GetString(bytes);
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(
+                ex,
+                "Failed to get file content for {Owner}/{RepoName}/{FilePath}",
+                owner,
+                repoName,
+                filePath
+            );
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Creates a clean JSON description for event data, excluding null values
+    /// </summary>
+    public static string CreateEventDescription(GitHubEvent evt)
+    {
+        return JsonConvert.SerializeObject(
+            new
+            {
+                evt.Rename,
+                evt.RequestedReviewer,
+                evt.ReviewRequester,
+                evt.Assigner,
+                evt.Assignee,
+                evt.DismissedReview,
+                evt.Milestone,
+            },
+            new JsonSerializerSettings
+            {
+                NullValueHandling = NullValueHandling.Ignore,
+                Formatting = Formatting.None,
+            }
+        );
+    }
 }
