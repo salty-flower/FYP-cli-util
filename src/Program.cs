@@ -14,6 +14,7 @@ using GitHub;
 using GitHub.Octokit.Client;
 using GitHub.Octokit.Client.Authentication;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -181,6 +182,8 @@ var app = builder.ConfigureServices(
             sp.GetRequiredService<OpenAIClient>()
                 .GetChatClient(sp.GetOptions<LLMOptions>().IssueOverallStatusModel)
         );
+        services.AddSingleton<IPatternMatchingService, PatternMatchingService>();
+        services.AddSingleton<IPatternConfigurationService, PatternConfigurationService>();
         services.AddSingleton<BugListDiscoveryService>();
         services.AddSingleton<PdfContentAnalysisService>();
         services.AddSingleton<RepositoryAnalysisService>();
@@ -209,7 +212,7 @@ var app = builder.ConfigureServices(
         services.AddSingleton<ProcedureCommands>();
         services.AddSingleton<IssueCommands>();
         services.AddSingleton<BugListDiscoveryCommands>();
-
+        services.AddSingleton<SeedCommand>();
         // Add GitHub API HttpClient with token
         services
             .AddHttpClient(
@@ -292,3 +295,14 @@ var app = builder.ConfigureServices(
 );
 
 await app.RunAsync(args);
+
+public class DbContextFactory : IDesignTimeDbContextFactory<DataCollectionDbContext>
+{
+    public DataCollectionDbContext CreateDbContext(string[] args)
+    {
+        var optionsBuilder = new DbContextOptionsBuilder<DataCollectionDbContext>();
+        var dbPath = Path.Combine("../data", "data-collection.db");
+        optionsBuilder.UseSqlite($"Data Source={dbPath}");
+        return new DataCollectionDbContext(optionsBuilder.Options);
+    }
+}

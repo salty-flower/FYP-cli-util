@@ -12,6 +12,9 @@ public class DataCollectionDbContext : DbContext
     public DbSet<PdfDataEntity> PdfData { get; set; }
     public DbSet<IssueAnalysisEntity> IssueAnalyses { get; set; }
     public DbSet<BugListDiscoveryEntity> BugListDiscoveries { get; set; }
+    public DbSet<PatternRule> PatternRules { get; set; }
+    public DbSet<KeywordRule> KeywordRules { get; set; }
+    public DbSet<UrlTypeRule> UrlTypeRules { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -71,6 +74,27 @@ public class DataCollectionDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.Conf, e.Year }).IsUnique();
             entity.HasIndex(e => e.CreatedAt);
+        });
+
+        modelBuilder.Entity<PatternRule>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.Category, e.IsActive });
+            entity.HasIndex(e => e.Priority);
+        });
+
+        modelBuilder.Entity<KeywordRule>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.Category, e.IsActive });
+            entity.HasIndex(e => e.Priority);
+        });
+
+        modelBuilder.Entity<UrlTypeRule>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.Type, e.IsActive });
+            entity.HasIndex(e => e.Priority);
         });
     }
 }

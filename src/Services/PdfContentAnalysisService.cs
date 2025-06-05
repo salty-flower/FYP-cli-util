@@ -30,6 +30,7 @@ internal class PdfBugTableInfo
 /// </summary>
 public class PdfContentAnalysisService(
     DatabaseDataLoadingService databaseDataLoadingService,
+    IPatternMatchingService patternMatchingService,
     ILogger<PdfContentAnalysisService> logger,
     OpenAIClient oaiClient,
     IOptionsSnapshot<LLMOptions> llmOpts,
@@ -43,136 +44,8 @@ public class PdfContentAnalysisService(
     // Constants
     private const int ContextWindowSize = 200;
     private const int MaxTextLengthForLlm = 4000;
-    private const double PdfAnalysisConfidence = 0.9;
-    private const double KeywordAnalysisConfidence = 0.95;
 
-    // Bug tracking patterns
-    private static readonly string[] BugTrackingPatterns =
-    [
-        @"https?://github\.com/[\w\-\.]+/[\w\-\.]+/issues",
-        @"https?://bugs\.[\w\-\.]+",
-        @"https?://[\w\-\.]*jira[\w\-\.]*",
-        @"https?://[\w\-\.]*bugzilla[\w\-\.]*",
-        @"https?://[\w\-\.]*mantis[\w\-\.]*",
-        @"https?://[\w\-\.]*redmine[\w\-\.]*",
-        @"https?://[\w\-\.]*trac[\w\-\.]*",
-        @"https?://[\w\-\.]*youtrack[\w\-\.]*",
-        @"https?://[\w\-\.]*fogbugz[\w\-\.]*",
-    ];
-
-    // Repository patterns
-    private static readonly string[] RepositoryPatterns =
-    [
-        @"https?://github\.com/[\w\-\.]+/[\w\-\.]+(?!/issues|/wiki|/releases|/actions|/security|/insights|/settings|/projects|/discussions)",
-        @"https?://gitlab\.com/[\w\-\.]+/[\w\-\.]+",
-        @"https?://bitbucket\.org/[\w\-\.]+/[\w\-\.]+",
-        @"https?://sourceforge\.net/projects/[\w\-\.]+",
-        @"https?://code\.google\.com/p/[\w\-\.]+",
-        @"https?://launchpad\.net/[\w\-\.]+",
-        @"https?://codeplex\.com/[\w\-\.]+",
-        @"https?://git\.[\w\-\.]+/[\w\-\.]+/[\w\-\.]+",
-        @"https?://[\w\-\.]+\.git\.[\w\-\.]+",
-        @"https?://svn\.[\w\-\.]+",
-        @"https?://hg\.[\w\-\.]+",
-        @"https?://bazaar\.[\w\-\.]+",
-        @"https?://fossil\.[\w\-\.]+",
-        @"https?://darcs\.[\w\-\.]+",
-        @"https?://cvs\.[\w\-\.]+",
-    ];
-
-    // Artifact keywords
-    private static readonly string[] ArtifactKeywords =
-    [
-        "artifact",
-        "repository",
-        "repo",
-        "source code",
-        "implementation",
-        "codebase",
-        "project",
-        "software",
-        "program",
-        "application",
-        "system",
-        "tool",
-        "library",
-        "framework",
-        "dataset",
-        "data",
-        "benchmark",
-        "evaluation",
-        "experiment",
-        "github",
-        "gitlab",
-        "bitbucket",
-        "sourceforge",
-        "available at",
-        "can be found",
-        "accessible",
-        "download",
-        "obtain",
-        "retrieve",
-        "access",
-        "provided",
-        "supplement",
-        "supplementary",
-        "material",
-        "materials",
-        "resource",
-        "resources",
-        "code",
-        "scripts",
-        "files",
-        "documentation",
-        "manual",
-        "guide",
-        "tutorial",
-        "readme",
-        "license",
-        "copyright",
-        "open source",
-        "free software",
-    ];
-
-    // Artifact sections
-    private static readonly string[] ArtifactSections =
-    [
-        "implementation",
-        "code availability",
-        "data availability",
-        "supplementary material",
-        "resources",
-        "artifacts",
-        "repository",
-        "source code",
-        "dataset",
-        "benchmark",
-        "evaluation",
-        "experiment",
-        "materials",
-        "appendix",
-    ];
-
-    // Bug list patterns
-    private static readonly string[] BugListPatterns =
-    [
-        @"(?i)bug\s*(?:list|report|track|id|number|#)",
-        @"(?i)issue\s*(?:list|report|track|id|number|#)",
-        @"(?i)defect\s*(?:list|report|track|id|number|#)",
-        @"(?i)fault\s*(?:list|report|track|id|number|#)",
-        @"(?i)error\s*(?:list|report|track|id|number|#)",
-        @"(?i)problem\s*(?:list|report|track|id|number|#)",
-        @"(?i)failure\s*(?:list|report|track|id|number|#)",
-        @"(?i)exception\s*(?:list|report|track|id|number|#)",
-        @"(?i)crash\s*(?:list|report|track|id|number|#)",
-        @"(?i)vulnerability\s*(?:list|report|track|id|number|#)",
-        @"(?i)security\s*(?:issue|bug|flaw)",
-        @"(?i)patch\s*(?:list|track|id|number|#)",
-        @"(?i)fix\s*(?:list|track|id|number|#)",
-        @"(?i)ticket\s*(?:list|track|id|number|#)",
-    ];
-
-    // Issue number patterns
+    // Issue number patterns - keeping these as they're specific to PDF parsing
     private static readonly string[] IssueNumberPatterns =
     [
         @"#\d+",
@@ -217,7 +90,7 @@ public class PdfContentAnalysisService(
         );
 
         // Extract direct URLs first
-        ExtractDirectUrls(fullText, result);
+        await ExtractDirectUrls(fullText, result, cancellationToken);
 
         // Extract structured bug lists from tables
         await ExtractStructuredBugLists(pdfData, result, cancellationToken);
@@ -245,63 +118,96 @@ public class PdfContentAnalysisService(
         }
     }
 
-    private void ExtractDirectUrls(string text, BugListDiscoveryResult result)
+    private async Task ExtractDirectUrls(
+        string text,
+        BugListDiscoveryResult result,
+        CancellationToken cancellationToken
+    )
     {
-        ExtractBugTrackingUrls(text.Replace(" ", ""), result);
-        ExtractRepositoryUrls(text.Replace(" ", ""), result);
+        await ExtractBugTrackingUrls(text.Replace(" ", ""), result, cancellationToken);
+        await ExtractRepositoryUrls(text.Replace(" ", ""), result, cancellationToken);
     }
 
-    private void ExtractBugTrackingUrls(string text, BugListDiscoveryResult result)
+    private async Task ExtractBugTrackingUrls(
+        string text,
+        BugListDiscoveryResult result,
+        CancellationToken cancellationToken
+    )
     {
-        foreach (var pattern in BugTrackingPatterns)
+        var matches = await patternMatchingService.FindBugTrackingUrlsAsync(
+            text,
+            cancellationToken
+        );
+
+        foreach (var match in matches)
         {
-            var matches = Regex.Matches(text, pattern, RegexOptions.IgnoreCase);
-            foreach (Match match in matches)
-            {
-                var url = CleanUrl(match.Value);
-                if (
-                    !result.BugLists.Any(b => b.Url.Equals(url, StringComparison.OrdinalIgnoreCase))
+            if (
+                !result.BugLists.Any(b =>
+                    b.Url.Equals(match.Value, StringComparison.OrdinalIgnoreCase)
                 )
-                {
-                    result.BugLists.Add(
-                        new BugListSource
-                        {
-                            Url = url,
-                            Type = DetermineBugListType(url),
-                            DiscoveryMethod = "PDF Direct Extraction",
-                            Confidence = PdfAnalysisConfidence,
-                            TableContext = ExtractUrlContext(url, text),
-                        }
-                    );
-                }
+            )
+            {
+                var urlType = await patternMatchingService.DetermineUrlTypeAsync(
+                    match.Value,
+                    cancellationToken
+                );
+                var confidence = await patternMatchingService.CalculateConfidenceAsync(
+                    text,
+                    "PdfAnalysis",
+                    1,
+                    cancellationToken
+                );
+
+                result.BugLists.Add(
+                    new BugListSource
+                    {
+                        Url = match.Value,
+                        Type = urlType,
+                        DiscoveryMethod = "PDF Direct Extraction",
+                        Confidence = confidence,
+                        TableContext = match.Context,
+                    }
+                );
             }
         }
     }
 
-    private void ExtractRepositoryUrls(string text, BugListDiscoveryResult result)
+    private async Task ExtractRepositoryUrls(
+        string text,
+        BugListDiscoveryResult result,
+        CancellationToken cancellationToken
+    )
     {
-        foreach (var pattern in RepositoryPatterns)
+        var matches = await patternMatchingService.FindRepositoryUrlsAsync(text, cancellationToken);
+
+        foreach (var match in matches)
         {
-            var matches = Regex.Matches(text, pattern, RegexOptions.IgnoreCase);
-            foreach (Match match in matches)
-            {
-                var url = CleanUrl(match.Value);
-                if (
-                    !result.ArtifactRepositories.Any(r =>
-                        r.Url.Equals(url, StringComparison.OrdinalIgnoreCase)
-                    )
+            if (
+                !result.ArtifactRepositories.Any(r =>
+                    r.Url.Equals(match.Value, StringComparison.OrdinalIgnoreCase)
                 )
-                {
-                    result.ArtifactRepositories.Add(
-                        new ArtifactRepository
-                        {
-                            Url = url,
-                            Type = DetermineRepositoryType(url),
-                            DiscoveryMethod = "PDF Direct Extraction",
-                            Confidence = PdfAnalysisConfidence,
-                        }
-                    );
-                }
+            )
+            {
+                var urlType = await patternMatchingService.DetermineUrlTypeAsync(
+                    match.Value,
+                    cancellationToken
+                );
+                var confidence = await patternMatchingService.CalculateConfidenceAsync(
+                    text,
+                    "PdfAnalysis",
+                    1,
+                    cancellationToken
+                );
+
+                result.ArtifactRepositories.Add(
+                    new ArtifactRepository
+                    {
+                        Url = match.Value,
+                        Type = urlType,
+                        DiscoveryMethod = "PDF Direct Extraction",
+                        Confidence = confidence,
+                    }
+                );
             }
         }
     }
@@ -313,7 +219,7 @@ public class PdfContentAnalysisService(
     )
     {
         var fullText = string.Join(" ", pdfData.TextLines);
-        var bugTables = FindBugTables(fullText);
+        var bugTables = await FindBugTables(fullText, cancellationToken);
 
         foreach (var tableInfo in bugTables)
         {
@@ -335,7 +241,13 @@ public class PdfContentAnalysisService(
                     new BugListSource
                     {
                         Url = repository ?? "Unknown",
-                        Type = repository != null ? DetermineBugListType(repository) : "Unknown",
+                        Type =
+                            repository != null
+                                ? await patternMatchingService.DetermineUrlTypeAsync(
+                                    repository,
+                                    cancellationToken
+                                )
+                                : "Unknown",
                         DiscoveryMethod = "PDF Table Analysis",
                         Confidence = confidence,
                         IssueNumbers = validIssues,
@@ -348,31 +260,32 @@ public class PdfContentAnalysisService(
         }
     }
 
-    private List<PdfBugTableInfo> FindBugTables(string text)
+    private async Task<List<PdfBugTableInfo>> FindBugTables(
+        string text,
+        CancellationToken cancellationToken
+    )
     {
+        var matches = await patternMatchingService.FindKeywordMatchesAsync(
+            text,
+            "BugList",
+            cancellationToken
+        );
         var tables = new List<PdfBugTableInfo>();
 
-        foreach (var pattern in BugListPatterns)
+        foreach (var match in matches)
         {
-            var matches = Regex.Matches(text, pattern, RegexOptions.IgnoreCase);
-            foreach (Match match in matches)
-            {
-                var context = ExtractTableContext(text, match.Index);
-                tables.Add(
-                    new PdfBugTableInfo
-                    {
-                        Title = match.Value,
-                        Content = context,
-                        Position = match.Index,
-                    }
-                );
-            }
+            var context = ExtractTableContext(text, match.Position);
+            tables.Add(
+                new PdfBugTableInfo
+                {
+                    Title = match.Value,
+                    Content = context,
+                    Position = match.Position,
+                }
+            );
         }
 
-        return tables
-            .GroupBy(t => t.Position / 1000) // Group nearby matches
-            .Select(g => g.First())
-            .ToList();
+        return tables.GroupBy(t => t.Position / 1000).Select(g => g.First()).ToList();
     }
 
     private string ExtractTableContext(string text, int matchIndex)
@@ -425,13 +338,13 @@ public class PdfContentAnalysisService(
             var context = ExtractSurroundingContext(fullText, tableInfo.Title);
 
             // Look for repository URLs near the table
-            foreach (var pattern in RepositoryPatterns)
+            var repoMatches = await patternMatchingService.FindRepositoryUrlsAsync(
+                context,
+                cancellationToken
+            );
+            if (repoMatches.Any())
             {
-                var match = Regex.Match(context, pattern, RegexOptions.IgnoreCase);
-                if (match.Success)
-                {
-                    return CleanUrl(match.Value);
-                }
+                return repoMatches.First().Value;
             }
 
             return null;
@@ -456,7 +369,7 @@ public class PdfContentAnalysisService(
 
     private double CalculateBugListConfidence(PdfBugTableInfo tableInfo, int issueCount)
     {
-        var confidence = PdfAnalysisConfidence;
+        var confidence = 0.9; // PDF analysis base confidence
 
         // Boost confidence based on issue count
         if (issueCount > 10)
@@ -485,7 +398,7 @@ public class PdfContentAnalysisService(
         await ProcessArtifactSections(normalizedText, result, paper, cancellationToken);
 
         // Process keyword sentences
-        ProcessKeywordSentences(normalizedText, result);
+        await ProcessKeywordSentences(normalizedText, result, cancellationToken);
     }
 
     private async Task ProcessArtifactSections(
@@ -495,14 +408,16 @@ public class PdfContentAnalysisService(
         CancellationToken cancellationToken
     )
     {
-        foreach (var section in ArtifactSections)
+        var artifactMatches = await patternMatchingService.FindKeywordMatchesAsync(
+            normalizedText,
+            "Artifact",
+            cancellationToken
+        );
+
+        foreach (var match in artifactMatches)
         {
-            var sectionIndex = normalizedText.IndexOf(section);
-            if (sectionIndex != -1)
-            {
-                var sectionContent = ExtractSurroundingContext(normalizedText, section);
-                await ProcessUrlsInText(sectionContent, result, paper, cancellationToken);
-            }
+            var sectionContent = ExtractSurroundingContext(normalizedText, match.Value);
+            await ProcessUrlsInText(sectionContent, result, paper, cancellationToken);
         }
     }
 
@@ -518,15 +433,9 @@ public class PdfContentAnalysisService(
 
         foreach (Match match in matches)
         {
-            var url = CleanUrl(match.Value);
+            var url = match.Value.TrimEnd('.', ',', ';', ')', ']', '}', ' ', '\t', '\n', '\r');
             await ProcessFoundUrl(url, text, result, paper, cancellationToken);
         }
-    }
-
-    private string CleanUrl(string url)
-    {
-        // Remove trailing punctuation and whitespace
-        return url.TrimEnd('.', ',', ';', ')', ']', '}', ' ', '\t', '\n', '\r');
     }
 
     private async Task ProcessFoundUrl(
@@ -537,40 +446,46 @@ public class PdfContentAnalysisService(
         CancellationToken cancellationToken
     )
     {
-        if (IsRepositoryUrl(url))
+        var repoMatches = await patternMatchingService.FindRepositoryUrlsAsync(
+            url,
+            cancellationToken
+        );
+        var bugMatches = await patternMatchingService.FindBugTrackingUrlsAsync(
+            url,
+            cancellationToken
+        );
+
+        if (repoMatches.Any())
         {
             await ProcessRepositoryUrl(url, fullText, result, paper, cancellationToken);
         }
-        else if (IsBugTrackingUrl(url))
+        else if (bugMatches.Any())
         {
             if (!result.BugLists.Any(b => b.Url.Equals(url, StringComparison.OrdinalIgnoreCase)))
             {
+                var urlType = await patternMatchingService.DetermineUrlTypeAsync(
+                    url,
+                    cancellationToken
+                );
+                var confidence = await patternMatchingService.CalculateConfidenceAsync(
+                    fullText,
+                    "PdfAnalysis",
+                    1,
+                    cancellationToken
+                );
+
                 result.BugLists.Add(
                     new BugListSource
                     {
                         Url = url,
-                        Type = DetermineBugListType(url),
+                        Type = urlType,
                         DiscoveryMethod = "PDF URL Analysis",
-                        Confidence = PdfAnalysisConfidence,
+                        Confidence = confidence,
                         TableContext = ExtractUrlContext(url, fullText),
                     }
                 );
             }
         }
-    }
-
-    private bool IsRepositoryUrl(string url)
-    {
-        return RepositoryPatterns.Any(pattern =>
-            Regex.IsMatch(url, pattern, RegexOptions.IgnoreCase)
-        );
-    }
-
-    private bool IsBugTrackingUrl(string url)
-    {
-        return BugTrackingPatterns.Any(pattern =>
-            Regex.IsMatch(url, pattern, RegexOptions.IgnoreCase)
-        );
     }
 
     private async Task ProcessRepositoryUrl(
@@ -588,15 +503,22 @@ public class PdfContentAnalysisService(
         )
         {
             var context = ExtractUrlContext(url, fullText);
-            var confidence = ContainsArtifactKeywords(context)
-                ? KeywordAnalysisConfidence
-                : PdfAnalysisConfidence;
+            var hasKeywords = await ContainsArtifactKeywords(context, cancellationToken);
+            var confidence = await patternMatchingService.CalculateConfidenceAsync(
+                context,
+                hasKeywords ? "KeywordAnalysis" : "PdfAnalysis",
+                1,
+                cancellationToken
+            );
 
             result.ArtifactRepositories.Add(
                 new ArtifactRepository
                 {
                     Url = url,
-                    Type = DetermineRepositoryType(url),
+                    Type = await patternMatchingService.DetermineUrlTypeAsync(
+                        url,
+                        cancellationToken
+                    ),
                     DiscoveryMethod = "PDF URL Analysis",
                     Confidence = confidence,
                 }
@@ -615,48 +537,73 @@ public class PdfContentAnalysisService(
         return fullText.Substring(start, end - start);
     }
 
-    private void ProcessKeywordSentences(string normalizedText, BugListDiscoveryResult result)
+    private async Task ProcessKeywordSentences(
+        string normalizedText,
+        BugListDiscoveryResult result,
+        CancellationToken cancellationToken
+    )
     {
         var sentences = normalizedText.Split('.', '!', '?');
 
         foreach (var sentence in sentences)
         {
-            if (ContainsArtifactKeywords(sentence))
+            if (await ContainsArtifactKeywords(sentence, cancellationToken))
             {
-                ProcessUrlsInSentence(sentence, result);
+                await ProcessUrlsInSentence(sentence, result, cancellationToken);
             }
         }
     }
 
-    private bool ContainsArtifactKeywords(string sentence)
+    private async Task<bool> ContainsArtifactKeywords(
+        string sentence,
+        CancellationToken cancellationToken
+    )
     {
-        return ArtifactKeywords.Any(keyword =>
-            sentence.Contains(keyword, StringComparison.OrdinalIgnoreCase)
+        var matches = await patternMatchingService.FindKeywordMatchesAsync(
+            sentence,
+            "Artifact",
+            cancellationToken
         );
+        return matches.Any();
     }
 
-    private void ProcessUrlsInSentence(string sentence, BugListDiscoveryResult result)
+    private async Task ProcessUrlsInSentence(
+        string sentence,
+        BugListDiscoveryResult result,
+        CancellationToken cancellationToken
+    )
     {
-        var urlPattern = @"https?://[^\s<>""']+";
-        var matches = Regex.Matches(sentence, urlPattern, RegexOptions.IgnoreCase);
+        var matches = await patternMatchingService.FindRepositoryUrlsAsync(
+            sentence,
+            cancellationToken
+        );
 
-        foreach (Match match in matches)
+        foreach (var match in matches)
         {
-            var url = CleanUrl(match.Value);
             if (
-                IsRepositoryUrl(url)
-                && !result.ArtifactRepositories.Any(r =>
-                    r.Url.Equals(url, StringComparison.OrdinalIgnoreCase)
+                !result.ArtifactRepositories.Any(r =>
+                    r.Url.Equals(match.Value, StringComparison.OrdinalIgnoreCase)
                 )
             )
             {
+                var urlType = await patternMatchingService.DetermineUrlTypeAsync(
+                    match.Value,
+                    cancellationToken
+                );
+                var confidence = await patternMatchingService.CalculateConfidenceAsync(
+                    sentence,
+                    "KeywordAnalysis",
+                    1,
+                    cancellationToken
+                );
+
                 result.ArtifactRepositories.Add(
                     new ArtifactRepository
                     {
-                        Url = url,
-                        Type = DetermineRepositoryType(url),
+                        Url = match.Value,
+                        Type = urlType,
                         DiscoveryMethod = "PDF Keyword Analysis",
-                        Confidence = KeywordAnalysisConfidence,
+                        Confidence = confidence,
                     }
                 );
             }
@@ -726,73 +673,5 @@ Provide URLs and brief descriptions for any findings.";
             logger.LogWarning(ex, "Failed to get LLM analysis");
             return null;
         }
-    }
-
-    /// <summary>
-    /// Determines the type of bug tracking system based on the URL
-    /// </summary>
-    private string DetermineBugListType(string url)
-    {
-        var lowerUrl = url.ToLowerInvariant();
-
-        if (lowerUrl.Contains("github.com") && lowerUrl.Contains("/issues"))
-            return "GitHub Issues";
-        if (lowerUrl.Contains("jira"))
-            return "Jira";
-        if (lowerUrl.Contains("bugzilla"))
-            return "Bugzilla";
-        if (lowerUrl.Contains("mantis"))
-            return "MantisBT";
-        if (lowerUrl.Contains("redmine"))
-            return "Redmine";
-        if (lowerUrl.Contains("trac"))
-            return "Trac";
-        if (lowerUrl.Contains("youtrack"))
-            return "YouTrack";
-        if (lowerUrl.Contains("fogbugz"))
-            return "FogBugz";
-        if (lowerUrl.Contains("bugs."))
-            return "Custom Bug Tracker";
-
-        return "Unknown Bug Tracker";
-    }
-
-    /// <summary>
-    /// Determines the type of repository based on the URL
-    /// </summary>
-    private string DetermineRepositoryType(string url)
-    {
-        var lowerUrl = url.ToLowerInvariant();
-
-        if (lowerUrl.Contains("github.com"))
-            return "GitHub";
-        if (lowerUrl.Contains("gitlab.com"))
-            return "GitLab";
-        if (lowerUrl.Contains("bitbucket.org"))
-            return "Bitbucket";
-        if (lowerUrl.Contains("sourceforge.net"))
-            return "SourceForge";
-        if (lowerUrl.Contains("code.google.com"))
-            return "Google Code";
-        if (lowerUrl.Contains("launchpad.net"))
-            return "Launchpad";
-        if (lowerUrl.Contains("codeplex.com"))
-            return "CodePlex";
-        if (lowerUrl.Contains(".git"))
-            return "Git Repository";
-        if (lowerUrl.Contains("svn."))
-            return "Subversion";
-        if (lowerUrl.Contains("hg."))
-            return "Mercurial";
-        if (lowerUrl.Contains("bazaar."))
-            return "Bazaar";
-        if (lowerUrl.Contains("fossil."))
-            return "Fossil";
-        if (lowerUrl.Contains("darcs."))
-            return "Darcs";
-        if (lowerUrl.Contains("cvs."))
-            return "CVS";
-
-        return "Unknown Repository";
     }
 }

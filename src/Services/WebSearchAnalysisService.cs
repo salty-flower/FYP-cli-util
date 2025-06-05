@@ -21,6 +21,7 @@ public class WebSearchAnalysisService
 {
     private readonly IWebSearchService webSearchService;
     private readonly GitHubService gitHubService;
+    private readonly IPatternMatchingService patternMatchingService;
     private readonly ILogger<WebSearchAnalysisService> logger;
     private readonly ChatClient chatClient;
 
@@ -29,40 +30,6 @@ public class WebSearchAnalysisService
     private const double WebSearchConfidenceMultiplier = 0.8;
     private const double LlmVerificationMultiplier = 1.2;
     private const double HighConfidenceThreshold = 0.8;
-
-    // Repository patterns
-    private static readonly string[] RepositoryPatterns =
-    [
-        @"https?://github\.com/[\w\-\.]+/[\w\-\.]+(?!/issues|/wiki|/releases|/actions|/security|/insights|/settings|/projects|/discussions)",
-        @"https?://gitlab\.com/[\w\-\.]+/[\w\-\.]+",
-        @"https?://bitbucket\.org/[\w\-\.]+/[\w\-\.]+",
-        @"https?://sourceforge\.net/projects/[\w\-\.]+",
-        @"https?://code\.google\.com/p/[\w\-\.]+",
-        @"https?://launchpad\.net/[\w\-\.]+",
-        @"https?://codeplex\.com/[\w\-\.]+",
-        @"https?://git\.[\w\-\.]+/[\w\-\.]+/[\w\-\.]+",
-        @"https?://[\w\-\.]+\.git\.[\w\-\.]+",
-        @"https?://svn\.[\w\-\.]+",
-        @"https?://hg\.[\w\-\.]+",
-        @"https?://bazaar\.[\w\-\.]+",
-        @"https?://fossil\.[\w\-\.]+",
-        @"https?://darcs\.[\w\-\.]+",
-        @"https?://cvs\.[\w\-\.]+",
-    ];
-
-    // Bug tracking patterns
-    private static readonly string[] BugTrackingPatterns =
-    [
-        @"https?://github\.com/[\w\-\.]+/[\w\-\.]+/issues",
-        @"https?://bugs\.[\w\-\.]+",
-        @"https?://[\w\-\.]*jira[\w\-\.]*",
-        @"https?://[\w\-\.]*bugzilla[\w\-\.]*",
-        @"https?://[\w\-\.]*mantis[\w\-\.]*",
-        @"https?://[\w\-\.]*redmine[\w\-\.]*",
-        @"https?://[\w\-\.]*trac[\w\-\.]*",
-        @"https?://[\w\-\.]*youtrack[\w\-\.]*",
-        @"https?://[\w\-\.]*fogbugz[\w\-\.]*",
-    ];
 
     // Known repository hosts
     private static readonly string[] KnownRepositoryHosts =
@@ -79,12 +46,14 @@ public class WebSearchAnalysisService
     public WebSearchAnalysisService(
         IWebSearchService webSearchService,
         GitHubService gitHubService,
+        IPatternMatchingService patternMatchingService,
         ILogger<WebSearchAnalysisService> logger,
         ChatClient chatClient
     )
     {
         this.webSearchService = webSearchService;
         this.gitHubService = gitHubService;
+        this.patternMatchingService = patternMatchingService;
         this.logger = logger;
         this.chatClient = chatClient;
     }
@@ -358,11 +327,12 @@ Respond with only: YES or NO";
         var confidence = WebSearchConfidenceMultiplier * LlmVerificationMultiplier;
         var context = $"LLM mentioned project: {mention.ProjectName}. Context: {mention.Context}";
 
+        var urlType = await patternMatchingService.DetermineUrlTypeAsync(url, cancellationToken);
         result.ArtifactRepositories.Add(
             new ArtifactRepository
             {
                 Url = url,
-                Type = DetermineRepositoryType(url),
+                Type = urlType,
                 DiscoveryMethod = "Web Search + LLM Mention",
                 Confidence = Math.Min(1.0, confidence),
             }
@@ -489,13 +459,22 @@ Respond with only: YES or NO";
         CancellationToken cancellationToken
     )
     {
-        if (IsRepositoryUrl(url))
+        var repoMatches = await patternMatchingService.FindRepositoryUrlsAsync(
+            url,
+            cancellationToken
+        );
+        var bugMatches = await patternMatchingService.FindBugTrackingUrlsAsync(
+            url,
+            cancellationToken
+        );
+
+        if (repoMatches.Any())
         {
             await ProcessRepositorySearchResult(url, result, paper, cancellationToken);
         }
-        else if (IsBugTrackingUrl(url))
+        else if (bugMatches.Any())
         {
-            await ProcessBugTrackingSearchResult(url, result);
+            await ProcessBugTrackingSearchResult(url, result, cancellationToken);
         }
     }
 
@@ -519,7 +498,7 @@ Respond with only: YES or NO";
         {
             if (await VerifyRepositoryWithLlm(url, paper, cancellationToken))
             {
-                await AddWebSearchRepository(url, result, paper);
+                await AddWebSearchRepository(url, result, paper, cancellationToken);
             }
             else
             {
@@ -567,16 +546,18 @@ Respond with only: YES or NO";
     private async Task AddWebSearchRepository(
         string url,
         BugListDiscoveryResult result,
-        Paper paper
+        Paper paper,
+        CancellationToken cancellationToken
     )
     {
         var confidence = WebSearchConfidenceMultiplier * LlmVerificationMultiplier;
 
+        var urlType = await patternMatchingService.DetermineUrlTypeAsync(url, cancellationToken);
         result.ArtifactRepositories.Add(
             new ArtifactRepository
             {
                 Url = url,
-                Type = DetermineRepositoryType(url),
+                Type = urlType,
                 DiscoveryMethod = "Web Search + LLM Verification",
                 Confidence = Math.Min(1.0, confidence),
             }
@@ -599,63 +580,37 @@ Respond with only: YES or NO";
         );
     }
 
-    private async Task ProcessBugTrackingSearchResult(string url, BugListDiscoveryResult result)
+    private async Task ProcessBugTrackingSearchResult(
+        string url,
+        BugListDiscoveryResult result,
+        CancellationToken cancellationToken
+    )
     {
         if (result.BugLists.Any(b => b.Url.Equals(url, StringComparison.OrdinalIgnoreCase)))
         {
-            return; // Already exists
+            return;
         }
+
+        var urlType = await patternMatchingService.DetermineUrlTypeAsync(url, cancellationToken);
+        var confidence = await patternMatchingService.CalculateConfidenceAsync(
+            url,
+            "WebSearch",
+            1,
+            cancellationToken
+        );
 
         result.BugLists.Add(
             new BugListSource
             {
                 Url = url,
-                Type = DetermineBugListType(url),
+                Type = urlType,
                 DiscoveryMethod = "Web Search",
-                Confidence = WebSearchConfidenceMultiplier,
+                Confidence = confidence,
                 TableContext = "Found via web search",
             }
         );
 
         logger.LogDebug("Added bug tracking URL from web search: {Url}", url);
-    }
-
-    private bool IsRepositoryUrl(string url)
-    {
-        return RepositoryPatterns.Any(pattern =>
-            Regex.IsMatch(url, pattern, RegexOptions.IgnoreCase)
-        );
-    }
-
-    private bool IsBugTrackingUrl(string url)
-    {
-        return BugTrackingPatterns.Any(pattern =>
-            Regex.IsMatch(url, pattern, RegexOptions.IgnoreCase)
-        );
-    }
-
-    private string DetermineRepositoryType(string url)
-    {
-        if (url.Contains("github.com"))
-            return "GitHub";
-        if (url.Contains("gitlab.com"))
-            return "GitLab";
-        if (url.Contains("bitbucket.org"))
-            return "Bitbucket";
-        if (url.Contains("sourceforge.net"))
-            return "SourceForge";
-        return "Repository";
-    }
-
-    private string DetermineBugListType(string url)
-    {
-        if (url.Contains("github.com"))
-            return "GitHub Issues";
-        if (url.Contains("jira"))
-            return "Jira";
-        if (url.Contains("bugzilla"))
-            return "Bugzilla";
-        return "Bug Tracker";
     }
 }
 
