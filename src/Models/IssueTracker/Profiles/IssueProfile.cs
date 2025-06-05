@@ -1,5 +1,4 @@
-﻿using System;
-using GitHub.Models;
+﻿using GitHub.Models;
 
 namespace DataCollection.Models.IssueTracker.Profiles;
 

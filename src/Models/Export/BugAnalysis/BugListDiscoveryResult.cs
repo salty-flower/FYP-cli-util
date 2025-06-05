@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-
 namespace DataCollection.Models.Export.BugAnalysis;
 
 /// <summary>

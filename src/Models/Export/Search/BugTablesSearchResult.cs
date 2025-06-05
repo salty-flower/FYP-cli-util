@@ -1,5 +1,4 @@
-﻿using System.Collections.Generic;
-using DataCollection.Models.Export.Results;
+﻿using DataCollection.Models.Export.Results;
 
 namespace DataCollection.Models.Export.Search;
 

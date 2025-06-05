@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-
 namespace DataCollection.Models.Export.Search;
 
 public class PdfSearchResult

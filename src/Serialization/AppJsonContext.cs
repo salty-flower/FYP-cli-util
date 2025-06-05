@@ -1,7 +1,6 @@
 using System.Text.Json.Serialization;
 using DataCollection.Models.IssueTracker.Responses;
 using DataCollection.Models.OpenAI;
-using DataCollection.Services;
 
 namespace DataCollection.Serialization;
 

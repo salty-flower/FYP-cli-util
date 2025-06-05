@@ -1,6 +1,4 @@
-﻿using System.Collections.Generic;
-
-namespace DataCollection.Models.Export.BugAnalysis;
+﻿namespace DataCollection.Models.Export.BugAnalysis;
 
 public class BugTableSummary
 {

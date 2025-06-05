@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Net.Http;
-using System.Text;
+﻿using System.Text;
 using DataCollection.Models.IssueTracker.Profiles;
 using DataCollection.Models.IssueTracker.Responses;
 using DataCollection.Options;

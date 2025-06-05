@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text.Json;
-using System.Threading.Tasks;
+﻿using System.Collections.Concurrent;
 using ConsoleAppFramework;
 using DataCollection.Models.GitHub;
 using DataCollection.Models.IssueTracker.Criteria;

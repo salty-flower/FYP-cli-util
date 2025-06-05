@@ -1,10 +1,6 @@
-﻿using System;
-using System.Globalization;
+﻿using System.Globalization;
 using System.Net;
-using System.Net.Http;
-using System.Threading;
 using System.Threading.RateLimiting;
-using System.Threading.Tasks;
 
 namespace DataCollection.Utils;
 

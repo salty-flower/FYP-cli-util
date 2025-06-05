@@ -1,16 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
 using DataCollection.Models;
 using DataCollection.Models.Export.BugAnalysis;
 using DataCollection.Models.GitHub;
 using DataCollection.Options;
-using DataCollection.Serialization;
-using DataCollection.Utils;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAI;

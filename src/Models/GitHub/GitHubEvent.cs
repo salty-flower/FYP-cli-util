@@ -1,5 +1,3 @@
-using System;
-
 namespace DataCollection.Models.GitHub;
 
 public class GitHubEvent

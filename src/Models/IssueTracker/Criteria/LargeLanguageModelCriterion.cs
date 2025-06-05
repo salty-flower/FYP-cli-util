@@ -1,11 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Net.Http;
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
 using DataCollection.Models.OpenAI;
 using DataCollection.Serialization;
 using Microsoft.Extensions.Logging;

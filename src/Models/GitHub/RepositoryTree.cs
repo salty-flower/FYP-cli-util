@@ -1,6 +1,4 @@
-﻿using System.Collections.Generic;
-
-namespace DataCollection.Models.GitHub;
+﻿namespace DataCollection.Models.GitHub;
 
 public record RepositoryTree
 {

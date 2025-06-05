@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using DataCollection.Models.GitHub;
 using GitHub.Models;
 using Refit;

@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-
 namespace DataCollection.Models.Export;
 
 public class KeywordCountsExport

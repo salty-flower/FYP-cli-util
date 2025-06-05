@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-
-namespace DataCollection.Utils;
+﻿namespace DataCollection.Utils;
 
 public static class PaperAnalyzer
 {

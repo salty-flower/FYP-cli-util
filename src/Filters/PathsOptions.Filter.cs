@@ -1,5 +1,3 @@
-using System.Threading;
-using System.Threading.Tasks;
 using ConsoleAppFramework;
 using Microsoft.Extensions.Options;
 

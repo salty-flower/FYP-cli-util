@@ -1,7 +1,4 @@
-﻿using System.Collections.Generic;
-using System.Threading.Tasks;
-
-namespace DataCollection.Models.IssueTracker.Criteria;
+﻿namespace DataCollection.Models.IssueTracker.Criteria;
 
 public interface IBatchCriterion<TProfile, TOutcome> : ICriterion<TProfile, TOutcome>
 {

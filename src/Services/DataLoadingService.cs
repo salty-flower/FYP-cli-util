@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using DataCollection.Models;
 using MemoryPack;
 using Microsoft.Extensions.Logging;

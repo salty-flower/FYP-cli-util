@@ -1,5 +1,4 @@
-﻿using System.Collections.Generic;
-using DataCollection.Models.Export.PaperAnalysis;
+﻿using DataCollection.Models.Export.PaperAnalysis;
 
 namespace DataCollection.Models.Export.Results;
 

@@ -1,8 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text.RegularExpressions;
-using System.Threading;
 using DataCollection.Models;
 using DataCollection.Models.Export;
 using DataCollection.Models.Export.Results;

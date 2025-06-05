@@ -1,9 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using ConsoleAppFramework;
+﻿using ConsoleAppFramework;
 using DataCollection.Services;
-using Microsoft.EntityFrameworkCore;
 
 namespace DataCollection.Commands;
 

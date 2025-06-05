@@ -1,4 +1,3 @@
-using System;
 using System.Text.Json.Serialization;
 using DataCollection.Models.GitHub;
 using DataCollection.Models.IssueTracker.Profiles;

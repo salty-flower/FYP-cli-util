@@ -1,5 +1,4 @@
-﻿using System.Threading;
-using ConsoleAppFramework;
+﻿using ConsoleAppFramework;
 using DataCollection.Commands.Repl;
 using DataCollection.Options;
 

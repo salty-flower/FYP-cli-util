@@ -1,6 +1,4 @@
-﻿using System.Collections.Generic;
-
-namespace DataCollection.Models.Export.Results;
+﻿namespace DataCollection.Models.Export.Results;
 
 public class BugTablePdfResult
 {

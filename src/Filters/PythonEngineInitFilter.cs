@@ -1,7 +1,4 @@
-﻿using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
-using ConsoleAppFramework;
+﻿using ConsoleAppFramework;
 using DataCollection.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;

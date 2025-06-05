@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
 using DataCollection.Models.IssueTracker;
 using DataCollection.Models.IssueTracker.Criteria;
 using DataCollection.Models.IssueTracker.Profiles;

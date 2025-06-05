@@ -1,15 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 using ConsoleAppFramework;
 using DataCollection.Models.Export.BugAnalysis;
 using DataCollection.Options;
 using DataCollection.Services;
-using DataCollection.Utils;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Spectre.Console;

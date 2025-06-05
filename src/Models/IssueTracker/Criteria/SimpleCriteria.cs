@@ -1,5 +1,4 @@
-﻿using System.Threading.Tasks;
-using DataCollection.Models.IssueTracker.Profiles;
+﻿using DataCollection.Models.IssueTracker.Profiles;
 
 namespace DataCollection.Models.IssueTracker.Criteria;
 

@@ -1,5 +1,4 @@
 using System.Text.Json;
-using DataCollection.Models;
 using DataCollection.Models.IssueTracker;
 using DataCollection.Models.IssueTracker.Responses;
 
