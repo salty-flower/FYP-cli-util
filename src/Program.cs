@@ -13,6 +13,7 @@ using DataCollection.Utils;
 using GitHub;
 using GitHub.Octokit.Client;
 using GitHub.Octokit.Client.Authentication;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -57,6 +58,17 @@ var app = builder.ConfigureServices(
             allowDefault: true
         );
         services.AddOptionsFromOwnSectionAndValidateOnStart<LLMOptions>(config, allowDefault: true);
+
+        // Configure Entity Framework
+        services.AddDbContext<DataCollectionDbContext>(options =>
+        {
+            var pathsOptions = services
+                .BuildServiceProvider()
+                .GetRequiredService<IOptions<PathsOptions>>()
+                .Value;
+            var dbPath = Path.Combine(pathsOptions.BaseDir, "data-collection.db");
+            options.UseSqlite($"Data Source={dbPath}");
+        });
 
         services.AddHttpClient(
             "OpenAIBatchApi",
@@ -181,6 +193,7 @@ var app = builder.ConfigureServices(
         services.AddSingleton<ConsoleRenderingService>();
         services.AddSingleton<PdfSearchService>();
         services.AddSingleton<DataLoadingService>();
+        services.AddScoped<DatabaseDataLoadingService>();
         services.AddSingleton<GitHubService>();
         services.AddSingleton<IssueAnalysisStorageService>();
         services.AddSingleton<SingleIssueProcessingService>();
@@ -195,6 +208,7 @@ var app = builder.ConfigureServices(
         services.AddSingleton<ProcedureCommands>();
         services.AddSingleton<IssueCommands>();
         services.AddSingleton<BugListDiscoveryCommands>();
+        services.AddSingleton<MigrateCommands>();
 
         // Add GitHub API HttpClient with token
         services

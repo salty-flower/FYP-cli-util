@@ -22,7 +22,8 @@ public class ScrapeCommands(
     AcmScraper scraper,
     AcmPaperDownloader paperDownloader,
     ILogger<ScrapeCommands> logger,
-    IOptions<PathsOptions> pathsOptions
+    IOptions<PathsOptions> pathsOptions,
+    DatabaseDataLoadingService databaseDataLoadingService
 )
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
@@ -81,7 +82,7 @@ public class ScrapeCommands(
         await Download(cancellationToken);
 
         // Use the analysis commands
-        var dumpCmd = new DumpCommands(logger, pathsOptions);
+        var dumpCmd = new DumpCommands(logger, pathsOptions, databaseDataLoadingService);
         await dumpCmd.PDF(cancellationToken);
 
         logger.LogInformation("Pipeline completed successfully");

@@ -10,6 +10,7 @@ using ConsoleAppFramework;
 using DataCollection.Filters;
 using DataCollection.Models;
 using DataCollection.Options;
+using DataCollection.Services;
 using MemoryPack;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -23,7 +24,11 @@ namespace DataCollection.Commands;
 /// </summary>
 [RegisterCommands("dump")]
 [ConsoleAppFilter<PathsOptions.Filter>]
-public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions> pathsOptions)
+public class DumpCommands(
+    ILogger<ScrapeCommands> logger,
+    IOptions<PathsOptions> pathsOptions,
+    DatabaseDataLoadingService databaseDataLoadingService
+)
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
 
@@ -34,20 +39,21 @@ public class DumpCommands(ILogger<ScrapeCommands> logger, IOptions<PathsOptions>
     [ConsoleAppFilter<PythonEngineInitFilter>]
     public async Task PDF(CancellationToken cancellationToken = default)
     {
+        await databaseDataLoadingService.EnsureDatabaseCreatedAsync();
+
         var pdfDataDir = new DirectoryInfo(_pathsOptions.PdfDataDir);
         var paperBinDir = new DirectoryInfo(_pathsOptions.PaperBinDir);
 
-        // Get already processed files
-        var alreadyDumped = pdfDataDir.GetFiles("*.bin").Select(f => f.Name.Replace(".bin", ""));
-        var alreadyDumpedDict = alreadyDumped.ToDictionary(p => p, _ => true).AsReadOnly();
+        // Get already processed files from database
+        var existingPdfData = await databaseDataLoadingService.LoadPdfDataAsync();
+        var alreadyDumpedDict = existingPdfData
+            .ToDictionary(p => p.FileName, _ => true)
+            .AsReadOnly();
 
         foreach (var pdfData in ExtractPdfData(paperBinDir, alreadyDumpedDict))
         {
-            // Serialize and save the PDF data
-            var bin = MemoryPackSerializer.Serialize(pdfData);
-            var binPath = Path.Combine(pdfDataDir.FullName, $"{pdfData.FileName}.bin");
-            await File.WriteAllBytesAsync(binPath, bin, cancellationToken);
-
+            // Save to database instead of file system
+            await databaseDataLoadingService.SavePdfDataAsync(pdfData);
             GC.Collect();
         }
 

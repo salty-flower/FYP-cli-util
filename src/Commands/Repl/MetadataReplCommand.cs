@@ -24,7 +24,8 @@ public class MetadataReplCommand(
     ILogger<MetadataReplCommand> logger,
     IOptions<PathsOptions> pathsOptions,
     PdfDescriptionService pdfDescriptionService,
-    DataLoadingService dataLoadingService
+    DataLoadingService dataLoadingService,
+    DatabaseDataLoadingService databaseDataLoadingService
 ) : BaseReplCommand(logger)
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
@@ -32,9 +33,9 @@ public class MetadataReplCommand(
     /// <summary>
     /// Run the Metadata REPL
     /// </summary>
-    public void Run(CancellationToken cancellationToken = default)
+    public async Task Run(CancellationToken cancellationToken = default)
     {
-        var papers = dataLoadingService.LoadPapersFromMetadata(_pathsOptions.PaperMetadataDir);
+        var papers = await databaseDataLoadingService.LoadPapersAsync();
 
         if (papers.Count == 0)
         {
