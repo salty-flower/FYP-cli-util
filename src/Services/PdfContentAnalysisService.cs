@@ -29,7 +29,7 @@ internal class PdfBugTableInfo
 /// Service responsible for analyzing PDF content to extract bug lists and artifact repositories
 /// </summary>
 public class PdfContentAnalysisService(
-    DataLoadingService dataLoadingService,
+    DatabaseDataLoadingService databaseDataLoadingService,
     ILogger<PdfContentAnalysisService> logger,
     OpenAIClient oaiClient,
     IOptionsSnapshot<LLMOptions> llmOpts,
@@ -196,7 +196,7 @@ public class PdfContentAnalysisService(
         CancellationToken cancellationToken
     )
     {
-        var pdfData = LoadPdfData(paper);
+        var pdfData = await LoadPdfDataAsync(paper);
         if (pdfData == null)
         {
             logger.LogWarning("No PDF data found for paper {PaperDoi}", paper.Doi);
@@ -232,13 +232,11 @@ public class PdfContentAnalysisService(
         await AnalyzeTextWithLlm(paper, fullText, result, cancellationToken);
     }
 
-    private PdfData? LoadPdfData(Paper paper)
+    private async Task<PdfData?> LoadPdfDataAsync(Paper paper)
     {
         try
         {
-            // Get PDF data directory from the data loading service
-            var sanitizedDoi = paper.Doi.Replace("/", "_").Replace(":", "_");
-            return dataLoadingService.LoadPdfData(pathsOptions.Value.PdfDataDir, sanitizedDoi);
+            return await databaseDataLoadingService.LoadPdfDataAsync(paper.Doi);
         }
         catch (Exception ex)
         {

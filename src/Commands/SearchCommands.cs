@@ -19,11 +19,19 @@ internal class SearchCommands(
     /// <param name="pattern">Search pattern (regex supported)</param>
     /// <param name="exportPath">Optional path to export results (JSON)</param>
     /// <returns>Number of results found</returns>
-    public int Metadata(
+    public async Task<int> Metadata(
         string pattern,
         string? exportPath = null,
         CancellationToken cancellationToken = default
-    ) => metadataReplCommand.RunNonInteractiveSearch(pattern, out _, exportPath, cancellationToken);
+    )
+    {
+        var (count, _) = await metadataReplCommand.RunNonInteractiveSearchAsync(
+            pattern,
+            exportPath,
+            cancellationToken
+        );
+        return count;
+    }
 
     /// <summary>
     /// Non-interactive command to search in PDF content and export results
@@ -31,11 +39,11 @@ internal class SearchCommands(
     /// <param name="pattern">Search pattern (regex supported)</param>
     /// <param name="exportPath">Optional path to export results (JSON)</param>
     /// <returns>Number of results found</returns>
-    public int Pdf(
+    public async Task<int> Pdf(
         string pattern,
         string? exportPath = null,
         CancellationToken cancellationToken = default
-    ) => pdfReplCommand.RunNonInteractiveSearch(pattern, exportPath, cancellationToken);
+    ) => await pdfReplCommand.RunNonInteractiveSearch(pattern, exportPath, cancellationToken);
 
     /// <summary>
     /// Non-interactive command to search in PDF text lines and return results directly
@@ -43,10 +51,17 @@ internal class SearchCommands(
     /// <param name="pattern">Search pattern (regex supported)</param>
     /// <param name="exportPath">Optional path to export results (JSON)</param>
     /// <returns>Number of results found</returns>
-    public int TextLines(
+    public async Task<int> TextLines(
         string pattern,
         string? exportPath = null,
         CancellationToken cancellationToken = default
-    ) =>
-        textLinesReplCommand.RunNonInteractiveSearch(pattern, out _, exportPath, cancellationToken);
+    )
+    {
+        var (count, _) = await textLinesReplCommand.RunNonInteractiveSearchAsync(
+            pattern,
+            exportPath,
+            cancellationToken
+        );
+        return count;
+    }
 }

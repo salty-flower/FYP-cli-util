@@ -9,7 +9,9 @@ namespace DataCollection.Services;
 
 /// <summary>
 /// Service for loading data from files
+/// DEPRECATED: Use DatabaseDataLoadingService instead
 /// </summary>
+[Obsolete("Use DatabaseDataLoadingService instead for database-based data access")]
 public class DataLoadingService(
     ILogger<DataLoadingService> logger,
     PdfDescriptionService pdfDescriptionService

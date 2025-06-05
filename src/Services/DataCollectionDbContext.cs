@@ -59,7 +59,7 @@ public class DataCollectionDbContext : DbContext
                 {
                     e.Owner,
                     e.Repository,
-                    e.IssueNumber
+                    e.IssueNumber,
                 })
                 .IsUnique();
             entity.HasIndex(e => e.Status);
@@ -69,13 +69,7 @@ public class DataCollectionDbContext : DbContext
         modelBuilder.Entity<BugListDiscoveryEntity>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity
-                .HasIndex(e => new
-                {
-                    e.Conf,
-                    e.Year
-                })
-                .IsUnique();
+            entity.HasIndex(e => new { e.Conf, e.Year }).IsUnique();
             entity.HasIndex(e => e.CreatedAt);
         });
     }

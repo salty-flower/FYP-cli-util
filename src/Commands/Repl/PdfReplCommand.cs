@@ -24,7 +24,7 @@ public class PdfReplCommand(
     IOptions<PathsOptions> pathsOptions,
     PdfDescriptionService pdfDescriptionService,
     ConsoleRenderingService renderingService,
-    DataLoadingService dataLoadingService
+    DatabaseDataLoadingService databaseDataLoadingService
 ) : BaseReplCommand(logger)
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
@@ -32,12 +32,9 @@ public class PdfReplCommand(
     /// <summary>
     /// Run the PDF REPL
     /// </summary>
-    public void Run(CancellationToken cancellationToken = default)
+    public async Task Run(CancellationToken cancellationToken = default)
     {
-        var pdfDataList = dataLoadingService.LoadPdfDataFromDirectory(
-            _pathsOptions.PdfDataDir,
-            _pathsOptions.PaperMetadataDir
-        );
+        var pdfDataList = await databaseDataLoadingService.LoadAllPdfDataAsync();
 
         if (pdfDataList.Count == 0)
         {
@@ -573,11 +570,11 @@ public class PdfReplCommand(
                 TotalMatches = matchingPdfs.Count,
                 Timestamp = DateTime.Now,
                 MatchingPdfs = matchingPdfs
-                    .Select(p => new PdfEvaluationItem
+                    .Select(item => new PdfEvaluationItem
                     {
-                        PdfName = pdfDescriptionService.GetItemDescription(p.Pdf),
-                        Filename = p.Pdf.FileName,
-                        KeywordCounts = p.Counts,
+                        PdfName = pdfDescriptionService.GetItemDescription(item.Pdf),
+                        Filename = item.Pdf.FileName,
+                        KeywordCounts = item.Counts,
                     })
                     .ToList(),
             };
@@ -806,16 +803,13 @@ public class PdfReplCommand(
     /// <param name="exportPath">Optional path to export results</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of results found</returns>
-    public int RunNonInteractiveSearch(
+    public async Task<int> RunNonInteractiveSearch(
         string pattern,
         string? exportPath,
         CancellationToken cancellationToken = default
     )
     {
-        var pdfDataList = dataLoadingService.LoadPdfDataFromDirectory(
-            _pathsOptions.PdfDataDir,
-            _pathsOptions.PaperMetadataDir
-        );
+        var pdfDataList = await databaseDataLoadingService.LoadAllPdfDataAsync();
 
         if (pdfDataList.Count == 0)
         {
@@ -1001,16 +995,13 @@ public class PdfReplCommand(
     /// <param name="exportPath">Optional path to export results</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of PDFs matching the expression</returns>
-    public int RunNonInteractiveEvaluation(
+    public async Task<int> RunNonInteractiveEvaluation(
         string expression,
         string? exportPath = null,
         CancellationToken cancellationToken = default
     )
     {
-        var pdfDataList = dataLoadingService.LoadPdfDataFromDirectory(
-            _pathsOptions.PdfDataDir,
-            _pathsOptions.PaperMetadataDir
-        );
+        var pdfDataList = await databaseDataLoadingService.LoadAllPdfDataAsync();
 
         if (pdfDataList.Count == 0)
         {
@@ -1058,11 +1049,11 @@ public class PdfReplCommand(
                 TotalMatches = matchingPdfs.Count,
                 Timestamp = DateTime.Now,
                 MatchingPdfs = matchingPdfs
-                    .Select(p => new PdfEvaluationItem
+                    .Select(item => new PdfEvaluationItem
                     {
-                        PdfName = pdfDescriptionService.GetItemDescription(p.Pdf),
-                        Filename = p.Pdf.FileName,
-                        KeywordCounts = p.Counts,
+                        PdfName = pdfDescriptionService.GetItemDescription(item.Pdf),
+                        Filename = item.Pdf.FileName,
+                        KeywordCounts = item.Counts,
                     })
                     .ToList(),
             };

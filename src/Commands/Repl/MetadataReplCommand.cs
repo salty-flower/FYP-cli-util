@@ -24,7 +24,6 @@ public class MetadataReplCommand(
     ILogger<MetadataReplCommand> logger,
     IOptions<PathsOptions> pathsOptions,
     PdfDescriptionService pdfDescriptionService,
-    DataLoadingService dataLoadingService,
     DatabaseDataLoadingService databaseDataLoadingService
 ) : BaseReplCommand(logger)
 {
@@ -561,22 +560,20 @@ public class MetadataReplCommand(
     /// <param name="exportPath">Optional path to export results</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of results found</returns>
-    public int RunNonInteractiveSearch(
+    public async Task<(int count, MetadataSearchResult? results)> RunNonInteractiveSearchAsync(
         string pattern,
-        out MetadataSearchResult? results,
         string? exportPath = null,
         CancellationToken cancellationToken = default
     )
     {
-        var papers = dataLoadingService.LoadPapersFromMetadata(_pathsOptions.PaperMetadataDir);
+        var papers = await databaseDataLoadingService.LoadPapersAsync();
 
         if (papers.Count == 0)
         {
             logger.LogWarning(
                 "No paper metadata could be loaded. Please run the scrape papers command first."
             );
-            results = null;
-            return 0;
+            return (0, null);
         }
 
         logger.LogInformation(
@@ -613,7 +610,7 @@ public class MetadataReplCommand(
             }
 
             // Create properly structured data for source generation
-            results = new MetadataSearchResult
+            var result = new MetadataSearchResult
             {
                 Pattern = pattern,
                 TotalMatches = searchResults.Count,
@@ -634,12 +631,12 @@ public class MetadataReplCommand(
             };
 
             // Store the data for potential later use
-            LastSearchResults = results;
+            LastSearchResults = result;
 
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (WriteToFile(results, exportPath, ReplJsonContext.Default.MetadataSearchResult))
+                if (WriteToFile(result, exportPath, ReplJsonContext.Default.MetadataSearchResult))
                 {
                     logger.LogInformation(
                         "Exported {Count} results to {Path}",
@@ -662,12 +659,12 @@ public class MetadataReplCommand(
                     );
 
                     // Log a sample of the results
-                    foreach (var result in searchResults.Take(5))
+                    foreach (var searchResult in searchResults.Take(5))
                     {
                         logger.LogInformation(
                             "Match in {Paper}: {Match}",
-                            result.Paper.Title,
-                            result.Match
+                            searchResult.Paper.Title,
+                            searchResult.Match
                         );
                     }
 
@@ -685,19 +682,17 @@ public class MetadataReplCommand(
                 }
             }
 
-            return searchResults.Count;
+            return (searchResults.Count, result);
         }
         catch (RegexParseException ex)
         {
             logger.LogError("Invalid regex pattern: {Error}", ex.Message);
-            results = null;
-            return 0;
+            return (0, null);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error during non-interactive search: {Error}", ex.Message);
-            results = null;
-            return 0;
+            return (0, null);
         }
     }
 
@@ -708,13 +703,13 @@ public class MetadataReplCommand(
     /// <param name="exportPath">Optional path to export results</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of papers matching the expression</returns>
-    public int RunNonInteractiveEvaluation(
+    public async Task<int> RunNonInteractiveEvaluation(
         string expression,
         string? exportPath = null,
         CancellationToken cancellationToken = default
     )
     {
-        var papers = dataLoadingService.LoadPapersFromMetadata(_pathsOptions.PaperMetadataDir);
+        var papers = await databaseDataLoadingService.LoadPapersAsync();
 
         if (papers.Count == 0)
         {

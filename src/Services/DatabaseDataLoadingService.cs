@@ -38,6 +38,44 @@ public class DatabaseDataLoadingService(
         return pdfDataList;
     }
 
+    public async Task<List<PdfData>> LoadAllPdfDataAsync()
+    {
+        logger.LogInformation("Loading all PDF data from database");
+
+        var entities = await dbContext.PdfData.ToListAsync();
+        var pdfDataList = entities.Select(e => e.ToPdfData()).ToList();
+
+        logger.LogInformation("Loaded {Count} PDF documents from all jobs", pdfDataList.Count);
+        return pdfDataList;
+    }
+
+    public async Task<PdfData?> LoadPdfDataAsync(string doi)
+    {
+        try
+        {
+            var sanitizedDoi = doi.Replace("/", "-");
+            var entity = await dbContext
+                .PdfData.Include(p => p.Paper)
+                .FirstOrDefaultAsync(p =>
+                    p.Paper != null && p.Paper.Doi.Replace("/", "-") == sanitizedDoi
+                );
+
+            if (entity == null)
+            {
+                logger.LogWarning("PDF data not found for DOI: {Doi}", doi);
+                return null;
+            }
+
+            logger.LogDebug("Loaded PDF data for DOI: {Doi}", doi);
+            return entity.ToPdfData();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Error loading PDF data for DOI {Doi}: {Error}", doi, ex.Message);
+            return null;
+        }
+    }
+
     public async Task<List<Paper>> LoadPapersAsync()
     {
         logger.LogInformation(

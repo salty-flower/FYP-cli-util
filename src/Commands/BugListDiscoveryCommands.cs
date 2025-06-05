@@ -400,12 +400,19 @@ public class BugListDiscoveryCommands(
     {
         try
         {
-            await databaseStorageService.SaveBugListDiscoveryAsync(rootOptions.Value.JobName, analysis);
+            await databaseStorageService.SaveBugListDiscoveryAsync(
+                rootOptions.Value.JobName,
+                analysis
+            );
             logger.LogInformation("Bug list discovery analysis saved to database");
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to save bug list discovery to database: {Error}", ex.Message);
+            logger.LogWarning(
+                ex,
+                "Failed to save bug list discovery to database: {Error}",
+                ex.Message
+            );
         }
     }
 

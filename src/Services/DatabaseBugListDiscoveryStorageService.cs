@@ -12,7 +12,11 @@ public class DatabaseBugListDiscoveryStorageService(
     DataCollectionDbContext dbContext
 )
 {
-    public async Task SaveBugListDiscoveryAsync(string conf, int year, BugListDiscoveryAnalysis analysis)
+    public async Task SaveBugListDiscoveryAsync(
+        string conf,
+        int year,
+        BugListDiscoveryAnalysis analysis
+    )
     {
         try
         {
@@ -26,7 +30,11 @@ public class DatabaseBugListDiscoveryStorageService(
             {
                 existingEntity.AnalysisJson = analysisJson;
                 existingEntity.UpdatedAt = DateTime.UtcNow;
-                logger.LogDebug("Updated existing bug list discovery for {Conf}-{Year}", conf, year);
+                logger.LogDebug(
+                    "Updated existing bug list discovery for {Conf}-{Year}",
+                    conf,
+                    year
+                );
             }
             else
             {
@@ -34,7 +42,7 @@ public class DatabaseBugListDiscoveryStorageService(
                 {
                     Conf = conf,
                     Year = year,
-                    AnalysisJson = analysisJson
+                    AnalysisJson = analysisJson,
                 };
 
                 dbContext.BugListDiscoveries.Add(entity);
@@ -42,12 +50,21 @@ public class DatabaseBugListDiscoveryStorageService(
             }
 
             await dbContext.SaveChangesAsync();
-            logger.LogInformation("Saved bug list discovery analysis for {Conf}-{Year}", conf, year);
+            logger.LogInformation(
+                "Saved bug list discovery analysis for {Conf}-{Year}",
+                conf,
+                year
+            );
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error saving bug list discovery for {Conf}-{Year}: {Error}", 
-                conf, year, ex.Message);
+            logger.LogError(
+                ex,
+                "Error saving bug list discovery for {Conf}-{Year}: {Error}",
+                conf,
+                year,
+                ex.Message
+            );
             throw;
         }
     }
@@ -72,13 +89,20 @@ public class DatabaseBugListDiscoveryStorageService(
                 return null;
             }
 
-            var analysis = JsonSerializer.Deserialize<BugListDiscoveryAnalysis>(entity.AnalysisJson);
+            var analysis = JsonSerializer.Deserialize<BugListDiscoveryAnalysis>(
+                entity.AnalysisJson
+            );
             logger.LogDebug("Retrieved bug list discovery for {Conf}-{Year}", conf, year);
             return analysis;
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to retrieve bug list discovery for {Conf}-{Year}", conf, year);
+            logger.LogWarning(
+                ex,
+                "Failed to retrieve bug list discovery for {Conf}-{Year}",
+                conf,
+                year
+            );
             return null;
         }
     }
@@ -89,12 +113,14 @@ public class DatabaseBugListDiscoveryStorageService(
         return await GetBugListDiscoveryAsync(conf, year);
     }
 
-    public async Task<List<(string Conf, int Year, BugListDiscoveryAnalysis Analysis)>> GetAllBugListDiscoveriesAsync()
+    public async Task<
+        List<(string Conf, int Year, BugListDiscoveryAnalysis Analysis)>
+    > GetAllBugListDiscoveriesAsync()
     {
         try
         {
-            var entities = await dbContext.BugListDiscoveries
-                .OrderBy(bd => bd.Conf)
+            var entities = await dbContext
+                .BugListDiscoveries.OrderBy(bd => bd.Conf)
                 .ThenBy(bd => bd.Year)
                 .ToListAsync();
 
@@ -104,7 +130,9 @@ public class DatabaseBugListDiscoveryStorageService(
             {
                 try
                 {
-                    var analysis = JsonSerializer.Deserialize<BugListDiscoveryAnalysis>(entity.AnalysisJson);
+                    var analysis = JsonSerializer.Deserialize<BugListDiscoveryAnalysis>(
+                        entity.AnalysisJson
+                    );
                     if (analysis != null)
                     {
                         results.Add((entity.Conf, entity.Year, analysis));
@@ -112,8 +140,12 @@ public class DatabaseBugListDiscoveryStorageService(
                 }
                 catch (Exception ex)
                 {
-                    logger.LogWarning(ex, "Failed to deserialize bug list discovery for {Conf}-{Year}", 
-                        entity.Conf, entity.Year);
+                    logger.LogWarning(
+                        ex,
+                        "Failed to deserialize bug list discovery for {Conf}-{Year}",
+                        entity.Conf,
+                        entity.Year
+                    );
                 }
             }
 

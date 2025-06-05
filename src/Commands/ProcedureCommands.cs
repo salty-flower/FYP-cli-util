@@ -31,7 +31,7 @@ public class ProcedureCommands(
     ILogger<ProcedureCommands> logger,
     TextLinesReplCommand textLinesRepl,
     MetadataReplCommand metadataRepl,
-    DataLoadingService dataLoadingService,
+    DatabaseDataLoadingService databaseDataLoadingService,
     IOptions<PathsOptions> pathsOptions
 )
 {
@@ -62,10 +62,9 @@ public class ProcedureCommands(
         // Step 1: Search for bug-related tables in PDFs
         logger.LogInformation("Searching for bug tables in PDFs...");
 
-        // Call the appropriate ReplCommands method with out parameter
-        int bugTablesResult = textLinesRepl.RunNonInteractiveSearch(
+        // Call the appropriate ReplCommands method
+        var (bugTablesResult, bugTablesData) = await textLinesRepl.RunNonInteractiveSearchAsync(
             bugTablesPattern,
-            out TextLinesSearchResult? bugTablesData,
             tempBugTablesFile,
             cancellationToken
         );
@@ -79,10 +78,9 @@ public class ProcedureCommands(
         // Step 2: Search for testing techniques in metadata
         logger.LogInformation("Searching for testing techniques in metadata...");
 
-        // Call the appropriate ReplCommands method with out parameter
-        int techniquesResult = metadataRepl.RunNonInteractiveSearch(
+        // Call the appropriate ReplCommands method
+        var (techniquesResult, techniquesData) = await metadataRepl.RunNonInteractiveSearchAsync(
             techniquesPattern,
-            out MetadataSearchResult? techniquesData,
             tempTechniquesFile,
             cancellationToken
         );
@@ -260,11 +258,8 @@ public class ProcedureCommands(
         var paths = pathsOptions.Value;
 
         // Step 1: Load all the PDF data
-        logger.LogInformation("Loading PDF data from directory...");
-        var pdfDataList = dataLoadingService.LoadPdfDataFromDirectory(
-            paths.PdfDataDir,
-            paths.PaperMetadataDir
-        );
+        logger.LogInformation("Loading PDF data from database...");
+        var pdfDataList = await databaseDataLoadingService.LoadAllPdfDataAsync();
 
         if (pdfDataList.Count == 0)
         {

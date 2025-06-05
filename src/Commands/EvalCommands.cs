@@ -1,5 +1,4 @@
-﻿using System.Threading;
-using ConsoleAppFramework;
+﻿using ConsoleAppFramework;
 using DataCollection.Commands.Repl;
 using DataCollection.Options;
 
@@ -19,11 +18,16 @@ public class EvalCommands(PdfReplCommand pdfReplCommand, MetadataReplCommand met
     /// <param name="expression">Keyword expression to evaluate</param>
     /// <param name="exportPath">Optional path to export results (JSON)</param>
     /// <returns>Number of papers matching the expression</returns>
-    public int Metadata(
+    public async Task<int> Metadata(
         string expression,
         string? exportPath = null,
         CancellationToken cancellationToken = default
-    ) => metadataReplCommand.RunNonInteractiveEvaluation(expression, exportPath, cancellationToken);
+    ) =>
+        await metadataReplCommand.RunNonInteractiveEvaluation(
+            expression,
+            exportPath,
+            cancellationToken
+        );
 
     /// <summary>
     /// Non-interactive command to evaluate a keyword expression against PDF content
@@ -31,9 +35,10 @@ public class EvalCommands(PdfReplCommand pdfReplCommand, MetadataReplCommand met
     /// <param name="expression">Keyword expression to evaluate</param>
     /// <param name="exportPath">Optional path to export results (JSON)</param>
     /// <returns>Number of PDFs matching the expression</returns>
-    public int Pdf(
+    public async Task<int> Pdf(
         string expression,
         string? exportPath = null,
         CancellationToken cancellationToken = default
-    ) => pdfReplCommand.RunNonInteractiveEvaluation(expression, exportPath, cancellationToken);
+    ) =>
+        await pdfReplCommand.RunNonInteractiveEvaluation(expression, exportPath, cancellationToken);
 }

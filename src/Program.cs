@@ -192,7 +192,6 @@ var app = builder.ConfigureServices(
         services.AddSingleton<PdfDescriptionService>();
         services.AddSingleton<ConsoleRenderingService>();
         services.AddSingleton<PdfSearchService>();
-        services.AddSingleton<DataLoadingService>();
         services.AddScoped<DatabaseDataLoadingService>();
         services.AddScoped<DatabaseIssueAnalysisStorageService>();
         services.AddScoped<DatabaseBugListDiscoveryStorageService>();

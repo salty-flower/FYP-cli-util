@@ -24,7 +24,7 @@ public class TextLinesReplCommand(
     PdfDescriptionService pdfDescriptionService,
     ConsoleRenderingService renderingService,
     PdfSearchService searchService,
-    DataLoadingService dataLoadingService
+    DatabaseDataLoadingService databaseDataLoadingService
 ) : BaseReplCommand(logger)
 {
     private readonly PathsOptions _pathsOptions = pathsOptions.Value;
@@ -32,12 +32,9 @@ public class TextLinesReplCommand(
     /// <summary>
     /// Run the TextLines REPL
     /// </summary>
-    public void Run(CancellationToken cancellationToken = default)
+    public async Task Run(CancellationToken cancellationToken = default)
     {
-        var pdfDataList = dataLoadingService.LoadPdfDataFromDirectory(
-            _pathsOptions.PdfDataDir,
-            _pathsOptions.PaperMetadataDir
-        );
+        var pdfDataList = await databaseDataLoadingService.LoadAllPdfDataAsync();
 
         if (pdfDataList.Count == 0)
         {
@@ -604,25 +601,20 @@ public class TextLinesReplCommand(
     /// <param name="exportPath">Optional path to export results</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of results found</returns>
-    public int RunNonInteractiveSearch(
+    public async Task<(int count, TextLinesSearchResult? results)> RunNonInteractiveSearchAsync(
         string pattern,
-        out TextLinesSearchResult? results,
         string? exportPath = null,
         CancellationToken cancellationToken = default
     )
     {
-        var pdfDataList = dataLoadingService.LoadPdfDataFromDirectory(
-            _pathsOptions.PdfDataDir,
-            _pathsOptions.PaperMetadataDir
-        );
+        var pdfDataList = await databaseDataLoadingService.LoadAllPdfDataAsync();
 
         if (pdfDataList.Count == 0)
         {
             logger.LogWarning(
                 "No PDF data could be loaded. Please run the analyze pdfs command first."
             );
-            results = null;
-            return 0;
+            return (0, null);
         }
 
         logger.LogInformation(
@@ -693,7 +685,7 @@ public class TextLinesReplCommand(
             }
 
             // Create export data using source generation models
-            results = new TextLinesSearchResult
+            var result = new TextLinesSearchResult
             {
                 Pattern = pattern,
                 TotalMatches = total,
@@ -703,12 +695,12 @@ public class TextLinesReplCommand(
             };
 
             // Store for later export if needed
-            LastSearchResults = results;
+            LastSearchResults = result;
 
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (WriteToFile(results, exportPath, ReplJsonContext.Default.TextLinesSearchResult))
+                if (WriteToFile(result, exportPath, ReplJsonContext.Default.TextLinesSearchResult))
                 {
                     logger.LogInformation("Exported {Count} results to {Path}", total, exportPath);
                 }
@@ -726,19 +718,17 @@ public class TextLinesReplCommand(
                 );
             }
 
-            return total;
+            return (total, result);
         }
         catch (RegexParseException ex)
         {
             logger.LogError("Invalid regex pattern: {Error}", ex.Message);
-            results = null;
-            return 0;
+            return (0, null);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error during non-interactive search: {Error}", ex.Message);
-            results = null;
-            return 0;
+            return (0, null);
         }
     }
 }
