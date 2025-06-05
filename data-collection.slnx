@@ -6,5 +6,8 @@
     <File Path="Directory.Packages.props" />
     <File Path="NuGet.config" />
   </Folder>
-  <Project Path="src/data-collection.csproj" />
+  <Project Path="src/DataCollection.Core/DataCollection.Core.csproj" />
+  <Project Path="src/DataCollection.Infrastructure/DataCollection.Infrastructure.csproj" />
+  <Project Path="src/DataCollection.Application/DataCollection.Application.csproj" />
+  <Project Path="src/DataCollection.Presentation.Cli/DataCollection.Presentation.Cli.csproj" />
 </Solution>

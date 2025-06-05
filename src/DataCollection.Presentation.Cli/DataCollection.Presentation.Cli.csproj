@@ -1,0 +1,49 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <SelfContained>false</SelfContained>
+    <PublishReadyToRun>true</PublishReadyToRun>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DataCollection.Infrastructure\DataCollection.Infrastructure.csproj" />
+    <ProjectReference Include="..\DataCollection.Application\DataCollection.Application.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Pythonnet" />
+    <PackageReference Include="MinimalHttpLogger" />
+    <PackageReference Include="ConsoleAppFramework">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Serilog.Extensions.Hosting" />
+    <PackageReference Include="Spectre.Console" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="appsettings.local.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+  <Target BeforeTargets="CoreCompile" Name="GenerateBuildConstants">
+    <PropertyGroup>
+      <BuildConstantsFile>
+				$(IntermediateOutputPath)\generated\MSBuildInject\BuildConstants.g.cs
+			</BuildConstantsFile>
+    </PropertyGroup>
+    <ItemGroup>
+      <BuildConstantsContent Include="namespace $(RootNamespace) %3B" />
+      <BuildConstantsContent Include="public static class BuildConstants {" />
+      <BuildConstantsContent Include="public const string SolutionDirectory = @&quot;$(SolutionDir)&quot;%3B" />
+      <BuildConstantsContent Include="}" />
+      <Compile Include="$(BuildConstantsFile)" />
+    </ItemGroup>
+    <WriteLinesToFile
+      File="$(BuildConstantsFile)"
+      Lines="@(BuildConstantsContent)"
+      Overwrite="true"
+    />
+  </Target>
+</Project>

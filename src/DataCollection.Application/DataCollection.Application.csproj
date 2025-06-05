@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\DataCollection.Core\DataCollection.Core.csproj" />
+    <ProjectReference Include="..\DataCollection.Infrastructure\DataCollection.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Pythonnet" />
+    <PackageReference Include="GitHub.Octokit.SDK" />
+    <PackageReference Include="HtmlAgilityPack" />
+    <PackageReference Include="MemoryPack" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="Microsoft.SemanticKernel" />
+    <PackageReference Include="NJsonSchema" />
+    <PackageReference Include="OpenAI" />
+    <PackageReference Include="LarchSys.OpenAi.JsonSchema" />
+  </ItemGroup>
+</Project>
