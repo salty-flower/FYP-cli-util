@@ -419,7 +419,8 @@ build/
 *.sqlite.db*
 
 
-data*/
+data/
+data-old/
 
 .venv/
 
