@@ -7,7 +7,7 @@ using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace DataCollection.Application.Features.PaperAnalysis;
+namespace DataCollection.Infrastructure.Clients;
 
 public class AcmScraper(
     IHttpClientFactory httpClientFactory,

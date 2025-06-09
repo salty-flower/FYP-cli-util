@@ -1,8 +1,8 @@
 using System.Text.RegularExpressions;
 using DataCollection.Application.Features.PatternMatching;
-using DataCollection.Application.Models.Export.BugAnalysis;
 using DataCollection.Core.Extensions;
 using DataCollection.Core.Models;
+using DataCollection.Infrastructure.Models.BugList;
 using DataCollection.Infrastructure.Options;
 using DataCollection.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging;

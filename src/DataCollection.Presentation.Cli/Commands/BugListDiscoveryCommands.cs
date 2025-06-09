@@ -1,7 +1,8 @@
 using System.Text.Json;
 using ConsoleAppFramework;
 using DataCollection.Application.Features.BugDiscovery;
-using DataCollection.Application.Models.Export.BugAnalysis;
+using DataCollection.Infrastructure.Clients;
+using DataCollection.Infrastructure.Models.BugList;
 using DataCollection.Infrastructure.Options;
 using DataCollection.Presentation.Cli.Filters;
 using DataCollection.Presentation.Cli.Rendering;

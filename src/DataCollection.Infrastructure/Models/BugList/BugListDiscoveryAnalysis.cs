@@ -1,4 +1,4 @@
-namespace DataCollection.Application.Models.Export.BugAnalysis;
+namespace DataCollection.Infrastructure.Models.BugList;
 
 /// <summary>
 /// Represents the complete analysis of bug list discovery for multiple papers

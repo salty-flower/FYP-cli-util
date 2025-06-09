@@ -1,5 +1,4 @@
 using ConsoleAppFramework;
-using DataCollection.Application.Features.PaperAnalysis;
 using DataCollection.Core.Models;
 using DataCollection.Infrastructure.Clients;
 using DataCollection.Infrastructure.Options;
