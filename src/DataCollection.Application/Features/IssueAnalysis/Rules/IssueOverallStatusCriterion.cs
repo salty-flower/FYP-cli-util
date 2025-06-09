@@ -1,7 +1,7 @@
 using System.Text;
 using DataCollection.Application.Models.IssueTracker.Profiles;
 using DataCollection.Core.Models.IssueTracker.Responses;
-using DataCollection.Core.Options;
+using DataCollection.Infrastructure.Options;
 using EnumsNET;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;

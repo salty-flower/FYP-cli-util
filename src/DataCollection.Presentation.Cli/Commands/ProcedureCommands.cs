@@ -7,7 +7,7 @@ using DataCollection.Application.Models.Export;
 using DataCollection.Application.Models.Export.BugAnalysis;
 using DataCollection.Application.Models.Export.PaperAnalysis;
 using DataCollection.Application.Models.Export.Results;
-using DataCollection.Core.Options;
+using DataCollection.Infrastructure.Options;
 using DataCollection.Infrastructure.Persistence;
 using DataCollection.Presentation.Cli.Commands.Repl;
 using DataCollection.Presentation.Cli.Filters;

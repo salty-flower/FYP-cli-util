@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
 using DataCollection.Application.Features.IssueAnalysis.Rules;
 using DataCollection.Application.Models.IssueTracker.Profiles;
-using DataCollection.Core.Options;
 using DataCollection.Infrastructure.Clients;
 using DataCollection.Infrastructure.Models.GitHub;
+using DataCollection.Infrastructure.Options;
 using DataCollection.Infrastructure.Serialization;
 using GitHub;
 using GitHub.Models;

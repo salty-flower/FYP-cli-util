@@ -1,8 +1,8 @@
 using ConsoleAppFramework;
 using DataCollection.Application.Features.PaperAnalysis;
 using DataCollection.Core.Models;
-using DataCollection.Core.Options;
 using DataCollection.Infrastructure.Clients;
+using DataCollection.Infrastructure.Options;
 using DataCollection.Infrastructure.Persistence;
 using DataCollection.Presentation.Cli.Filters;
 using Microsoft.Extensions.Logging;
@@ -32,8 +32,6 @@ public class ScrapeCommands(
     /// <param name="cancellationToken">Cancellation token</param>
     public async Task Metadata(string proceedingDOI, CancellationToken cancellationToken = default)
     {
-        await databaseDataLoadingService.EnsureDatabaseCreatedAsync();
-
         logger.LogInformation("Starting paper metadata scraping...");
         var count = 0;
 

@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using System.Web;
 using DataCollection.Core.Models;
-using DataCollection.Core.Options;
+using DataCollection.Infrastructure.Options;
 using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;

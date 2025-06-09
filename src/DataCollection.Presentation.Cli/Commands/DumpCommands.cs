@@ -2,7 +2,7 @@
 using System.Text;
 using ConsoleAppFramework;
 using DataCollection.Core.Models;
-using DataCollection.Core.Options;
+using DataCollection.Infrastructure.Options;
 using DataCollection.Infrastructure.Persistence;
 using DataCollection.Presentation.Cli.Filters;
 using Microsoft.Extensions.Logging;
@@ -31,9 +31,6 @@ public class DumpCommands(
     [ConsoleAppFilter<PythonEngineInitFilter>]
     public async Task PDF(CancellationToken cancellationToken = default)
     {
-        await databaseDataLoadingService.EnsureDatabaseCreatedAsync();
-
-        var pdfDataDir = new DirectoryInfo(_pathsOptions.PdfDataDir);
         var paperBinDir = new DirectoryInfo(_pathsOptions.PaperBinDir);
 
         // Get already processed files from database

@@ -1,5 +1,5 @@
 using ConsoleAppFramework;
-using DataCollection.Core.Options;
+using DataCollection.Infrastructure.Options;
 using Microsoft.Extensions.Options;
 
 namespace DataCollection.Presentation.Cli.Filters;
