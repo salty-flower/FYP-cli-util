@@ -1,12 +1,12 @@
 using System.Text.Json;
-using DataCollection.Application.Models.Export.BugAnalysis;
 using DataCollection.Core.Models.Database;
+using DataCollection.Infrastructure.Models.BugList;
 using DataCollection.Infrastructure.Options;
 using DataCollection.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
-namespace DataCollection.Application.Features.BugDiscovery;
+namespace DataCollection.Infrastructure.Clients;
 
 public class DatabaseBugListDiscoveryStorageService(
     ILogger<DatabaseBugListDiscoveryStorageService> logger,

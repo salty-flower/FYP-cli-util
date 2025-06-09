@@ -3,6 +3,7 @@ using DataCollection.Application.Models.Export.BugAnalysis;
 using DataCollection.Application.Models.Export.PaperAnalysis;
 using DataCollection.Application.Models.Export.Results;
 using DataCollection.Application.Models.Export.Search;
+using DataCollection.Infrastructure.Models.BugList;
 
 namespace DataCollection.Application.Models.Export;
 

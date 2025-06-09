@@ -4,7 +4,7 @@ using DataCollection.Core.Models;
 using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
 
-namespace DataCollection.Application.Features.PaperAnalysis;
+namespace DataCollection.Infrastructure.Clients;
 
 public class AcmPaperParser(IHttpClientFactory httpClientFactory, ILogger<AcmPaperParser> logger)
 {

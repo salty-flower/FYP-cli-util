@@ -1,7 +1,7 @@
 using DataCollection.Application.Features.PatternMatching;
-using DataCollection.Application.Models.Export.BugAnalysis;
 using DataCollection.Core.Models;
 using DataCollection.Infrastructure.Clients;
+using DataCollection.Infrastructure.Models.BugList;
 using DataCollection.Infrastructure.Models.WebSearch;
 using Microsoft.Extensions.Logging;
 using OpenAI.Chat;

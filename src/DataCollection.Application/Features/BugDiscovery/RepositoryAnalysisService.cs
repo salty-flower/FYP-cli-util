@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
-using DataCollection.Application.Models.Export.BugAnalysis;
 using DataCollection.Core.Models;
+using DataCollection.Infrastructure.Clients;
+using DataCollection.Infrastructure.Models.BugList;
 using DataCollection.Infrastructure.Models.GitHub;
 using DataCollection.Infrastructure.Options;
 using Microsoft.Extensions.Logging;
