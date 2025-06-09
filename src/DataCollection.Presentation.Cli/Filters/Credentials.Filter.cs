@@ -1,5 +1,5 @@
 using ConsoleAppFramework;
-using DataCollection.Core.Options;
+using DataCollection.Infrastructure.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 

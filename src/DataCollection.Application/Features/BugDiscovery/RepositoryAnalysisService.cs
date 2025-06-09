@@ -1,8 +1,8 @@
 using System.Text.RegularExpressions;
 using DataCollection.Application.Models.Export.BugAnalysis;
 using DataCollection.Core.Models;
-using DataCollection.Core.Options;
 using DataCollection.Infrastructure.Models.GitHub;
+using DataCollection.Infrastructure.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAI;

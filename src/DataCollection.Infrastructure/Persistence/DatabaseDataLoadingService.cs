@@ -1,7 +1,6 @@
 using DataCollection.Core.Models;
-using DataCollection.Core.Options;
-using DataCollection.Core.Parsers;
 using DataCollection.Infrastructure.Extensions;
+using DataCollection.Infrastructure.Options;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -15,23 +14,15 @@ public class DatabaseDataLoadingService(
     IOptionsSnapshot<PathsOptions> pathsOptions
 )
 {
-    private readonly string _jobName = rootOptions.Value.JobName;
-    private readonly (string Conf, int Year) _confYear = JobNameParser.ParseJobName(
-        rootOptions.Value.JobName
-    );
+    private readonly JobName jobName = (
+        rootOptions.Value.TryParseJobName(out var jobName) ? jobName : jobName
+    )!.Value;
 
     public async Task<List<PdfData>> LoadPdfDataAsync()
     {
-        logger.LogInformation(
-            "Loading PDF data from database for conf: {Conf}, year: {Year}",
-            _confYear.Conf,
-            _confYear.Year
-        );
+        logger.LogInformation("Loading PDF data from database");
 
-        var entities = await dbContext
-            .PdfData.Where(p => p.Conf == _confYear.Conf && p.Year == _confYear.Year)
-            .ToListAsync();
-
+        var entities = await dbContext.PdfData.ToListAsync();
         var pdfDataList = entities.Select(e => e.ToPdfData()).ToList();
 
         logger.LogInformation("Loaded {Count} PDF documents", pdfDataList.Count);
@@ -78,16 +69,9 @@ public class DatabaseDataLoadingService(
 
     public async Task<List<Paper>> LoadPapersAsync()
     {
-        logger.LogInformation(
-            "Loading papers from database for conf: {Conf}, year: {Year}",
-            _confYear.Conf,
-            _confYear.Year
-        );
+        logger.LogInformation("Loading papers from database");
 
-        var entities = await dbContext
-            .Papers.Where(p => p.Conf == _confYear.Conf && p.Year == _confYear.Year)
-            .ToListAsync();
-
+        var entities = await dbContext.Papers.ToListAsync();
         var papers = entities.Select(e => e.ToPaper()).ToList();
 
         logger.LogInformation("Loaded {Count} papers", papers.Count);
@@ -101,10 +85,7 @@ public class DatabaseDataLoadingService(
             var entity = await dbContext
                 .PdfData.Include(p => p.Paper)
                 .FirstOrDefaultAsync(p =>
-                    p.Conf == _confYear.Conf
-                    && p.Year == _confYear.Year
-                    && p.Paper != null
-                    && p.Paper.Doi.Replace("/", "-") == sanitizedDoi
+                    p.Paper != null && p.Paper.Doi.Replace("/", "-") == sanitizedDoi
                 );
 
             if (entity == null)
@@ -133,7 +114,7 @@ public class DatabaseDataLoadingService(
         try
         {
             var existingPaper = await dbContext.Papers.FirstOrDefaultAsync(p =>
-                p.Doi == paper.Doi && p.Conf == _confYear.Conf && p.Year == _confYear.Year
+                p.Doi == paper.Doi && p.Conf == jobName.Conf && p.Year == jobName.Year
             );
 
             if (existingPaper != null)
@@ -142,7 +123,7 @@ public class DatabaseDataLoadingService(
                 return;
             }
 
-            var entity = paper.ToEntity(_confYear.Conf, _confYear.Year);
+            var entity = paper.ToEntity(jobName);
             dbContext.Papers.Add(entity);
             await dbContext.SaveChangesAsync();
 
@@ -163,15 +144,13 @@ public class DatabaseDataLoadingService(
             if (!string.IsNullOrEmpty(doi))
             {
                 var paper = await dbContext.Papers.FirstOrDefaultAsync(p =>
-                    p.Doi == doi && p.Conf == _confYear.Conf && p.Year == _confYear.Year
+                    p.Doi == doi && p.Conf == jobName.Conf && p.Year == jobName.Year
                 );
                 paperId = paper?.Id;
             }
 
             var existingPdfData = await dbContext.PdfData.FirstOrDefaultAsync(p =>
-                p.FileName == pdfData.FileName
-                && p.Conf == _confYear.Conf
-                && p.Year == _confYear.Year
+                p.FileName == pdfData.FileName && p.Conf == jobName.Conf && p.Year == jobName.Year
             );
 
             if (existingPdfData != null)
@@ -180,7 +159,7 @@ public class DatabaseDataLoadingService(
                 return;
             }
 
-            var entity = pdfData.ToEntity(_confYear.Conf, _confYear.Year, paperId);
+            var entity = pdfData.ToEntity(jobName, paperId);
             dbContext.PdfData.Add(entity);
             await dbContext.SaveChangesAsync();
 
@@ -196,44 +175,5 @@ public class DatabaseDataLoadingService(
             );
             throw;
         }
-    }
-
-    public async Task SavePapersAsync(IEnumerable<Paper> papers)
-    {
-        foreach (var paper in papers)
-        {
-            await SavePaperAsync(paper);
-        }
-    }
-
-    public async Task EnsureDatabaseCreatedAsync()
-    {
-        await dbContext.Database.EnsureCreatedAsync();
-        logger.LogInformation(
-            "Database ensured for conf: {Conf}, year: {Year}",
-            _confYear.Conf,
-            _confYear.Year
-        );
-    }
-
-    public string GetPdfPath(string doi)
-    {
-        var sanitizedDoi = doi.Replace("/", "-");
-        return Path.Combine(pathsOptions.Value.BaseDir, "paper-PDFs", $"{sanitizedDoi}.pdf");
-    }
-
-    public async Task<string?> GetPdfPathByDoiAsync(string doi)
-    {
-        var paper = await dbContext.Papers.FirstOrDefaultAsync(p =>
-            p.Doi == doi && p.Conf == _confYear.Conf && p.Year == _confYear.Year
-        );
-
-        if (paper == null)
-        {
-            return null;
-        }
-
-        var pdfPath = paper.GetPdfPath(pathsOptions.Value.BaseDir);
-        return File.Exists(pdfPath) ? pdfPath : null;
     }
 }

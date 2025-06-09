@@ -1,4 +1,4 @@
-namespace DataCollection.Core.Options;
+namespace DataCollection.Infrastructure.Options;
 
 public class ParallelismOptions
 {

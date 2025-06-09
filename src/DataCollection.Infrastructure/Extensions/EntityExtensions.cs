@@ -3,6 +3,7 @@ using DataCollection.Core.Models;
 using DataCollection.Core.Models.Database;
 using DataCollection.Core.Models.IssueTracker;
 using DataCollection.Core.Models.IssueTracker.Responses;
+using DataCollection.Infrastructure.Options;
 
 namespace DataCollection.Infrastructure.Extensions;
 
@@ -20,7 +21,7 @@ public static class EntityExtensions
         };
     }
 
-    public static PaperEntity ToEntity(this Paper paper, string conf, int year)
+    public static PaperEntity ToEntity(this Paper paper, JobName jobName)
     {
         return new PaperEntity
         {
@@ -29,8 +30,8 @@ public static class EntityExtensions
             Abstract = paper.Abstract,
             Url = paper.Url,
             Doi = paper.Doi,
-            Conf = conf,
-            Year = year,
+            Conf = jobName.Conf,
+            Year = jobName.Year,
         };
     }
 
@@ -44,20 +45,15 @@ public static class EntityExtensions
         };
     }
 
-    public static PdfDataEntity ToEntity(
-        this PdfData pdfData,
-        string conf,
-        int year,
-        int? paperId = null
-    )
+    public static PdfDataEntity ToEntity(this PdfData pdfData, JobName jobName, int? paperId = null)
     {
         return new PdfDataEntity
         {
             FileName = pdfData.FileName,
             Texts = JsonSerializer.Serialize(pdfData.Texts),
             TextLines = JsonSerializer.Serialize(pdfData.TextLines),
-            Conf = conf,
-            Year = year,
+            Conf = jobName.Conf,
+            Year = jobName.Year,
             PaperId = paperId,
         };
     }

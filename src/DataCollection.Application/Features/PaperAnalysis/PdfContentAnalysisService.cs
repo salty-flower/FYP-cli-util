@@ -3,7 +3,7 @@ using DataCollection.Application.Features.PatternMatching;
 using DataCollection.Application.Models.Export.BugAnalysis;
 using DataCollection.Core.Extensions;
 using DataCollection.Core.Models;
-using DataCollection.Core.Options;
+using DataCollection.Infrastructure.Options;
 using DataCollection.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;

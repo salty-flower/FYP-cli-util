@@ -1,5 +1,5 @@
 ﻿using ConsoleAppFramework;
-using DataCollection.Core.Options;
+using DataCollection.Infrastructure.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -11,19 +11,19 @@ internal partial class RootOptionsFilter(
     ILogger<RootOptionsFilter> logger
 ) : ConsoleAppFilter(next)
 {
+    private const string ErrorMessage =
+        "Invalid job name format. Expected format: <conf>-<year>. Example: 'icse-2024'.";
+
     public override async Task InvokeAsync(
         ConsoleAppContext context,
         CancellationToken cancellationToken
     )
     {
-        var maybeJobName = rootOptions.Value.JobName;
-        if (string.IsNullOrWhiteSpace(maybeJobName))
-        {
-            logger.LogError("JobName must be set. Either as an environment variable or in JSON");
-            Environment.Exit(1);
-            return;
-        }
-        logger.LogInformation("Current job: {JobName}", maybeJobName!);
+        var isValid = rootOptions.Value.TryParseJobName(out var parsed);
+        if (!isValid)
+            throw new ArgumentException(ErrorMessage + $" Provided: {rootOptions.Value.JobName}");
+        else
+            logger.LogInformation("Parsed job name: {JobName}", parsed);
 
         await Next.InvokeAsync(context, cancellationToken);
     }

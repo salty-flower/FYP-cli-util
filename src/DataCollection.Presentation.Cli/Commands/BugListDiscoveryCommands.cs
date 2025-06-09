@@ -2,7 +2,7 @@ using System.Text.Json;
 using ConsoleAppFramework;
 using DataCollection.Application.Features.BugDiscovery;
 using DataCollection.Application.Models.Export.BugAnalysis;
-using DataCollection.Core.Options;
+using DataCollection.Infrastructure.Options;
 using DataCollection.Presentation.Cli.Filters;
 using DataCollection.Presentation.Cli.Rendering;
 using Microsoft.Extensions.Logging;
@@ -396,10 +396,8 @@ public class BugListDiscoveryCommands(
     {
         try
         {
-            await databaseStorageService.SaveBugListDiscoveryAsync(
-                rootOptions.Value.JobName,
-                analysis
-            );
+            rootOptions.Value.TryParseJobName(out var jobName);
+            await databaseStorageService.SaveBugListDiscoveryAsync(jobName!.Value, analysis);
             logger.LogInformation("Bug list discovery analysis saved to database");
         }
         catch (Exception ex)
