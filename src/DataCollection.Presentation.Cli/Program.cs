@@ -130,11 +130,11 @@ var app = builder.ConfigureServices(
         services.AddSingleton<TokenProvider>(sp => new TokenProvider(
             sp.GetOptions<CredentialOptions>().GitHubToken
         ));
-        services.AddSingleton<GitHubClient>(sp =>
+        services.AddSingleton<GitHub.GitHubClient>(sp =>
         {
             var tokenProvider = sp.GetRequiredService<TokenProvider>();
             var adapter = RequestAdapter.Create(new TokenAuthProvider(tokenProvider));
-            return new GitHubClient(adapter);
+            return new GitHub.GitHubClient(adapter);
         });
 
         services.AddSingleton(sp => new OpenAIClient(
@@ -264,7 +264,7 @@ var app = builder.ConfigureServices(
                 }
             );
 
-        // Register Refit client for GitHub API
+        services.AddSingleton<DataCollection.Infrastructure.Clients.GitHubClient>();
         services
             .AddRefitClient<IGitHubApi>()
             .ConfigureHttpClient(

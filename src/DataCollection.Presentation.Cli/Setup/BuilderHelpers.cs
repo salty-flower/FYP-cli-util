@@ -1,5 +1,5 @@
 ﻿using System.Diagnostics.CodeAnalysis;
-using DataCollection.Core.Extensions;
+using DataCollection.Common.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;

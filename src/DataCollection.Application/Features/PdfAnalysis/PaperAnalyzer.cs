@@ -1,4 +1,4 @@
-﻿using DataCollection.Core.Extensions;
+﻿using DataCollection.Common.Extensions;
 
 namespace DataCollection.Application.Features.PdfAnalysis;
 

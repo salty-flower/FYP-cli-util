@@ -8,6 +8,7 @@
   </Folder>
   <Project Path="src/DataCollection.Core/DataCollection.Core.csproj" />
   <Project Path="src/DataCollection.Infrastructure/DataCollection.Infrastructure.csproj" />
+  <Project Path="src/DataCollection.Common/DataCollection.Common.csproj" />
   <Project Path="src/DataCollection.Application/DataCollection.Application.csproj" />
   <Project Path="src/DataCollection.Presentation.Cli/DataCollection.Presentation.Cli.csproj" />
 </Solution>
