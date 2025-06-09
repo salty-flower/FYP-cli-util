@@ -25,7 +25,6 @@
     <PackageVersion Include="OpenAI" Version="2.2.0-beta.4" />
     <PackageVersion Include="LarchSys.OpenAi.JsonSchema" Version="0.2.3" />
     <PackageVersion Include="NJsonSchema" Version="11.3.2" />
-    <PackageVersion Include="MemoryPack" Version="1.21.4" />
     <PackageVersion Include="Refit.HttpClientFactory" Version="8.0.0" />
     <PackageVersion Include="System.Threading.RateLimiting" Version="9.0.5" />
     <!-- Entity Framework -->
