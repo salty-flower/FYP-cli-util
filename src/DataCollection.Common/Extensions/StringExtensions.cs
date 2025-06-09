@@ -3,7 +3,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace DataCollection.Core.Extensions;
+namespace DataCollection.Common.Extensions;
 
 public static class StringExtensions
 {

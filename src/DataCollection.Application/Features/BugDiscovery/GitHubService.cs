@@ -15,7 +15,7 @@ using JsonSerializer = System.Text.Json.JsonSerializer;
 namespace DataCollection.Application.Features.BugDiscovery;
 
 public class GitHubService(
-    GitHubClient gitHubClient,
+    GitHub.GitHubClient gitHubClient,
     IGitHubApi gitHubApi,
     ILogger<GitHubService> logger,
     IsDeveloperCriterion isDeveloperCriterion,

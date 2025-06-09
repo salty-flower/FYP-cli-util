@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 using DataCollection.Application.Features.PatternMatching;
-using DataCollection.Core.Extensions;
+using DataCollection.Common.Extensions;
 using DataCollection.Core.Models;
 using DataCollection.Infrastructure.Models.BugList;
 using DataCollection.Infrastructure.Options;

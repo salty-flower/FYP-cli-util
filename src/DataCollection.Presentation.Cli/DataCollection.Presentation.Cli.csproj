@@ -7,6 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="..\DataCollection.Infrastructure\DataCollection.Infrastructure.csproj" />
     <ProjectReference Include="..\DataCollection.Application\DataCollection.Application.csproj" />
+    <ProjectReference Include="..\DataCollection.Common\DataCollection.Common.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Pythonnet" />
