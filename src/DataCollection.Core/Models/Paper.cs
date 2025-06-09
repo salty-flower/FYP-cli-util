@@ -1,6 +1,5 @@
 namespace DataCollection.Core.Models;
 
-[MemoryPack.MemoryPackable]
 public partial record Paper
 {
     public required string Title { get; init; }

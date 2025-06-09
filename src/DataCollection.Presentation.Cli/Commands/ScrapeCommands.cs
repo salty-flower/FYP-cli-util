@@ -5,7 +5,6 @@ using DataCollection.Core.Options;
 using DataCollection.Infrastructure.Clients;
 using DataCollection.Infrastructure.Persistence;
 using DataCollection.Presentation.Cli.Filters;
-using MemoryPack;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -33,7 +32,7 @@ public class ScrapeCommands(
     /// <param name="cancellationToken">Cancellation token</param>
     public async Task Metadata(string proceedingDOI, CancellationToken cancellationToken = default)
     {
-        var paperMetadataDir = new DirectoryInfo(_pathsOptions.PaperMetadataDir);
+        await databaseDataLoadingService.EnsureDatabaseCreatedAsync();
 
         logger.LogInformation("Starting paper metadata scraping...");
         var count = 0;
@@ -42,9 +41,7 @@ public class ScrapeCommands(
         {
             count++;
             logger.LogInformation("Processing paper: {Title}", paper.Title);
-            var bin = MemoryPackSerializer.Serialize(paper);
-            var binPath = Path.Combine(paperMetadataDir.FullName, $"{paper.SanitizedDoi}.bin");
-            await File.WriteAllBytesAsync(binPath, bin, cancellationToken);
+            await databaseDataLoadingService.SavePaperAsync(paper);
         }
 
         logger.LogInformation("Completed scraping {Count} papers", count);
@@ -56,11 +53,10 @@ public class ScrapeCommands(
     /// <param name="cancellationToken">Cancellation token</param>
     public async Task Download(CancellationToken cancellationToken = default)
     {
-        var paperMetadataDir = new DirectoryInfo(_pathsOptions.PaperMetadataDir);
         var paperBinDir = new DirectoryInfo(_pathsOptions.PaperBinDir);
 
-        logger.LogInformation("Loading papers from metadata...");
-        var papers = await LoadPapersFromMetadataAsync(paperMetadataDir, cancellationToken);
+        logger.LogInformation("Loading papers from database...");
+        var papers = await databaseDataLoadingService.LoadPapersAsync();
 
         logger.LogInformation("Found {Count} papers to download", papers.Count);
         await paperDownloader.DownloadPapersAsync(papers, paperBinDir.FullName, cancellationToken);
@@ -84,36 +80,5 @@ public class ScrapeCommands(
         await dumpCmd.PDF(cancellationToken);
 
         logger.LogInformation("Pipeline completed successfully");
-    }
-
-    // Helper method to load papers from metadata directory
-    private async Task<List<Paper>> LoadPapersFromMetadataAsync(
-        DirectoryInfo metadataDir,
-        CancellationToken cancellationToken = default
-    )
-    {
-        var papers = new List<Paper>();
-
-        foreach (var file in metadataDir.GetFiles("*.bin"))
-        {
-            if (cancellationToken.IsCancellationRequested)
-                break;
-            try
-            {
-                var bin = await File.ReadAllBytesAsync(file.FullName, cancellationToken);
-                var paper = MemoryPackSerializer.Deserialize<Paper>(bin);
-                if (paper != null)
-                {
-                    papers.Add(paper);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning("Error loading paper {FileName}: {Error}", file.Name, ex.Message);
-            }
-        }
-
-        logger.LogInformation("Loaded {Count} papers", papers.Count);
-        return papers;
     }
 }

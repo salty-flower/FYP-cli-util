@@ -7,7 +7,6 @@
     <PackageReference Include="Pythonnet" />
     <PackageReference Include="GitHub.Octokit.SDK" />
     <PackageReference Include="HtmlAgilityPack" />
-    <PackageReference Include="MemoryPack" />
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.SemanticKernel" />
     <PackageReference Include="NJsonSchema" />
