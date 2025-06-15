@@ -77,3 +77,35 @@ public class UrlTypeRule
 
     public DateTime? UpdatedAt { get; set; }
 }
+
+public class ConfigurationRule
+{
+    public int Id { get; set; }
+
+    [Required]
+    [MaxLength(100)]
+    public string Category { get; set; } = "";
+
+    [Required]
+    [MaxLength(200)]
+    public string Key { get; set; } = "";
+
+    [Required]
+    [MaxLength(2000)]
+    public string Value { get; set; } = "";
+
+    [Required]
+    [MaxLength(50)]
+    public string DataType { get; set; } = "string"; // "string", "number", "boolean", "array"
+
+    [MaxLength(500)]
+    public string Description { get; set; } = "";
+
+    public int Priority { get; set; } = 100;
+
+    public bool IsActive { get; set; } = true;
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public DateTime? UpdatedAt { get; set; }
+}

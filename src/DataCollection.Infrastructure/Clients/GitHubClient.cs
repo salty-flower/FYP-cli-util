@@ -2,7 +2,10 @@ using System.Collections.Concurrent;
 using DataCollection.Infrastructure.Models.GitHub;
 using DataCollection.Infrastructure.Options;
 using GitHub;
+using GitHub;
 using GitHub.Models;
+using GitHub.Octokit.Client;
+using GitHub.Octokit.Client.Authentication;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
@@ -27,6 +30,17 @@ public class GitHubClient(
     [];
     private readonly ConcurrentDictionary<string, FullRepository> repositoryCache = [];
     private readonly ConcurrentDictionary<string, object> userCache = [];
+
+    public async Task<List<string>> SearchForRepositoryAsync(string keyword) =>
+        (
+            await gitHubClient.Search.Repositories.GetAsync(requestConfiguration =>
+                requestConfiguration.QueryParameters.Q = keyword
+            )
+        )
+            ?.Items?.Select(repo => repo.FullName)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Cast<string>()
+            .ToList() ?? [];
 
     public async Task<FullRepository> GetRepositoryInfoAsync(string owner, string repoName)
     {

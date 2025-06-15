@@ -1,3 +1,4 @@
+using DataCollection.Application.Features.Configuration;
 using DataCollection.Application.Features.PaperAnalysis;
 using DataCollection.Core.Models;
 using DataCollection.Infrastructure.Models.BugList;
@@ -177,6 +178,7 @@ public class BugListDiscoveryService
     private readonly PdfContentAnalysisService pdfAnalysisService;
     private readonly RepositoryAnalysisService repositoryAnalysisService;
     private readonly WebSearchAnalysisService webSearchAnalysisService;
+    private readonly IConfigurationService configurationService;
     private readonly ILogger<BugListDiscoveryService> logger;
     private readonly IOptions<PathsOptions> pathsOptions;
 
@@ -184,12 +186,14 @@ public class BugListDiscoveryService
         PdfContentAnalysisService pdfAnalysisService,
         RepositoryAnalysisService repositoryAnalysisService,
         WebSearchAnalysisService webSearchAnalysisService,
+        IConfigurationService configurationService,
         ILogger<BugListDiscoveryService> logger,
         IOptions<PathsOptions> pathsOptions
     )
     {
         this.pdfAnalysisService = pdfAnalysisService;
         this.repositoryAnalysisService = repositoryAnalysisService;
+        this.configurationService = configurationService;
         this.webSearchAnalysisService = webSearchAnalysisService;
         this.logger = logger;
         this.pathsOptions = pathsOptions;
@@ -383,13 +387,27 @@ public class BugListDiscoveryService
             result.ArtifactRepositories.Clear();
             result.ArtifactRepositories.AddRange(uniqueRepositories);
 
-            // Filter by minimum confidence
-            result.BugLists.RemoveAll(bl =>
-                bl.Confidence < BugListConstants.HighConfidenceThreshold * 0.5
+            // Filter by minimum confidence (using configuration service)
+            var highConfidenceThreshold = await configurationService.GetValueAsync<double>(
+                ConfigurationCategories.Thresholds,
+                ConfigurationKeys.HighConfidenceThreshold,
+                0.8
             );
-            result.ArtifactRepositories.RemoveAll(ar =>
-                ar.Confidence < BugListConstants.HighConfidenceThreshold * 0.4
+
+            var minBugListConfidence = await configurationService.GetValueAsync<double>(
+                ConfigurationCategories.Thresholds,
+                "MinBugListConfidence",
+                highConfidenceThreshold * 0.5
             );
+
+            var minRepositoryConfidence = await configurationService.GetValueAsync<double>(
+                ConfigurationCategories.Thresholds,
+                "MinRepositoryConfidence",
+                highConfidenceThreshold * 0.4
+            );
+
+            result.BugLists.RemoveAll(bl => bl.Confidence < minBugListConfidence);
+            result.ArtifactRepositories.RemoveAll(ar => ar.Confidence < minRepositoryConfidence);
 
             logger.LogDebug(
                 "Post-processing completed. Final counts - Bug lists: {BugListCount}, Repositories: {RepoCount}",

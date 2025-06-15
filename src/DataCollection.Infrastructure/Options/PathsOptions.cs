@@ -46,7 +46,8 @@ public partial class PathsOptions
     /// <param name="fieldValue"></param>
     /// <returns></returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private string CombineWithBase(string fieldValue) => Path.Combine(BaseDir, fieldValue);
+    private string CombineWithBase(string fieldValue) =>
+        Path.Combine(BuildConstants.SolutionDirectory, BaseDir, fieldValue);
 
     public void EnsureDirectoriesExist() => Directory.CreateDirectory(PaperBinDir);
 }

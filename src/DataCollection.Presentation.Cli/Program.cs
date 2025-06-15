@@ -3,12 +3,17 @@ using System.Net.Http.Headers;
 using System.Threading.RateLimiting;
 using ConsoleAppFramework;
 using DataCollection.Application.Features.BugDiscovery;
+using DataCollection.Application.Features.Configuration;
 using DataCollection.Application.Features.IssueAnalysis.Rules;
 using DataCollection.Application.Features.IssueProcessing;
 using DataCollection.Application.Features.PaperAnalysis;
 using DataCollection.Application.Features.PatternMatching;
+using DataCollection.Application.Features.SemanticAgents;
+using DataCollection.Application.Features.SemanticAgents.Tools;
+using DataCollection.Core.Models.IssueTracker;
 using DataCollection.Infrastructure.Clients;
 using DataCollection.Infrastructure.Clients.Handlers;
+using DataCollection.Infrastructure.Clients.IssueTrackers;
 using DataCollection.Infrastructure.Options;
 using DataCollection.Infrastructure.Persistence;
 using DataCollection.Presentation.Cli.Commands;
@@ -25,6 +30,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Connectors.OpenAI;
 using OpenAI;
 using Refit;
 using Serilog;
@@ -161,7 +168,15 @@ var app = builder.ConfigureServices(
                 openAIClient.GetChatClient(credentialOptions.SmallModel)
             );
 
-            return kernelBuilder.Build();
+            var kernel = kernelBuilder.Build();
+
+            // Register discovery tools as a plugin
+            // Note: DiscoveryTools will be created by the DI container when needed
+            // This is commented out to avoid build issues, but shows how to register plugins
+            // var discoveryTools = sp.GetRequiredService<DiscoveryTools>();
+            // kernel.Plugins.AddFromObject(discoveryTools, "DiscoveryTools");
+
+            return kernel;
         });
 
         // Register web search services
@@ -217,6 +232,23 @@ var app = builder.ConfigureServices(
         services.AddSingleton<IssueCommands>();
         services.AddSingleton<BugListDiscoveryCommands>();
         services.AddSingleton<SeedCommand>();
+
+        // Register Configuration Service
+        services.AddScoped<IConfigurationService, ConfigurationService>();
+        services.AddScoped<IChatCompletionService, OpenAIChatCompletionService>(sp =>
+            new(modelId: "o4-mini", apiKey: sp.GetOptions<CredentialOptions>().OpenAIToken)
+        );
+
+        // Register Issue Tracker Services
+        services.AddSingleton<IIssueTrackerClientFactory, IssueTrackerClientFactory>();
+
+        // Register SemanticKernel Agent Services
+        // Note: These services enable AI-powered discovery agents for bug lists and artifacts
+        services.AddScoped<DiscoveryTools>();
+        services.AddScoped<IDiscoveryAgent, DiscoveryAgent>();
+        services.AddScoped<IDiscoveryAgentService, DiscoveryAgentService>();
+
+        // TODO: When SemanticKernel is fully enabled, uncomment the plugin registration in Kernel setup above
         // Add GitHub API HttpClient with token
         services
             .AddHttpClient(

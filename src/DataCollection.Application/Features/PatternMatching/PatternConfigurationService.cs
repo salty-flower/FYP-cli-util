@@ -1,3 +1,4 @@
+using DataCollection.Application.Features.Configuration;
 using DataCollection.Core.Models.Database;
 using DataCollection.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +14,7 @@ public interface IPatternConfigurationService
 
 public class PatternConfigurationService(
     DataCollectionDbContext dbContext,
+    IConfigurationService configurationService,
     ILogger<PatternConfigurationService> logger
 ) : IPatternConfigurationService
 {
@@ -20,7 +22,8 @@ public class PatternConfigurationService(
     {
         return await dbContext.PatternRules.AnyAsync(cancellationToken)
             || await dbContext.KeywordRules.AnyAsync(cancellationToken)
-            || await dbContext.UrlTypeRules.AnyAsync(cancellationToken);
+            || await dbContext.UrlTypeRules.AnyAsync(cancellationToken)
+            || await dbContext.ConfigurationRules.AnyAsync(cancellationToken);
     }
 
     public async Task SeedDefaultPatternsAsync(CancellationToken cancellationToken = default)
@@ -37,6 +40,10 @@ public class PatternConfigurationService(
         await SeedRepositoryPatternsAsync(cancellationToken);
         await SeedKeywordRulesAsync(cancellationToken);
         await SeedUrlTypeRulesAsync(cancellationToken);
+        await SeedAdditionalPatternsAsync(cancellationToken);
+
+        // Also seed configuration values
+        await configurationService.SeedDefaultsAsync();
 
         await dbContext.SaveChangesAsync(cancellationToken);
         logger.LogInformation("Pattern seeding completed");
@@ -428,5 +435,323 @@ public class PatternConfigurationService(
         };
 
         await dbContext.UrlTypeRules.AddRangeAsync(urlTypeRules, cancellationToken);
+    }
+
+    private async Task SeedAdditionalPatternsAsync(CancellationToken cancellationToken)
+    {
+        // Add patterns that were in BugListPatterns.cs but not in the existing seeding
+
+        // GitHub URL extraction patterns
+        var gitHubPatterns = new[]
+        {
+            new PatternRule
+            {
+                Category = "GitHubUrl",
+                Pattern = @"https?://github\.com/([\w\-\.]+)/([\w\-\.]+)",
+                Description = "GitHub URL extraction with groups",
+                BaseConfidence = 0.95,
+                Priority = 100,
+            },
+            new PatternRule
+            {
+                Category = "GitHubUrl",
+                Pattern = @"https?://www\.github\.com/([\w\-\.]+)/([\w\-\.]+)",
+                Description = "GitHub WWW URL extraction with groups",
+                BaseConfidence = 0.95,
+                Priority = 95,
+            },
+            new PatternRule
+            {
+                Category = "GitHubUrl",
+                Pattern = @"github\.com/([\w\-\.]+)/([\w\-\.]+)",
+                Description = "GitHub URL without protocol",
+                BaseConfidence = 0.90,
+                Priority = 90,
+            },
+            new PatternRule
+            {
+                Category = "GitHubUrl",
+                Pattern = @"www\.github\.com/([\w\-\.]+)/([\w\-\.]+)",
+                Description = "GitHub WWW URL without protocol",
+                BaseConfidence = 0.90,
+                Priority = 85,
+            },
+        };
+
+        // Bug list text identification patterns
+        var bugListTextPatterns = new[]
+        {
+            new PatternRule
+            {
+                Category = "BugListText",
+                Pattern = @"(?i)bug\s*(?:list|report|track|id|number|#)",
+                Description = "Bug list text pattern",
+                BaseConfidence = 0.85,
+                Priority = 100,
+            },
+            new PatternRule
+            {
+                Category = "BugListText",
+                Pattern = @"(?i)issue\s*(?:list|report|track|id|number|#)",
+                Description = "Issue list text pattern",
+                BaseConfidence = 0.85,
+                Priority = 95,
+            },
+            new PatternRule
+            {
+                Category = "BugListText",
+                Pattern = @"(?i)defect\s*(?:list|report|track|id|number|#)",
+                Description = "Defect list text pattern",
+                BaseConfidence = 0.80,
+                Priority = 90,
+            },
+            new PatternRule
+            {
+                Category = "BugListText",
+                Pattern = @"(?i)fault\s*(?:list|report|track|id|number|#)",
+                Description = "Fault list text pattern",
+                BaseConfidence = 0.80,
+                Priority = 85,
+            },
+            new PatternRule
+            {
+                Category = "BugListText",
+                Pattern = @"(?i)error\s*(?:list|report|track|id|number|#)",
+                Description = "Error list text pattern",
+                BaseConfidence = 0.80,
+                Priority = 80,
+            },
+            new PatternRule
+            {
+                Category = "BugListText",
+                Pattern = @"(?i)problem\s*(?:list|report|track|id|number|#)",
+                Description = "Problem list text pattern",
+                BaseConfidence = 0.75,
+                Priority = 75,
+            },
+            new PatternRule
+            {
+                Category = "BugListText",
+                Pattern = @"(?i)failure\s*(?:list|report|track|id|number|#)",
+                Description = "Failure list text pattern",
+                BaseConfidence = 0.75,
+                Priority = 70,
+            },
+            new PatternRule
+            {
+                Category = "BugListText",
+                Pattern = @"(?i)exception\s*(?:list|report|track|id|number|#)",
+                Description = "Exception list text pattern",
+                BaseConfidence = 0.75,
+                Priority = 65,
+            },
+            new PatternRule
+            {
+                Category = "BugListText",
+                Pattern = @"(?i)crash\s*(?:list|report|track|id|number|#)",
+                Description = "Crash list text pattern",
+                BaseConfidence = 0.75,
+                Priority = 60,
+            },
+            new PatternRule
+            {
+                Category = "BugListText",
+                Pattern = @"(?i)vulnerability\s*(?:list|report|track|id|number|#)",
+                Description = "Vulnerability list text pattern",
+                BaseConfidence = 0.85,
+                Priority = 55,
+            },
+            new PatternRule
+            {
+                Category = "BugListText",
+                Pattern = @"(?i)security\s*(?:issue|bug|flaw)",
+                Description = "Security issue text pattern",
+                BaseConfidence = 0.85,
+                Priority = 50,
+            },
+            new PatternRule
+            {
+                Category = "BugListText",
+                Pattern = @"(?i)patch\s*(?:list|track|id|number|#)",
+                Description = "Patch list text pattern",
+                BaseConfidence = 0.75,
+                Priority = 45,
+            },
+            new PatternRule
+            {
+                Category = "BugListText",
+                Pattern = @"(?i)fix\s*(?:list|track|id|number|#)",
+                Description = "Fix list text pattern",
+                BaseConfidence = 0.75,
+                Priority = 40,
+            },
+            new PatternRule
+            {
+                Category = "BugListText",
+                Pattern = @"(?i)ticket\s*(?:list|track|id|number|#)",
+                Description = "Ticket list text pattern",
+                BaseConfidence = 0.75,
+                Priority = 35,
+            },
+        };
+
+        // Issue number patterns
+        var issueNumberPatterns = new[]
+        {
+            new PatternRule
+            {
+                Category = "IssueNumber",
+                Pattern = @"#\d+",
+                Description = "Hash-prefixed issue number",
+                BaseConfidence = 0.90,
+                Priority = 100,
+            },
+            new PatternRule
+            {
+                Category = "IssueNumber",
+                Pattern = @"issue\s*#?\s*\d+",
+                Description = "Issue number with optional hash",
+                BaseConfidence = 0.85,
+                Priority = 95,
+            },
+            new PatternRule
+            {
+                Category = "IssueNumber",
+                Pattern = @"bug\s*#?\s*\d+",
+                Description = "Bug number with optional hash",
+                BaseConfidence = 0.85,
+                Priority = 90,
+            },
+            new PatternRule
+            {
+                Category = "IssueNumber",
+                Pattern = @"ticket\s*#?\s*\d+",
+                Description = "Ticket number with optional hash",
+                BaseConfidence = 0.80,
+                Priority = 85,
+            },
+            new PatternRule
+            {
+                Category = "IssueNumber",
+                Pattern = @"defect\s*#?\s*\d+",
+                Description = "Defect number with optional hash",
+                BaseConfidence = 0.80,
+                Priority = 80,
+            },
+            new PatternRule
+            {
+                Category = "IssueNumber",
+                Pattern = @"fault\s*#?\s*\d+",
+                Description = "Fault number with optional hash",
+                BaseConfidence = 0.75,
+                Priority = 75,
+            },
+            new PatternRule
+            {
+                Category = "IssueNumber",
+                Pattern = @"problem\s*#?\s*\d+",
+                Description = "Problem number with optional hash",
+                BaseConfidence = 0.75,
+                Priority = 70,
+            },
+            new PatternRule
+            {
+                Category = "IssueNumber",
+                Pattern = @"error\s*#?\s*\d+",
+                Description = "Error number with optional hash",
+                BaseConfidence = 0.75,
+                Priority = 65,
+            },
+            new PatternRule
+            {
+                Category = "IssueNumber",
+                Pattern = @"failure\s*#?\s*\d+",
+                Description = "Failure number with optional hash",
+                BaseConfidence = 0.70,
+                Priority = 60,
+            },
+            new PatternRule
+            {
+                Category = "IssueNumber",
+                Pattern = @"exception\s*#?\s*\d+",
+                Description = "Exception number with optional hash",
+                BaseConfidence = 0.70,
+                Priority = 55,
+            },
+        };
+
+        // General utility patterns
+        var utilityPatterns = new[]
+        {
+            new PatternRule
+            {
+                Category = "Utility",
+                Pattern = @"https?://[^\s<>\)\]\}""']+",
+                Description = "General URL extraction pattern",
+                BaseConfidence = 0.95,
+                Priority = 100,
+            },
+            new PatternRule
+            {
+                Category = "Utility",
+                Pattern = @"[^\d]",
+                Description = "Non-alphanumeric pattern for cleaning",
+                BaseConfidence = 1.0,
+                Priority = 100,
+            },
+        };
+
+        // Add missing repository patterns from BugListPatterns.cs
+        var additionalRepoPatterns = new[]
+        {
+            new PatternRule
+            {
+                Category = "Repository",
+                Pattern = @"https?://[\w\-\.]+\.git\.[\w\-\.]+",
+                Description = "Git repository with git subdomain",
+                BaseConfidence = 0.80,
+                Priority = 200,
+            },
+            new PatternRule
+            {
+                Category = "Repository",
+                Pattern = @"https?://bazaar\.[\w\-\.]+",
+                Description = "Bazaar repository",
+                BaseConfidence = 0.70,
+                Priority = 210,
+            },
+            new PatternRule
+            {
+                Category = "Repository",
+                Pattern = @"https?://fossil\.[\w\-\.]+",
+                Description = "Fossil repository",
+                BaseConfidence = 0.70,
+                Priority = 220,
+            },
+            new PatternRule
+            {
+                Category = "Repository",
+                Pattern = @"https?://darcs\.[\w\-\.]+",
+                Description = "Darcs repository",
+                BaseConfidence = 0.65,
+                Priority = 230,
+            },
+            new PatternRule
+            {
+                Category = "Repository",
+                Pattern = @"https?://cvs\.[\w\-\.]+",
+                Description = "CVS repository",
+                BaseConfidence = 0.65,
+                Priority = 240,
+            },
+        };
+
+        var allPatterns = gitHubPatterns
+            .Concat(bugListTextPatterns)
+            .Concat(issueNumberPatterns)
+            .Concat(utilityPatterns)
+            .Concat(additionalRepoPatterns);
+
+        await dbContext.PatternRules.AddRangeAsync(allPatterns, cancellationToken);
     }
 }

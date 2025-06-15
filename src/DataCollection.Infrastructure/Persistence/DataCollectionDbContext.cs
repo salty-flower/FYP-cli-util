@@ -16,6 +16,7 @@ public class DataCollectionDbContext : DbContext
     public DbSet<PatternRule> PatternRules { get; set; }
     public DbSet<KeywordRule> KeywordRules { get; set; }
     public DbSet<UrlTypeRule> UrlTypeRules { get; set; }
+    public DbSet<ConfigurationRule> ConfigurationRules { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -95,6 +96,14 @@ public class DataCollectionDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.Type, e.IsActive });
+            entity.HasIndex(e => e.Priority);
+        });
+
+        modelBuilder.Entity<ConfigurationRule>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.Category, e.Key }).IsUnique();
+            entity.HasIndex(e => new { e.Category, e.IsActive });
             entity.HasIndex(e => e.Priority);
         });
     }
