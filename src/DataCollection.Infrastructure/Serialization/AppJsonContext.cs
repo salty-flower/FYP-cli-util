@@ -1,30 +1,18 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using DataCollection.Core.Models;
 using DataCollection.Core.Models.IssueTracker.Responses;
-using DataCollection.Infrastructure.Models.OpenAI;
+using DataCollection.Infrastructure.Models.BugList;
 
 namespace DataCollection.Infrastructure.Serialization;
 
+[JsonSerializable(typeof(string[]))]
+[JsonSerializable(typeof(MatchObject[][]))]
 [JsonSerializable(typeof(IssueAnalysisResponse))]
-[JsonSerializable(typeof(BatchJobResponse))]
-[JsonSerializable(typeof(BatchResponse))]
-[JsonSerializable(typeof(BatchResponseData))]
-[JsonSerializable(typeof(BatchResponseBody))]
-[JsonSerializable(typeof(BatchChoice))]
-[JsonSerializable(typeof(BatchMessage))]
-[JsonSerializable(typeof(BatchRequestCounts))]
-[JsonSerializable(typeof(BatchRequestModel))]
-[JsonSerializable(typeof(CreateBatchJobRequest))]
-[JsonSerializable(typeof(ChatMessageModel))]
-[JsonSerializable(typeof(ChatCompletionRequest))]
-[JsonSerializable(typeof(ResponseFormatModel))]
-[JsonSerializable(typeof(JsonSchemaModel))]
-[JsonSerializable(typeof(object))] // For fallback cases
+[JsonSerializable(typeof(BugListDiscoveryAnalysis))]
+[JsonSerializable(typeof(JsonElement[]))]
 [JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     WriteIndented = false,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
-    UseStringEnumConverter = true,
-    RespectNullableAnnotations = true
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
 )]
-public partial class OpenAIBatchRequestJsonContext : JsonSerializerContext { }
+public partial class AppJsonContext : JsonSerializerContext;

@@ -13,10 +13,13 @@ public static class BuilderHelpers
     public static bool IsNonEmpty(this IConfigurationSection section) =>
         section.Value != null || section.GetChildren().Any();
 
-    [RequiresDynamicCode("")]
-    [RequiresUnreferencedCode("")]
+    [RequiresUnreferencedCode("Calls Bind which requires unreferenced code.")]
     public static OptionsBuilder<TOptions> AddOptionsFromOwnSectionAndValidateOnStart<
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TOptions
+        [DynamicallyAccessedMembers(
+            DynamicallyAccessedMemberTypes.PublicConstructors
+                | DynamicallyAccessedMemberTypes.PublicProperties
+        )]
+            TOptions
     >(this IServiceCollection services, IConfiguration configuration, bool allowDefault = false)
         where TOptions : class
     {
@@ -36,10 +39,13 @@ public static class BuilderHelpers
             );
     }
 
-    [RequiresDynamicCode("")]
-    [RequiresUnreferencedCode("")]
+    [RequiresUnreferencedCode("Calls Bind which requires unreferenced code.")]
     public static OptionsBuilder<TOptions> AddOptionsFromRootAndValidateOnStart<
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TOptions
+        [DynamicallyAccessedMembers(
+            DynamicallyAccessedMemberTypes.PublicConstructors
+                | DynamicallyAccessedMemberTypes.PublicProperties
+        )]
+            TOptions
     >(this IServiceCollection services, IConfiguration configuration)
         where TOptions : class =>
         services.AddOptionsWithValidateOnStart<TOptions>().Bind(configuration);
@@ -47,7 +53,8 @@ public static class BuilderHelpers
     public static TOptions GetOptions<
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
             TOptions
-    >(this IServiceProvider sp) => sp.GetRequiredService<IOptionsMonitor<TOptions>>().CurrentValue;
+    >(this IServiceProvider sp)
+        where TOptions : class => sp.GetRequiredService<IOptionsMonitor<TOptions>>().CurrentValue;
 
     /// <summary>
     /// Get <typeparamref name="TOptions"/> from <see cref="IConfigurationManager"/> if specified,
@@ -55,9 +62,14 @@ public static class BuilderHelpers
     /// <br/>
     /// Use only if app hasn't been built yet. Otherwise, use <see cref="GetOptions{TOptions}(IServiceProvider)"/>.
     /// </summary>
-    [RequiresUnreferencedCode("")]
-    [RequiresDynamicCode("")]
-    public static TOptions GetOptions<TOptions>(this IConfigurationManager cm)
+    [RequiresUnreferencedCode("Calls Get which requires unreferenced code.")]
+    public static TOptions GetOptions<
+        [DynamicallyAccessedMembers(
+            DynamicallyAccessedMemberTypes.PublicConstructors
+                | DynamicallyAccessedMemberTypes.PublicProperties
+        )]
+            TOptions
+    >(this IConfigurationManager cm)
         where TOptions : new() =>
         cm.GetSection(typeof(TOptions).Name).Exists()
             ? cm.GetRequiredSection(typeof(TOptions).Name).Get<TOptions>()!

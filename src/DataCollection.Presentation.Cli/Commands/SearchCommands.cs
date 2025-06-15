@@ -1,4 +1,5 @@
-﻿using ConsoleAppFramework;
+﻿using System.Diagnostics.CodeAnalysis;
+using ConsoleAppFramework;
 using DataCollection.Presentation.Cli.Commands.Repl;
 using DataCollection.Presentation.Cli.Filters;
 
@@ -38,6 +39,8 @@ internal class SearchCommands(
     /// <param name="pattern">Search pattern (regex supported)</param>
     /// <param name="exportPath">Optional path to export results (JSON)</param>
     /// <returns>Number of results found</returns>
+    [RequiresUnreferencedCode("Calls RunNonInteractiveSearch which requires unreferenced code.")]
+    [RequiresDynamicCode("Calls RunNonInteractiveSearch which requires dynamic code.")]
     public async Task<int> Pdf(
         string pattern,
         string? exportPath = null,

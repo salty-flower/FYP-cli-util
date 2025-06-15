@@ -1,10 +1,13 @@
 using DataCollection.Core.Models;
+using DataCollection.Infrastructure.Options;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
-namespace DataCollection.Infrastructure.Clients;
+namespace DataCollection.Infrastructure.Clients.ACM;
 
 public class AcmPaperDownloader(
     IHttpClientFactory httpClientFactory,
+    IOptionsSnapshot<ParallelismOptions> parallelismOptions,
     ILogger<AcmPaperDownloader> logger
 )
 {
@@ -27,8 +30,7 @@ public class AcmPaperDownloader(
                 Path = Path.Combine(dir.FullName, paper.SanitizedDoi + ".pdf"),
                 Paper = paper,
             })
-            // if non-existent or empty, download
-            .Where(p => !File.Exists(p.Path) || new FileInfo(p.Path).Length == 0)
+            .Where(p => ShouldDownload(p.Path))
             .ToList();
 
         logger.LogInformation(
@@ -37,9 +39,15 @@ public class AcmPaperDownloader(
             baseDir
         );
 
+        var parallelOptions = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = parallelismOptions.Value.PaperDownloading,
+            CancellationToken = cancellationToken,
+        };
+
         await Parallel.ForEachAsync(
             filteredPapers,
-            cancellationToken,
+            parallelOptions,
             async (p, ct) =>
             {
                 try
@@ -51,7 +59,7 @@ public class AcmPaperDownloader(
                     );
 
                     var pdfStream = await httpClient.GetStreamAsync(p.Link, ct);
-                    using var fileStream = File.Create(p.Path);
+                    await using var fileStream = File.Create(p.Path);
                     await pdfStream.CopyToAsync(fileStream, ct);
 
                     logger.LogDebug("Successfully downloaded {FileName}", Path.GetFileName(p.Path));
@@ -65,19 +73,12 @@ public class AcmPaperDownloader(
                     );
 
                     if (File.Exists(p.Path))
-                    {
-                        try
-                        {
-                            File.Delete(p.Path);
-                            logger.LogDebug("Successfully deleted partially downloaded file");
-                        }
-                        catch (Exception deleteEx)
-                        {
-                            logger.LogWarning(deleteEx, "Error deleting partially downloaded file");
-                        }
-                    }
+                        File.Delete(p.Path);
                 }
             }
         );
     }
+
+    private static bool ShouldDownload(string path) =>
+        !File.Exists(path) || new FileInfo(path).Length == 0;
 }

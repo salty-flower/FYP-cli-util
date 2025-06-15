@@ -2,7 +2,7 @@ using DataCollection.Infrastructure.Models.GitHub;
 using GitHub.Models;
 using Refit;
 
-namespace DataCollection.Infrastructure.Clients;
+namespace DataCollection.Infrastructure.Clients.IssueTrackers;
 
 /// <summary>
 /// Refit interface for GitHub API calls that were previously handled manually
@@ -26,9 +26,6 @@ public interface IGitHubApi
         long issueNumber
     );
 
-    /// <summary>
-    /// Get repository file content
-    /// </summary>
     [Get("/repos/{owner}/{repoName}/contents/{filePath}")]
     Task<GitHubFileContent?> GetRepositoryFileContentAsync(
         string owner,
@@ -36,20 +33,14 @@ public interface IGitHubApi
         string filePath
     );
 
-    /// <summary>
-    /// Make a generic GET request to the GitHub API and return raw JSON string
-    /// </summary>
-    [Get("/{endpoint}")]
-    Task<string> GetJsonAsync(string endpoint);
-}
+    [Get("/search/issues")]
+    Task<string> SearchIssuesAsync([AliasAs("q")] string query);
 
-/// <summary>
-/// GitHub file content response model
-/// </summary>
-public class GitHubFileContent
-{
-    public string? Content { get; set; }
-    public string? Encoding { get; set; }
-    public string? Name { get; set; }
-    public string? Path { get; set; }
+    [Get("/repos/{owner}/{repoName}/git/trees/{tree_sha}")]
+    Task<string> GetGitTreeAsync(
+        string owner,
+        string repoName,
+        string tree_sha,
+        [AliasAs("recursive")] int? recursive
+    );
 }

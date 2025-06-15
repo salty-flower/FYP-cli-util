@@ -1,14 +1,38 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-  <ItemGroup>
-    <ProjectReference Include="..\DataCollection.Core\DataCollection.Core.csproj" />
-  </ItemGroup>
+  <PropertyGroup>
+    <NoWarn>SYSLIB1006;SYSLIB1031</NoWarn>
+    <PublishReadyToRun>true</PublishReadyToRun>
+  </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="GitHub.Octokit.SDK" />
     <PackageReference Include="HtmlAgilityPack" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="Newtonsoft.Json" />
     <PackageReference Include="Refit.HttpClientFactory" />
     <PackageReference Include="System.Threading.RateLimiting" />
+    <ProjectReference Include="..\DataCollection.Core\DataCollection.Core.csproj" />
+    <ProjectReference Include="..\DataCollection.Common\DataCollection.Common.csproj" />
   </ItemGroup>
+  <Target BeforeTargets="CoreCompile" Name="GenerateBuildConstants">
+    <PropertyGroup>
+      <BuildConstantsFile>
+				$(IntermediateOutputPath)\generated\MSBuildInject\BuildConstants.g.cs
+			</BuildConstantsFile>
+    </PropertyGroup>
+    <ItemGroup>
+      <BuildConstantsContent Include="namespace $(RootNamespace) %3B" />
+      <BuildConstantsContent Include="public static class BuildConstants {" />
+      <BuildConstantsContent Include="public const string SolutionDirectory = @&quot;$(SolutionDir)&quot;%3B" />
+      <BuildConstantsContent Include="}" />
+      <Compile Include="$(BuildConstantsFile)" />
+    </ItemGroup>
+    <WriteLinesToFile
+      File="$(BuildConstantsFile)"
+      Lines="@(BuildConstantsContent)"
+      Overwrite="true"
+    />
+  </Target>
 </Project>

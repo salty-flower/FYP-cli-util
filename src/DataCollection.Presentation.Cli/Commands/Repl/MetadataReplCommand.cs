@@ -7,10 +7,10 @@ using DataCollection.Application.Models.Export.Results;
 using DataCollection.Application.Models.Export.Search;
 using DataCollection.Core.Models;
 using DataCollection.Infrastructure.Persistence;
+using DataCollection.Presentation.Cli.Commands.Repl.Helpers;
 using DataCollection.Presentation.Cli.Rendering;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
-using ReplJsonContext = DataCollection.Application.Models.Export.ReplJsonContext;
 
 namespace DataCollection.Presentation.Cli.Commands.Repl;
 
@@ -65,19 +65,19 @@ public class MetadataReplCommand(
             );
 
             var selectedPaper = papers[Array.IndexOf(paperChoices, selectedPaperDesc)];
-            RunSinglePaperRepl(selectedPaper, papers, cancellationToken);
+            await RunSinglePaperRepl(selectedPaper, papers, cancellationToken);
         }
         else
         {
             // Work with all papers
-            RunAllPapersRepl(papers, cancellationToken);
+            await RunAllPapersRepl(papers, cancellationToken);
         }
     }
 
     /// <summary>
     /// Run REPL for a single paper
     /// </summary>
-    private void RunSinglePaperRepl(
+    private async Task RunSinglePaperRepl(
         Paper paper,
         List<Paper> allPapers,
         CancellationToken cancellationToken
@@ -161,7 +161,7 @@ public class MetadataReplCommand(
                             AnsiConsole.MarkupLine("[red]No export path provided[/]");
                             break;
                         }
-                        HandleExportCommand(parts);
+                        await HandleExportCommand(parts);
                         break;
                     default:
                         AnsiConsole.MarkupLine(
@@ -180,7 +180,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Run REPL for all papers
     /// </summary>
-    private void RunAllPapersRepl(List<Paper> papers, CancellationToken cancellationToken)
+    private async Task RunAllPapersRepl(List<Paper> papers, CancellationToken cancellationToken)
     {
         AnsiConsole.Clear();
         AnsiConsole.Write(
@@ -248,7 +248,7 @@ public class MetadataReplCommand(
                         HandleSearchCommand(papers, parts);
                         break;
                     case "select":
-                        if (HandleSelectCommand(papers, parts, cancellationToken))
+                        if (await HandleSelectCommand(papers, parts, cancellationToken))
                         {
                             // If select command returns true, user wants to return to the main REPL
                             return;
@@ -258,7 +258,7 @@ public class MetadataReplCommand(
                         HandleShowAllCommand(parts);
                         break;
                     case "export":
-                        HandleExportCommand(parts);
+                        await HandleExportCommand(parts);
                         break;
                     default:
                         AnsiConsole.MarkupLine(
@@ -292,7 +292,7 @@ public class MetadataReplCommand(
             "Authors",
             ConsoleRenderingService.SafeMarkup(string.Join(", ", paper.Authors))
         );
-        table.AddRow("Abstract Length", paper.Abstract.Length.ToString());
+        table.AddRow("Abstract Length", paper.Abstract?.Length.ToString() ?? "0");
 
         AnsiConsole.Write(table);
     }
@@ -304,7 +304,9 @@ public class MetadataReplCommand(
     {
         AnsiConsole.Write(new Rule("Paper Abstract").RuleStyle("blue"));
 
-        var panel = new Panel(ConsoleRenderingService.SafeMarkup(paper.Abstract))
+        var panel = new Panel(
+            ConsoleRenderingService.SafeMarkup(paper.Abstract ?? "No abstract available")
+        )
         {
             Header = new PanelHeader("Abstract"),
             Expand = true,
@@ -373,7 +375,7 @@ public class MetadataReplCommand(
         AnsiConsole.Write(new Rule("Paper Collection Summary").RuleStyle("blue"));
 
         // Calculate some stats
-        int totalChars = papers.Sum(p => p.Abstract.Length);
+        int totalChars = papers.Sum(p => p.Abstract?.Length ?? 0);
         double avgAbstractLength = totalChars / (double)papers.Count;
 
         var table = new Table();
@@ -456,7 +458,7 @@ public class MetadataReplCommand(
         try
         {
             // Extract keywords from the expression
-            var keywords = ExtractKeywordsFromExpression(expression);
+            var keywords = ReplHelpers.ExtractKeywords(expression);
             if (keywords.Count == 0)
             {
                 AnsiConsole.MarkupLine("[yellow]No keywords found in expression[/]");
@@ -500,7 +502,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Handle the export command
     /// </summary>
-    protected bool HandleExportCommand(string[] parts)
+    protected async Task<bool> HandleExportCommand(string[] parts)
     {
         string filename = parts[1];
 
@@ -512,30 +514,9 @@ public class MetadataReplCommand(
 
         try
         {
-            // Determine the type of the last search results and use appropriate source generation
-            if (LastSearchResults is MetadataSearchResult searchResult)
-            {
-                return WriteToFile(
-                    searchResult,
-                    filename,
-                    ReplJsonContext.Default.MetadataSearchResult
-                );
-            }
-            else if (LastSearchResults is MetadataEvaluationResult evaluationResult)
-            {
-                return WriteToFile(
-                    evaluationResult,
-                    filename,
-                    ReplJsonContext.Default.MetadataEvaluationResult
-                );
-            }
-            else
-            {
-                AnsiConsole.MarkupLine(
-                    $"[red]Unknown data type for export:[/] {LastSearchResults.GetType()}"
-                );
-                return false;
-            }
+            await ReplHelpers.ExportResults(LastSearchResults, filename);
+            AnsiConsole.MarkupLine($"[green]Exported results to:[/] {filename}");
+            return true;
         }
         catch (Exception ex)
         {
@@ -591,15 +572,18 @@ public class MetadataReplCommand(
                 }
 
                 // Search in abstract
-                var abstractMatches = regex.Matches(paper.Abstract);
-                foreach (Match match in abstractMatches)
+                if (paper.Abstract != null)
                 {
-                    // Get some context around the match
-                    int start = Math.Max(0, match.Index - 40);
-                    int length = Math.Min(paper.Abstract.Length - start, match.Length + 80);
-                    string context = paper.Abstract.Substring(start, length);
+                    var abstractMatches = regex.Matches(paper.Abstract);
+                    foreach (Match match in abstractMatches)
+                    {
+                        // Get some context around the match
+                        int start = Math.Max(0, match.Index - 40);
+                        int length = Math.Min(paper.Abstract.Length - start, match.Length + 80);
+                        string context = paper.Abstract.Substring(start, length);
 
-                    searchResults.Add((paper, match.Value, $"Abstract: ...{context}..."));
+                        searchResults.Add((paper, match.Value, $"Abstract: ...{context}..."));
+                    }
                 }
             }
 
@@ -630,18 +614,12 @@ public class MetadataReplCommand(
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (WriteToFile(result, exportPath, ReplJsonContext.Default.MetadataSearchResult))
-                {
-                    logger.LogInformation(
-                        "Exported {Count} results to {Path}",
-                        searchResults.Count,
-                        exportPath
-                    );
-                }
-                else
-                {
-                    logger.LogError("Failed to export results to {Path}", exportPath);
-                }
+                await ReplHelpers.ExportResults(result, exportPath);
+                logger.LogInformation(
+                    "Exported {Count} results to {Path}",
+                    searchResults.Count,
+                    exportPath
+                );
             }
             else
             {
@@ -722,7 +700,7 @@ public class MetadataReplCommand(
         try
         {
             // Extract keywords from the expression
-            var keywords = ExtractKeywordsFromExpression(expression);
+            var keywords = ReplHelpers.ExtractKeywords(expression);
             if (keywords.Count == 0)
             {
                 logger.LogWarning("No keywords found in expression");
@@ -770,24 +748,12 @@ public class MetadataReplCommand(
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (
-                    WriteToFile(
-                        exportData,
-                        exportPath,
-                        ReplJsonContext.Default.MetadataEvaluationResult
-                    )
-                )
-                {
-                    logger.LogInformation(
-                        "Exported {Count} matching papers to {Path}",
-                        matchingPapers.Count,
-                        exportPath
-                    );
-                }
-                else
-                {
-                    logger.LogWarning("Failed to export results to {Path}", exportPath);
-                }
+                await ReplHelpers.ExportResults(exportData, exportPath);
+                logger.LogInformation(
+                    "Exported {Count} matching papers to {Path}",
+                    matchingPapers.Count,
+                    exportPath
+                );
             }
             else
             {
@@ -822,7 +788,7 @@ public class MetadataReplCommand(
         try
         {
             // Extract keywords from the expression
-            var keywords = ExtractKeywordsFromExpression(expression);
+            var keywords = ReplHelpers.ExtractKeywords(expression);
             if (keywords.Count == 0)
             {
                 AnsiConsole.MarkupLine("[yellow]No keywords found in expression[/]");
@@ -898,7 +864,7 @@ public class MetadataReplCommand(
     /// <summary>
     /// Handle the select command
     /// </summary>
-    private bool HandleSelectCommand(
+    private async Task<bool> HandleSelectCommand(
         List<Paper> papers,
         string[] parts,
         CancellationToken cancellationToken
@@ -933,7 +899,7 @@ public class MetadataReplCommand(
 
         if (choice == "Inspect this paper in detail")
         {
-            RunSinglePaperRepl(selectedPaper, papers, cancellationToken);
+            await RunSinglePaperRepl(selectedPaper, papers, cancellationToken);
 
             // Ask if the user wants to return to all papers mode or exit
             return AnsiConsole.Confirm("Return to all papers mode?");
@@ -1083,19 +1049,22 @@ public class MetadataReplCommand(
                 }
 
                 // Search in abstract
-                var abstractMatches = regex.Matches(paper.Abstract);
-                foreach (Match match in abstractMatches)
+                if (paper.Abstract != null)
                 {
-                    // Get some context around the match
-                    int start = Math.Max(0, match.Index - 40);
-                    int length = Math.Min(paper.Abstract.Length - start, match.Length + 80);
-                    string context = paper.Abstract.Substring(start, length);
+                    var abstractMatches = regex.Matches(paper.Abstract);
+                    foreach (Match match in abstractMatches)
+                    {
+                        // Get some context around the match
+                        int start = Math.Max(0, match.Index - 40);
+                        int length = Math.Min(paper.Abstract.Length - start, match.Length + 80);
+                        string context = paper.Abstract.Substring(start, length);
 
-                    results.Add((paper, match.Value, $"Abstract: ...{context}..."));
+                        results.Add((paper, match.Value, $"Abstract: ...{context}..."));
 
-                    // Limit the number of results per paper if not showing all
-                    if (!ShowAllResults && results.Count >= 100)
-                        break;
+                        // Limit the number of results per paper if not showing all
+                        if (!ShowAllResults && results.Count >= 100)
+                            break;
+                    }
                 }
 
                 // Limit total results if not showing all
@@ -1171,37 +1140,5 @@ public class MetadataReplCommand(
                 $"[red]Invalid regex pattern:[/] {ConsoleRenderingService.SafeMarkup(ex.Message)}"
             );
         }
-    }
-
-    /// <summary>
-    /// Extracts keywords from an expression
-    /// </summary>
-    private static HashSet<string> ExtractKeywordsFromExpression(string expression)
-    {
-        // Simple extraction logic - this could be enhanced
-        var keywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        // Remove operators and parentheses
-        var cleaned = expression
-            .Replace("(", " ")
-            .Replace(")", " ")
-            .Replace(">", " ")
-            .Replace("<", " ")
-            .Replace("=", " ")
-            .Replace("AND", " ")
-            .Replace("OR", " ")
-            .Replace("NOT", " ");
-
-        // Split by spaces and extract potential keywords
-        foreach (var part in cleaned.Split([' '], StringSplitOptions.RemoveEmptyEntries))
-        {
-            // If not a number, it might be a keyword
-            if (!int.TryParse(part, out _))
-            {
-                keywords.Add(part.Trim());
-            }
-        }
-
-        return keywords;
     }
 }

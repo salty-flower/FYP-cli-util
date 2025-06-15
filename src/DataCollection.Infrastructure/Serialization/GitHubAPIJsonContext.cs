@@ -8,7 +8,8 @@ namespace DataCollection.Infrastructure.Serialization;
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNameCaseInsensitive = true,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
 )]
 [JsonSerializable(typeof(GitHubUser))]
 [JsonSerializable(typeof(GitHubLabel))]
@@ -20,4 +21,7 @@ namespace DataCollection.Infrastructure.Serialization;
 [JsonSerializable(typeof(FullRepository))]
 [JsonSerializable(typeof(WithUsernameItemRequestBuilder.WithUsernameGetResponse))]
 [JsonSerializable(typeof(RepositoryTree))]
-public partial class GitHubAPIJsonContext : JsonSerializerContext { }
+[JsonSerializable(typeof(RepositoryTree.TreeItem))]
+[JsonSerializable(typeof(GitHubSearchResponse))]
+[JsonSerializable(typeof(GitHubFileContent))]
+public partial class GitHubAPIJsonContext : JsonSerializerContext;

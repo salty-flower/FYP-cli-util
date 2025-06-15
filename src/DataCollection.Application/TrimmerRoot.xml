@@ -1,0 +1,9 @@
+<linker>
+  <assembly fullname="DataCollection.Application">
+    <type
+      fullname="DataCollection.Application.Features.SemanticAgents.DiscoveryAgent"
+      preserve="all"
+    />
+  </assembly>
+  <assembly fullname="OpenAi.JsonSchema" preserve="all" />
+</linker>

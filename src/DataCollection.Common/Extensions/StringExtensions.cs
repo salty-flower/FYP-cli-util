@@ -21,40 +21,30 @@ public static class StringExtensions
         if (string.IsNullOrEmpty(source) || string.IsNullOrEmpty(suffix))
             return source;
 
-        if (source.EndsWith(suffix, comparisonType))
-            return source[..^suffix.Length];
-
-        return source;
+        return source.EndsWith(suffix, comparisonType) ? source[..^suffix.Length] : source;
     }
 
     public static int CountSubstring(this string text, string value)
     {
-        if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(value))
+        if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(value) || value.Length > text.Length)
             return 0;
 
-        if (value.Length > text.Length)
-            return 0;
-
-        // For very short strings, use the original simple approach
-        if (text.Length < 1000)
-            return CountSubstringSimple(text, value);
-
-        // For longer strings, use parallelization if beneficial
-        if (text.Length >= ParallelThreshold)
-            return CountSubstringParallel(text, value);
-
-        // For medium-length strings, use the optimized single-threaded approach
-        return CountSubstringOptimized(text, value);
+        return text.Length switch
+        {
+            < 1000 => CountSubstringSimple(text, value),
+            >= ParallelThreshold => CountSubstringParallel(text, value),
+            _ => CountSubstringOptimized(text, value),
+        };
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int CountSubstringSimple(string text, string value)
     {
         int count = 0,
-            minIndex = text.IndexOf(value, 0);
+            minIndex = text.IndexOf(value, 0, StringComparison.Ordinal);
         while (minIndex != -1)
         {
-            minIndex = text.IndexOf(value, minIndex + value.Length);
+            minIndex = text.IndexOf(value, minIndex + value.Length, StringComparison.Ordinal);
             count++;
         }
         return count;
@@ -66,19 +56,15 @@ public static class StringExtensions
         Span<int> counts = stackalloc int[1];
 
         // Create a reference to avoid bounds checking
-        ref char textStart = ref MemoryMarshal.GetReference(text.AsSpan());
-        ref char valueStart = ref MemoryMarshal.GetReference(value.AsSpan());
+        ref var textStart = ref MemoryMarshal.GetReference(text.AsSpan());
+        ref var valueStart = ref MemoryMarshal.GetReference(value.AsSpan());
 
-        int textLength = text.Length;
-        int valueLength = value.Length;
+        var textLength = text.Length;
+        var valueLength = value.Length;
 
-        for (int i = 0; i <= textLength - valueLength; i++)
-        {
+        for (var i = 0; i <= textLength - valueLength; i++)
             if (CompareStrings(ref Unsafe.Add(ref textStart, i), ref valueStart, valueLength))
-            {
                 counts[0]++;
-            }
-        }
 
         return counts[0];
     }
@@ -86,19 +72,19 @@ public static class StringExtensions
     private static int CountSubstringParallel(string text, string value)
     {
         // Calculate optimal chunk size based on CPU cores
-        int chunkSize = Math.Max(ParallelThreshold / Environment.ProcessorCount, value.Length * 2);
-        int totalCount = 0;
+        var chunkSize = Math.Max(ParallelThreshold / Environment.ProcessorCount, value.Length * 2);
+        var totalCount = 0;
 
         Parallel.ForEach(
             Partitioner.Create(0, text.Length - value.Length + 1, chunkSize),
             () => 0, // Thread local initial state
-            (range, _, threadStart) =>
+            (range, _, _) =>
             {
-                int localCount = 0;
-                ref char textStart = ref MemoryMarshal.GetReference(text.AsSpan());
-                ref char valueStart = ref MemoryMarshal.GetReference(value.AsSpan());
+                var localCount = 0;
+                ref var textStart = ref MemoryMarshal.GetReference(text.AsSpan());
+                ref var valueStart = ref MemoryMarshal.GetReference(value.AsSpan());
 
-                for (int i = range.Item1; i < range.Item2; i++)
+                for (var i = range.Item1; i < range.Item2; i++)
                 {
                     if (
                         CompareStrings(
@@ -156,4 +142,7 @@ public static class StringExtensions
 
         return true;
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static string Join(this char c, IEnumerable<string> s) => string.Join(c, s);
 }

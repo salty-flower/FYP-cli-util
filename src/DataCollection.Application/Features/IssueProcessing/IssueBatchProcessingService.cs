@@ -1,3 +1,4 @@
+using DataCollection.Application.Common.Services;
 using DataCollection.Application.Features.BugDiscovery;
 using DataCollection.Application.Features.IssueAnalysis.Rules;
 using DataCollection.Application.Models.IssueTracker.Profiles;
@@ -30,101 +31,17 @@ public class IssueBatchProcessingService(
             issueTasks.Count
         );
 
-        // If batch job ID is provided, skip to polling and result processing
         if (!string.IsNullOrEmpty(batchJobId))
         {
-            logger.LogInformation("Resuming existing batch job: {BatchJobId}", batchJobId);
             await ProcessExistingBatchJobAsync(batchJobId, issueTasks, saveResults, useCache);
             return;
         }
 
-        // Continue with normal batch processing for new jobs
-        // First, build issue profiles for all issues
-        var issueProfiles = new Dictionary<string, IssueProfile>();
-        var issueMetadata = new Dictionary<string, (string Owner, string Repo, long Number)>();
+        var (issueMetadata, issueProfiles) = await PrepareIssueData(issueTasks, useCache);
+        var batchResults = await ExecuteBatchProcessing(issueProfiles);
+        await ProcessBatchResultsAsync(batchResults, issueMetadata, issueProfiles, saveResults);
 
-        foreach (var issue in issueTasks)
-        {
-            try
-            {
-                // Parse issue details
-                var (owner, repoName, issueNumber) = ParseIssueDetailsAsync(issue);
-                if (owner == null || repoName == null || !issueNumber.HasValue)
-                    continue;
-
-                // Check cache first if enabled
-                if (useCache)
-                {
-                    var cachedResult = await storageService.TryGetCachedAnalysisResultAsync(
-                        owner,
-                        repoName,
-                        issueNumber.Value
-                    );
-                    if (cachedResult != null)
-                    {
-                        logger.LogInformation(
-                            "{Owner}/{Repo}#{IssueNumber} is cached. Status: {Status} {StatusDescription}",
-                            owner,
-                            repoName,
-                            issueNumber.Value,
-                            cachedResult.Status.GetName(),
-                            cachedResult.Status.AsString(EnumFormat.Description)
-                        );
-                        continue;
-                    }
-                }
-
-                // Build issue profile using the single issue service helper methods
-                // We don't call ProcessIssueAsync here because we want to batch the analysis
-                var issueProfile = await gitHubService.BuildComprehensiveIssueProfileAsync(
-                    owner,
-                    repoName,
-                    issueNumber.Value
-                );
-
-                var customId = $"{owner}/{repoName}#{issueNumber.Value}";
-                issueProfiles[customId] = issueProfile;
-                issueMetadata[customId] = (owner, repoName, issueNumber.Value);
-
-                logger.LogDebug("Prepared issue profile for {CustomId}", customId);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to prepare issue profile for {Issue}", issue);
-            }
-        }
-
-        if (issueProfiles.Count == 0)
-        {
-            logger.LogWarning("No issue profiles to process");
-            return;
-        }
-
-        logger.LogInformation("Submitting {Count} issues to OpenAI Batch API", issueProfiles.Count);
-
-        try
-        {
-            // Process using batch API
-            var batchResults = await statusCriterion.EvaluateBatchAsync(issueProfiles);
-
-            logger.LogInformation(
-                "Received {Count} results from batch processing",
-                batchResults.Count
-            );
-
-            // Process results and save if requested
-            await ProcessBatchResultsAsync(batchResults, issueMetadata, issueProfiles, saveResults);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to process batch with OpenAI Batch API");
-            throw;
-        }
-
-        logger.LogInformation(
-            "Completed batch processing of {Count} issues using OpenAI Batch API",
-            issueProfiles.Count
-        );
+        logger.LogInformation("Completed batch processing of {Count} issues", issueProfiles.Count);
     }
 
     /// <summary>
@@ -139,47 +56,45 @@ public class IssueBatchProcessingService(
     {
         logger.LogInformation("Using parallel processing for {Count} issues", issueTasks.Count);
 
-        // Process issues in parallel with rate limiting
         var semaphore = new SemaphoreSlim(maxParallelTasks);
-        var tasks = new List<Task>();
-
-        foreach (var (Url, Owner, Repo, Number) in issueTasks)
-        {
-            await semaphore.WaitAsync();
-
-            tasks.Add(
-                Task.Run(async () =>
-                {
-                    try
-                    {
-                        var (owner, repoName, issueNumber) = ParseIssueDetailsAsync(
-                            (Url, Owner, Repo, Number)
-                        );
-
-                        if (owner != null && repoName != null && issueNumber.HasValue)
-                        {
-                            await singleIssueService.ProcessIssueAsync(
-                                owner,
-                                repoName,
-                                issueNumber.Value,
-                                useCache: useCache,
-                                saveResults: saveResults
-                            );
-                        }
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                })
-            );
-        }
-
+        var tasks = issueTasks.Select(issue =>
+            ProcessSingleIssueWithSemaphore(issue, saveResults, useCache, semaphore)
+        );
         await Task.WhenAll(tasks);
+
         logger.LogInformation(
             "Completed parallel batch processing of {Count} issues",
             issueTasks.Count
         );
+    }
+
+    private async Task ProcessSingleIssueWithSemaphore(
+        (string? Url, string? Owner, string? Repo, long? Number) issue,
+        bool saveResults,
+        bool useCache,
+        SemaphoreSlim semaphore
+    )
+    {
+        await semaphore.WaitAsync();
+        try
+        {
+            var (owner, repoName, issueNumber) = ParseIssueDetails(issue);
+
+            if (owner != null && repoName != null && issueNumber.HasValue)
+            {
+                await singleIssueService.ProcessIssueAsync(
+                    owner,
+                    repoName,
+                    issueNumber.Value,
+                    useCache: useCache,
+                    saveResults: saveResults
+                );
+            }
+        }
+        finally
+        {
+            semaphore.Release();
+        }
     }
 
     /// <summary>
@@ -196,68 +111,14 @@ public class IssueBatchProcessingService(
 
         try
         {
-            // Use the batch criterion to poll for completion and get results
             var batchResults = await statusCriterion.ResumeBatchAsync(batchJobId);
-
             logger.LogInformation(
                 "Received {Count} results from existing batch job",
                 batchResults.Count
             );
 
-            // Build issue metadata for result processing
-            var issueMetadata = new Dictionary<string, (string Owner, string Repo, long Number)>();
-            var issueProfiles = new Dictionary<string, IssueProfile>();
+            var (issueMetadata, issueProfiles) = await PrepareIssueData(issueTasks, useCache);
 
-            foreach (var issue in issueTasks)
-            {
-                try
-                {
-                    var (owner, repoName, issueNumber) = ParseIssueDetailsAsync(issue);
-                    if (owner == null || repoName == null || !issueNumber.HasValue)
-                        continue;
-
-                    // Check cache first if enabled
-                    if (useCache)
-                    {
-                        var cachedResult = await storageService.TryGetCachedAnalysisResultAsync(
-                            owner,
-                            repoName,
-                            issueNumber.Value
-                        );
-                        if (cachedResult != null)
-                        {
-                            logger.LogInformation(
-                                "{Owner}/{Repo}#{IssueNumber} is cached. Status: {Status} {StatusDescription}",
-                                owner,
-                                repoName,
-                                issueNumber.Value,
-                                cachedResult.Status.GetName(),
-                                cachedResult.Status.AsString(EnumFormat.Description)
-                            );
-                            continue;
-                        }
-                    }
-
-                    var customId = $"{owner}/{repoName}#{issueNumber.Value}";
-                    issueMetadata[customId] = (owner, repoName, issueNumber.Value);
-
-                    // Build issue profile for status determination
-                    var issueProfile = await gitHubService.BuildComprehensiveIssueProfileAsync(
-                        owner,
-                        repoName,
-                        issueNumber.Value
-                    );
-                    issueProfiles[customId] = issueProfile;
-
-                    logger.LogDebug("Prepared issue metadata for {CustomId}", customId);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Failed to prepare issue metadata for {Issue}", issue);
-                }
-            }
-
-            // Process results and save if requested
             await ProcessBatchResultsAsync(batchResults, issueMetadata, issueProfiles, saveResults);
         }
         catch (Exception ex)
@@ -327,43 +188,98 @@ public class IssueBatchProcessingService(
         }
     }
 
+    private async Task<(
+        Dictionary<string, (string, string, long)>,
+        Dictionary<string, IssueProfile>
+    )> PrepareIssueData(
+        List<(string? Url, string? Owner, string? Repo, long? Number)> issueTasks,
+        bool useCache
+    )
+    {
+        var issueProfiles = new Dictionary<string, IssueProfile>();
+        var issueMetadata = new Dictionary<string, (string Owner, string Repo, long Number)>();
+
+        foreach (var issue in issueTasks)
+        {
+            var (owner, repoName, issueNumber) = ParseIssueDetails(issue);
+            if (owner == null || repoName == null || !issueNumber.HasValue)
+                continue;
+
+            // Check cache first if enabled
+            if (useCache && await IsIssueCached(owner, repoName, issueNumber.Value))
+                continue;
+
+            // Build issue profile
+            var issueProfile = await gitHubService.BuildComprehensiveIssueProfileAsync(
+                owner,
+                repoName,
+                issueNumber.Value
+            );
+
+            var customId = $"{owner}/{repoName}#{issueNumber.Value}";
+            issueProfiles[customId] = issueProfile;
+            issueMetadata[customId] = (owner, repoName, issueNumber.Value);
+
+            logger.LogDebug("Prepared issue profile for {CustomId}", customId);
+        }
+
+        if (issueProfiles.Count == 0)
+        {
+            logger.LogWarning("No issue profiles to process");
+        }
+
+        return (issueMetadata, issueProfiles);
+    }
+
+    private async Task<bool> IsIssueCached(string owner, string repoName, long issueNumber)
+    {
+        var cachedResult = await storageService.TryGetCachedAnalysisResultAsync(
+            owner,
+            repoName,
+            issueNumber
+        );
+
+        if (cachedResult != null)
+        {
+            logger.LogInformation(
+                "{Owner}/{Repo}#{IssueNumber} is cached. Status: {Status} {StatusDescription}",
+                owner,
+                repoName,
+                issueNumber,
+                cachedResult.Status.GetName(),
+                cachedResult.Status.AsString(EnumFormat.Description)
+            );
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task<Dictionary<string, IssueAnalysisResponse>> ExecuteBatchProcessing(
+        Dictionary<string, IssueProfile> issueProfiles
+    )
+    {
+        logger.LogInformation("Submitting {Count} issues to OpenAI Batch API", issueProfiles.Count);
+
+        var batchResults = await statusCriterion.EvaluateBatchAsync(issueProfiles);
+
+        logger.LogInformation("Received {Count} results from batch processing", batchResults.Count);
+
+        return batchResults;
+    }
+
     /// <summary>
     /// Parses issue details from various input formats
     /// </summary>
-    private (string? Owner, string? RepoName, long? IssueNumber) ParseIssueDetailsAsync(
+    private (string? Owner, string? RepoName, long? IssueNumber) ParseIssueDetails(
         (string? Url, string? Owner, string? Repo, long? Number) issue
     )
     {
-        string? owner,
-            repoName;
-        long? issueNumber;
-
         if (issue.Url != null)
         {
-            var isUri = Uri.TryCreate(issue.Url, UriKind.Absolute, out var uri);
-            if (!isUri || uri == null || uri.Segments.Length < 5)
-            {
-                logger.LogWarning("Invalid GitHub issue URL format: {Url}", issue.Url);
-                return (null, null, null);
-            }
-
-            owner = uri.Segments[1].TrimEnd('/');
-            repoName = uri.Segments[2].TrimEnd('/');
-            var shouldBeIssueNumber = uri.Segments[4].TrimEnd('/');
-            if (!long.TryParse(shouldBeIssueNumber, out var parsedIssueNumber))
-            {
-                logger.LogWarning("Could not parse issue number from URL: {Url}", issue.Url);
-                return (null, null, null);
-            }
-            issueNumber = parsedIssueNumber;
-        }
-        else
-        {
-            owner = issue.Owner;
-            repoName = issue.Repo;
-            issueNumber = issue.Number;
+            return UrlProcessingService.ParseGitHubIssueUrl(issue.Url, logger);
         }
 
-        return (owner, repoName, issueNumber);
+        return (issue.Owner, issue.Repo, issue.Number);
     }
 }

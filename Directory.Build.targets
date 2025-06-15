@@ -4,11 +4,16 @@
     <Content Remove="build\**" />
     <EmbeddedResource Remove="build\**" />
     <None Remove="build\**" />
+    <TrimmerRootDescriptor
+      Include="TrimmerRoot.xml"
+      Condition="Exists('TrimmerRoot.xml') and '$(PublishAot)' == 'true'"
+    />
   </ItemGroup>
   <ItemGroup>
     <!-- Programming -->
     <PackageReference Include="morelinq" />
     <PackageReference Include="Enums.NET" />
+    <PackageReference Include="AspectInjector" />
     <!-- Logging -->
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Settings.Configuration" />

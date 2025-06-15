@@ -1,0 +1,15 @@
+<linker>
+  <assembly fullname="Microsoft.EntityFrameworkCore" preserve="all" />
+  <assembly fullname="Microsoft.EntityFrameworkCore.Abstractions" preserve="all" />
+  <assembly fullname="Microsoft.EntityFrameworkCore.Relational" preserve="all" />
+  <assembly fullname="Microsoft.EntityFrameworkCore.Sqlite" preserve="all" />
+  <assembly fullname="Microsoft.Data.Sqlite" preserve="all" />
+  <assembly fullname="Microsoft.Extensions.Logging.Abstractions" preserve="all" />
+  <assembly fullname="DataCollection.Infrastructure">
+    <type
+      fullname="DataCollection.Infrastructure.Persistence.DataCollectionDbContext"
+      preserve="all"
+    />
+    <type fullname="DataCollection.Infrastructure.Persistence.DbContextFactory" preserve="all" />
+  </assembly>
+</linker>

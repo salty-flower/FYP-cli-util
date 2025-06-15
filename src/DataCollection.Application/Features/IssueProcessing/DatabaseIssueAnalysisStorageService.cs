@@ -1,7 +1,9 @@
+using System.Diagnostics.CodeAnalysis;
 using DataCollection.Core.Models.IssueTracker;
 using DataCollection.Core.Models.IssueTracker.Responses;
 using DataCollection.Infrastructure.Extensions;
 using DataCollection.Infrastructure.Persistence;
+using DataCollection.Infrastructure.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -30,7 +32,8 @@ public class DatabaseIssueAnalysisStorageService(
             {
                 existingEntity.Status = status;
                 existingEntity.AnalysisJson = System.Text.Json.JsonSerializer.Serialize(
-                    analysisResult
+                    analysisResult,
+                    AppJsonContext.Default.IssueAnalysisResponse
                 );
                 existingEntity.UpdatedAt = DateTime.UtcNow;
                 logger.LogDebug(
@@ -182,6 +185,7 @@ public class DatabaseIssueAnalysisStorageService(
         }
     }
 
+    [RequiresDynamicCode("EF Core's EnsureCreatedAsync is not compatible with AOT.")]
     public async Task EnsureDatabaseCreatedAsync()
     {
         await dbContext.Database.EnsureCreatedAsync();

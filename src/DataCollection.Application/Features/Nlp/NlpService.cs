@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
 using Python.Runtime;
 
@@ -5,6 +6,8 @@ namespace DataCollection.Application.Features.Nlp;
 
 public static partial class AdjectiveAnalyzer
 {
+    [RequiresUnreferencedCode("Required for Python.Runtime.")]
+    [RequiresDynamicCode("Required for Python.Runtime.")]
     public static List<string> GetAdjectivesFromSentence(string text)
     {
         using (Py.GIL())
@@ -39,6 +42,8 @@ public static partial class AdjectiveAnalyzer
         }
     }
 
+    [RequiresUnreferencedCode("Calls GetAdjectivesFromSentence which requires unreferenced code.")]
+    [RequiresDynamicCode("Calls GetAdjectivesFromSentence which requires dynamic code.")]
     public static Dictionary<string, int> AnalyzeSentenceAdjectives(string text) =>
         GetAdjectivesFromSentence(text)
             .GroupBy(adj => adj)

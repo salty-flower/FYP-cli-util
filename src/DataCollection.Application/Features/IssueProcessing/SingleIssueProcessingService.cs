@@ -3,6 +3,7 @@ using DataCollection.Application.Features.IssueAnalysis.Rules;
 using DataCollection.Application.Models.IssueTracker.Profiles;
 using DataCollection.Core.Models.IssueTracker;
 using DataCollection.Core.Models.IssueTracker.Responses;
+using DataCollection.Infrastructure.Clients.IssueTrackers;
 using DataCollection.Infrastructure.Options;
 using EnumsNET;
 using Microsoft.Extensions.Logging;
@@ -13,6 +14,7 @@ namespace DataCollection.Application.Features.IssueProcessing;
 public class SingleIssueProcessingService(
     ILogger<SingleIssueProcessingService> logger,
     GitHubService gitHubService,
+    IGitHubClient gitHubClient,
     IssueOverallStatusCriterion statusCriterion,
     DatabaseIssueAnalysisStorageService storageService,
     IOptions<PathsOptions> pathsOptions
@@ -140,7 +142,7 @@ public class SingleIssueProcessingService(
         var repoDir = Path.Combine(_pathsOptions.IssueRepoDir, owner);
         Directory.CreateDirectory(repoDir);
 
-        await gitHubService.GetRepositoryInfoAsync(owner, repoName);
+        await gitHubClient.GetRepositoryInfoAsync(owner, repoName);
     }
 
     /// <summary>
@@ -153,7 +155,7 @@ public class SingleIssueProcessingService(
         var parts = repoFullName.Split('/');
         var owner = parts[0];
         var repoName = parts[1];
-        var repository = await gitHubService.GetRepositoryInfoAsync(owner, repoName);
+        var repository = await gitHubClient.GetRepositoryInfoAsync(owner, repoName);
 
         var userLogins = new HashSet<string> { issueProfile.SdkIssue.User?.Login ?? "unknown" };
 

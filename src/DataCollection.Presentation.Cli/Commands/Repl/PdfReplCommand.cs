@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
 using DataCollection.Application.Common.Parsers;
 using DataCollection.Application.Features.PaperAnalysis;
@@ -6,10 +7,10 @@ using DataCollection.Application.Models.Export.Results;
 using DataCollection.Application.Models.Export.Search;
 using DataCollection.Core.Models;
 using DataCollection.Infrastructure.Persistence;
+using DataCollection.Presentation.Cli.Commands.Repl.Helpers;
 using DataCollection.Presentation.Cli.Rendering;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
-using ReplJsonContext = DataCollection.Application.Models.Export.ReplJsonContext;
 
 namespace DataCollection.Presentation.Cli.Commands.Repl;
 
@@ -26,6 +27,8 @@ public class PdfReplCommand(
     /// <summary>
     /// Run the PDF REPL
     /// </summary>
+    [RequiresUnreferencedCode("REPL uses reflection for command handling.")]
+    [RequiresDynamicCode("REPL uses reflection for command handling.")]
     public async Task Run(CancellationToken cancellationToken = default)
     {
         var pdfDataList = await databaseDataLoadingService.LoadAllPdfDataAsync();
@@ -65,19 +68,19 @@ public class PdfReplCommand(
             );
 
             var selectedPdf = pdfDataList[Array.IndexOf(pdfChoices, selectedPdfDesc)];
-            RunSinglePdfRepl(selectedPdf, cancellationToken);
+            await RunSinglePdfRepl(selectedPdf, cancellationToken);
         }
         else
         {
             // Work with all PDFs
-            RunAllPdfsRepl(pdfDataList, cancellationToken);
+            await RunAllPdfsRepl(pdfDataList, cancellationToken);
         }
     }
 
     /// <summary>
     /// Run REPL for a single PDF
     /// </summary>
-    private void RunSinglePdfRepl(PdfData pdfData, CancellationToken cancellationToken)
+    private async Task RunSinglePdfRepl(PdfData pdfData, CancellationToken cancellationToken)
     {
         AnsiConsole.Clear();
         string safeTitle = ConsoleRenderingService.SafeMarkup(
@@ -140,7 +143,7 @@ public class PdfReplCommand(
                             AnsiConsole.MarkupLine("[red]No export path provided[/]");
                             break;
                         }
-                        HandleExportCommand(parts);
+                        await HandleExportCommand(parts);
                         break;
                     default:
                         AnsiConsole.MarkupLine(
@@ -159,7 +162,7 @@ public class PdfReplCommand(
     /// <summary>
     /// Run REPL for all PDFs
     /// </summary>
-    private void RunAllPdfsRepl(List<PdfData> allPdfData, CancellationToken cancellationToken)
+    private async Task RunAllPdfsRepl(List<PdfData> allPdfData, CancellationToken cancellationToken)
     {
         AnsiConsole.Clear();
         AnsiConsole.Write(
@@ -223,7 +226,7 @@ public class PdfReplCommand(
                         HandleRankCommand(allPdfData, parts);
                         break;
                     case "select":
-                        if (HandleSelectCommand(allPdfData, parts, cancellationToken))
+                        if (await HandleSelectCommand(allPdfData, parts, cancellationToken))
                         {
                             // If select command returns true, user wants to return to the main REPL
                             return;
@@ -238,7 +241,7 @@ public class PdfReplCommand(
                             AnsiConsole.MarkupLine("[red]No export path provided[/]");
                             break;
                         }
-                        HandleExportCommand(parts);
+                        await HandleExportCommand(parts);
                         break;
                     default:
                         AnsiConsole.MarkupLine(
@@ -331,7 +334,7 @@ public class PdfReplCommand(
         try
         {
             // Extract keywords from the expression
-            var keywords = ExtractKeywordsFromExpression(expression);
+            var keywords = ReplHelpers.ExtractKeywords(expression);
             if (keywords.Count == 0)
             {
                 AnsiConsole.MarkupLine("[red]No keywords found in expression[/]");
@@ -535,7 +538,7 @@ public class PdfReplCommand(
         try
         {
             // Extract keywords from the expression
-            var keywords = ExtractKeywordsFromExpression(expression);
+            var keywords = ReplHelpers.ExtractKeywords(expression);
             if (keywords.Count == 0)
             {
                 AnsiConsole.MarkupLine("[red]No keywords found in expression[/]");
@@ -744,7 +747,7 @@ public class PdfReplCommand(
     /// <summary>
     /// Handle the select command
     /// </summary>
-    private bool HandleSelectCommand(
+    private async Task<bool> HandleSelectCommand(
         List<PdfData> allPdfData,
         string[] parts,
         CancellationToken cancellationToken
@@ -781,7 +784,7 @@ public class PdfReplCommand(
 
         if (choice == "Work with this PDF in detail")
         {
-            RunSinglePdfRepl(selectedPdf, cancellationToken);
+            await RunSinglePdfRepl(selectedPdf, cancellationToken);
 
             // Ask if the user wants to return to all PDFs mode or exit
             return AnsiConsole.Confirm("Return to all PDFs mode?");
@@ -797,6 +800,8 @@ public class PdfReplCommand(
     /// <param name="exportPath">Optional path to export results</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of results found</returns>
+    [RequiresUnreferencedCode("Non-interactive search uses reflection for command handling.")]
+    [RequiresDynamicCode("Non-interactive search uses reflection for command handling.")]
     public async Task<int> RunNonInteractiveSearch(
         string pattern,
         string? exportPath,
@@ -922,18 +927,12 @@ public class PdfReplCommand(
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (WriteToFile(exportData, exportPath, ReplJsonContext.Default.PdfSearchResult))
-                {
-                    logger.LogInformation(
-                        "Exported {Count} results to {Path}",
-                        totalMatches,
-                        exportPath
-                    );
-                }
-                else
-                {
-                    logger.LogError("Failed to export results to {Path}", exportPath);
-                }
+                await ReplHelpers.ExportResults(exportData, exportPath);
+                logger.LogInformation(
+                    "Exported {Count} results to {Path}",
+                    totalMatches,
+                    exportPath
+                );
             }
             else
             {
@@ -989,6 +988,8 @@ public class PdfReplCommand(
     /// <param name="exportPath">Optional path to export results</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of PDFs matching the expression</returns>
+    [RequiresUnreferencedCode("Non-interactive evaluation uses reflection for command handling.")]
+    [RequiresDynamicCode("Non-interactive evaluation uses reflection for command handling.")]
     public async Task<int> RunNonInteractiveEvaluation(
         string expression,
         string? exportPath = null,
@@ -1014,7 +1015,7 @@ public class PdfReplCommand(
         try
         {
             // Extract keywords from the expression
-            var keywords = ExtractKeywordsFromExpression(expression);
+            var keywords = ReplHelpers.ExtractKeywords(expression);
             if (keywords.Count == 0)
             {
                 logger.LogWarning("No keywords found in expression");
@@ -1055,20 +1056,12 @@ public class PdfReplCommand(
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (
-                    WriteToFile(exportData, exportPath, ReplJsonContext.Default.PdfEvaluationResult)
-                )
-                {
-                    logger.LogInformation(
-                        "Exported {Count} matching PDFs to {Path}",
-                        matchingPdfs.Count,
-                        exportPath
-                    );
-                }
-                else
-                {
-                    logger.LogWarning("Failed to export results to {Path}", exportPath);
-                }
+                await ReplHelpers.ExportResults(exportData, exportPath);
+                logger.LogInformation(
+                    "Exported {Count} matching PDFs to {Path}",
+                    matchingPdfs.Count,
+                    exportPath
+                );
             }
             else
             {
@@ -1084,51 +1077,11 @@ public class PdfReplCommand(
         }
     }
 
-    /// <summary>
-    /// Extracts keywords from an expression
-    /// </summary>
-    private static HashSet<string> ExtractKeywordsFromExpression(string expression)
+    protected async Task<bool> HandleExportCommand(string[] parts)
     {
-        // Simple extraction logic - this could be enhanced
-        var keywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string filename = parts[1];
 
-        // Remove operators and parentheses
-        var cleaned = expression
-            .Replace("(", " ")
-            .Replace(")", " ")
-            .Replace(">", " ")
-            .Replace("<", " ")
-            .Replace("=", " ")
-            .Replace("AND", " ")
-            .Replace("OR", " ")
-            .Replace("NOT", " ");
-
-        // Split by spaces and extract potential keywords
-        foreach (var part in cleaned.Split([' '], StringSplitOptions.RemoveEmptyEntries))
-        {
-            // If not a number, it might be a keyword
-            if (!int.TryParse(part, out _))
-            {
-                keywords.Add(part.Trim());
-            }
-        }
-
-        return keywords;
-    }
-
-    /// <summary>
-    /// Override the HandleExportCommand method to use source generation for exporting
-    /// </summary>
-    protected override bool HandleExportCommand(string[] parts, object? data = null)
-    {
-        string? filePath = null;
-        if (parts.Length > 1)
-        {
-            filePath = parts[1];
-        }
-
-        object? exportData = data ?? LastSearchResults;
-        if (exportData == null)
+        if (LastSearchResults == null)
         {
             AnsiConsole.MarkupLine("[red]No data available to export[/]");
             return false;
@@ -1136,55 +1089,9 @@ public class PdfReplCommand(
 
         try
         {
-            // Create default file path if none was provided
-            if (string.IsNullOrEmpty(filePath))
-            {
-                string timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-                filePath = Path.Combine(
-                    Directory.GetCurrentDirectory(),
-                    $"export-{timestamp}.json"
-                );
-            }
-
-            bool success = false;
-
-            // Use appropriate serializer based on the type
-            if (exportData is PdfSearchResult searchResult)
-            {
-                success = WriteToFile(
-                    searchResult,
-                    filePath,
-                    ReplJsonContext.Default.PdfSearchResult
-                );
-            }
-            else if (exportData is PdfEvaluationResult evalResult)
-            {
-                success = WriteToFile(
-                    evalResult,
-                    filePath,
-                    ReplJsonContext.Default.PdfEvaluationResult
-                );
-            }
-            else
-            {
-                AnsiConsole.MarkupLine(
-                    $"[red]Invalid data type for export:[/] {exportData.GetType()}"
-                );
-                return false;
-            }
-
-            if (success)
-            {
-                AnsiConsole.MarkupLine(
-                    $"[green]Data exported to:[/] {ConsoleRenderingService.SafeMarkup(LastExportedFilePath)}"
-                );
-                return true;
-            }
-            else
-            {
-                AnsiConsole.MarkupLine("[red]Failed to export data[/]");
-                return false;
-            }
+            await ReplHelpers.ExportResults(LastSearchResults, filename);
+            AnsiConsole.MarkupLine($"[green]Exported results to:[/] {filename}");
+            return true;
         }
         catch (Exception ex)
         {

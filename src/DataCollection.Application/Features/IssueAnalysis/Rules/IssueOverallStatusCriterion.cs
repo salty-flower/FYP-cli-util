@@ -1,7 +1,9 @@
 using System.Text;
+using System.Text.Json.Serialization.Metadata;
 using DataCollection.Application.Models.IssueTracker.Profiles;
 using DataCollection.Core.Models.IssueTracker.Responses;
 using DataCollection.Infrastructure.Options;
+using DataCollection.Infrastructure.Serialization;
 using EnumsNET;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,16 +16,23 @@ public class IssueOverallStatusCriterion(
     OpenAIClient client,
     IOptionsSnapshot<LLMOptions> llmOptions,
     ILogger<IssueOverallStatusCriterion> logger,
-    IHttpClientFactory httpClientFactory
+    IHttpClientFactory httpClientFactory,
+    BatchFileHandler batchFileHandler,
+    BatchJobPoller batchJobPoller
 )
     : LargeLanguageModelCriterion<IssueProfile, IssueAnalysisResponse>(
         llmOptions.Value.IssueOverallStatusModel,
         logger,
         client,
-        httpClientFactory
+        httpClientFactory,
+        batchFileHandler,
+        batchJobPoller
     )
 {
     public bool FilterOutNonDeveloperComments { get; set; } = false;
+
+    protected override JsonTypeInfo<IssueAnalysisResponse> OutcomeJsonTypeInfo =>
+        AppJsonContext.Default.IssueAnalysisResponse;
 
     private const string SystemPrompt = """
         You are an experienced software engineer and open source community contributor,
@@ -110,7 +119,7 @@ public class IssueOverallStatusCriterion(
             otherEventsInfo.AppendLine("Other events:");
             foreach (var otherEvent in profile.OtherEvents)
                 otherEventsInfo.AppendLine(
-                    $"- {otherEvent.By.Login} {otherEvent.EventType} at {otherEvent.OccurredAt:s}: \"{otherEvent.EventDescription}\""
+                    $"- @{otherEvent.By.Login} {otherEvent.EventType} at {otherEvent.OccurredAt:s}: \"{otherEvent.EventDescription}\""
                 );
         }
 
@@ -123,7 +132,7 @@ public class IssueOverallStatusCriterion(
 
         var repoInfo = new StringBuilder();
         repoInfo
-            .Append($"Repository: {profile.SdkRepository.Name}. ")
+            .Append($"Repository: {profile.SdkRepository.Owner}/{profile.SdkRepository.Name}. ")
             .Append($"Stars: {profile.SdkRepository.StargazersCount}. ")
             .Append($"Forks: {profile.SdkRepository.ForksCount}. ")
             .Append($"Open issues: {profile.SdkRepository.OpenIssuesCount}. ");
@@ -175,7 +184,7 @@ public class IssueOverallStatusCriterion(
             </issue_content>
             """";
 
-        logger.LogDebug("Issue prompt: {Prompt}", prompt);
+        Logger.LogDebug("Issue prompt: {Prompt}", prompt);
 
         return [new SystemChatMessage(SystemPrompt), new UserChatMessage(prompt)];
     }

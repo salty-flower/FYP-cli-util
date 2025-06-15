@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using ConsoleAppFramework;
 using Microsoft.Extensions.Logging;
 using Python.Runtime;
@@ -14,6 +15,8 @@ internal class NLTKDataFilter(ConsoleAppFilter next, ILogger<NLTKDataFilter> log
         "taggers/averaged_perceptron_tagger_eng",
     ];
 
+    [RequiresUnreferencedCode("Uses dynamic types for Python interop.")]
+    [RequiresDynamicCode("Uses dynamic types for Python interop.")]
     public override async Task InvokeAsync(
         ConsoleAppContext context,
         CancellationToken cancellationToken

@@ -5,10 +5,10 @@ using DataCollection.Application.Models.Export.Results;
 using DataCollection.Application.Models.Export.Search;
 using DataCollection.Core.Models;
 using DataCollection.Infrastructure.Persistence;
+using DataCollection.Presentation.Cli.Commands.Repl.Helpers;
 using DataCollection.Presentation.Cli.Rendering;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
-using ReplJsonContext = DataCollection.Application.Models.Export.ReplJsonContext;
 
 namespace DataCollection.Presentation.Cli.Commands.Repl;
 
@@ -64,19 +64,19 @@ public class TextLinesReplCommand(
             );
 
             var selectedPdf = pdfDataList[Array.IndexOf(pdfChoices, selectedPdfDesc)];
-            RunSinglePdfRepl(selectedPdf, pdfDataList, cancellationToken);
+            await RunSinglePdfRepl(selectedPdf, pdfDataList, cancellationToken);
         }
         else
         {
             // Work with all PDFs
-            RunAllPdfsRepl(pdfDataList, cancellationToken);
+            await RunAllPdfsRepl(pdfDataList, cancellationToken);
         }
     }
 
     /// <summary>
     /// Run REPL for a single PDF
     /// </summary>
-    private void RunSinglePdfRepl(
+    private async Task RunSinglePdfRepl(
         PdfData pdfData,
         List<PdfData> allPdfData,
         CancellationToken cancellationToken
@@ -144,7 +144,7 @@ public class TextLinesReplCommand(
                         HandleShowAllCommand(parts);
                         break;
                     case "export":
-                        HandleExportCommand(parts);
+                        await HandleExportCommand(parts);
                         break;
                     default:
                         AnsiConsole.MarkupLine(
@@ -163,7 +163,7 @@ public class TextLinesReplCommand(
     /// <summary>
     /// Run REPL for all PDFs
     /// </summary>
-    private void RunAllPdfsRepl(List<PdfData> allPdfData, CancellationToken cancellationToken)
+    private async Task RunAllPdfsRepl(List<PdfData> allPdfData, CancellationToken cancellationToken)
     {
         AnsiConsole.Clear();
         AnsiConsole.Write(
@@ -219,7 +219,7 @@ public class TextLinesReplCommand(
                         HandleSearchAllCommand(allPdfData, parts);
                         break;
                     case "select":
-                        if (HandleSelectCommand(allPdfData, parts, cancellationToken))
+                        if (await HandleSelectCommand(allPdfData, parts, cancellationToken))
                         {
                             // If select command returns true, user wants to return to the main REPL
                             return;
@@ -229,7 +229,7 @@ public class TextLinesReplCommand(
                         HandleShowAllCommand(parts);
                         break;
                     case "export":
-                        HandleExportCommand(parts);
+                        await HandleExportCommand(parts);
                         break;
                     default:
                         AnsiConsole.MarkupLine(
@@ -498,7 +498,7 @@ public class TextLinesReplCommand(
     /// <summary>
     /// Handle the select command
     /// </summary>
-    private bool HandleSelectCommand(
+    private async Task<bool> HandleSelectCommand(
         List<PdfData> allPdfData,
         string[] parts,
         CancellationToken cancellationToken
@@ -535,7 +535,7 @@ public class TextLinesReplCommand(
 
         if (choice == "Inspect this PDF in detail")
         {
-            RunSinglePdfRepl(selectedPdf, allPdfData, cancellationToken);
+            await RunSinglePdfRepl(selectedPdf, allPdfData, cancellationToken);
 
             // Ask if the user wants to return to all PDFs mode or exit
             return AnsiConsole.Confirm("Return to all PDFs mode?");
@@ -544,10 +544,7 @@ public class TextLinesReplCommand(
         return false;
     }
 
-    /// <summary>
-    /// Handle the export command
-    /// </summary>
-    protected bool HandleExportCommand(string[] parts)
+    protected async Task<bool> HandleExportCommand(string[] parts)
     {
         string filename = parts[1];
 
@@ -559,23 +556,9 @@ public class TextLinesReplCommand(
 
         try
         {
-            // Determine the type of the last search results and use appropriate source generation
-            if (LastSearchResults is TextLinesSearchResult searchResult)
-            {
-                return WriteToFile(
-                    searchResult,
-                    filename,
-                    ReplJsonContext.Default.TextLinesSearchResult
-                );
-            }
-            else
-            {
-                AnsiConsole.MarkupLine(
-                    "[red]Unknown data type for export:[/] {Type}",
-                    LastSearchResults?.GetType().Name ?? "null"
-                );
-                return false;
-            }
+            await ReplHelpers.ExportResults(LastSearchResults, filename);
+            AnsiConsole.MarkupLine($"[green]Exported results to:[/] {filename}");
+            return true;
         }
         catch (Exception ex)
         {
@@ -693,14 +676,8 @@ public class TextLinesReplCommand(
             // Export if path is provided or log the results
             if (!string.IsNullOrEmpty(exportPath))
             {
-                if (WriteToFile(result, exportPath, ReplJsonContext.Default.TextLinesSearchResult))
-                {
-                    logger.LogInformation("Exported {Count} results to {Path}", total, exportPath);
-                }
-                else
-                {
-                    logger.LogError("Failed to export results to {Path}", exportPath);
-                }
+                await ReplHelpers.ExportResults(result, exportPath);
+                logger.LogInformation("Exported {Count} results to {Path}", total, exportPath);
             }
             else
             {

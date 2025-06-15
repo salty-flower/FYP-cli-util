@@ -1,4 +1,5 @@
-﻿using ConsoleAppFramework;
+﻿using System.Diagnostics.CodeAnalysis;
+using ConsoleAppFramework;
 using DataCollection.Presentation.Cli.Commands.Repl;
 using DataCollection.Presentation.Cli.Filters;
 
@@ -26,6 +27,8 @@ public class ReplCommands(
     /// Interactive REPL for testing keyword expressions against PDF content
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
+    [RequiresUnreferencedCode("Calls Run which requires unreferenced code.")]
+    [RequiresDynamicCode("Calls Run which requires dynamic code.")]
     public async Task PDF(CancellationToken cancellationToken = default) =>
         await pdfReplCommand.Run(cancellationToken);
 

@@ -4,12 +4,12 @@ using System.Runtime.CompilerServices;
 namespace DataCollection.Infrastructure.Options;
 
 [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
-public partial class PathsOptions
+public class PathsOptions
 {
     /// <summary>
     /// Base directory for all data files. Defaults to a data folder
     /// </summary>
-    public string BaseDir { get; set; } = "data";
+    public string BaseDir { get; init; } = "data";
 
     public string PaperBinDir
     {
@@ -35,18 +35,13 @@ public partial class PathsOptions
         init;
     } = "profiles";
 
-    /// <summary>
-    /// Path to Python DLL
-    /// </summary>
     public required string PythonDLL { get; init; }
 
-    /// <summary>
-    /// Returns the combined path of "{BaseDir}/{fieldValue}"
-    /// </summary>
     /// <param name="fieldValue"></param>
-    /// <returns></returns>
+    /// <returns>The combined path of "{BaseDir}/{fieldValue}"</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private string CombineWithBase(string fieldValue) => Path.Combine(BaseDir, fieldValue);
+    private string CombineWithBase(string fieldValue) =>
+        Path.Combine(BuildConstants.SolutionDirectory, BaseDir, fieldValue);
 
     public void EnsureDirectoriesExist() => Directory.CreateDirectory(PaperBinDir);
 }

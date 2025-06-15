@@ -1,0 +1,197 @@
+using System.Collections.Concurrent;
+using DataCollection.Infrastructure.Models.GitHub;
+using DataCollection.Infrastructure.Serialization;
+using GitHub.Models;
+using Microsoft.Extensions.Logging;
+using JsonSerializer = System.Text.Json.JsonSerializer;
+
+namespace DataCollection.Infrastructure.Clients.IssueTrackers;
+
+public class GitHubClient(
+    GitHub.GitHubClient gitHubClient,
+    IGitHubApi gitHubApi,
+    IRepositoryCache repositoryCache,
+    ILogger<GitHubClient> logger
+) : IGitHubClient
+{
+    private readonly ConcurrentDictionary<long, IReadOnlyList<Contributor>> repoContributorsCache =
+    [];
+    private readonly ConcurrentDictionary<string, object> userCache = [];
+
+    public async Task<List<string>> SearchForRepositoryAsync(string keyword) =>
+        (
+            await gitHubClient.Search.Repositories.GetAsync(requestConfiguration =>
+                requestConfiguration.QueryParameters.Q = keyword
+            )
+        )
+            ?.Items?.Select(repo => repo.FullName)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Cast<string>()
+            .ToList() ?? [];
+
+    public async Task<FullRepository> GetRepositoryInfoAsync(string owner, string repoName)
+    {
+        var cachedRepo = await repositoryCache.TryGetAsync(owner, repoName);
+        if (cachedRepo != null)
+        {
+            return cachedRepo;
+        }
+
+        var repository =
+            await gitHubClient.Repos[owner][repoName].GetAsync()
+            ?? throw new InvalidOperationException($"Repository {owner}/{repoName} not found");
+
+        await repositoryCache.SetAsync(owner, repoName, repository);
+
+        return repository;
+    }
+
+    public async Task<object> GetUserAsync(string userLogin)
+    {
+        if (userCache.TryGetValue(userLogin, out var cachedUser))
+            return cachedUser;
+
+        var user = await gitHubClient.Users[userLogin].GetAsync();
+
+        userCache[userLogin] =
+            user ?? throw new InvalidOperationException($"User {userLogin} not found");
+        return user;
+    }
+
+    public async Task<bool> IsUserContributorAsync(string userLogin, FullRepository repository)
+    {
+        var repoId = repository.Id.GetValueOrDefault();
+        if (repoContributorsCache.TryGetValue(repoId, out var contributors))
+            return contributors.Any(c => c.Login == userLogin);
+
+        // This is the most reliable public method to check for contributor status
+        // as the /collaborators endpoint requires admin/write/maintain permissions.
+        // This call can be expensive for repos with many contributors, but is cached after the first call.
+        logger.LogInformation(
+            "Fetching full contributor list for {Owner}/{RepoName} to check contributor status",
+            repository.Owner?.Login,
+            repository.Name
+        );
+
+        var contributorsResponse = await gitHubClient
+            .Repos[
+                repository.Owner?.Login
+                    ?? throw new InvalidOperationException("Repository owner is null")
+            ][repository.Name ?? throw new InvalidOperationException("Repository name is null")]
+            .Contributors.GetAsync();
+        contributors = contributorsResponse ?? new List<Contributor>();
+
+        repoContributorsCache[repoId] = contributors.ToList().AsReadOnly();
+
+        return contributors.Any(c => c.Login == userLogin);
+    }
+
+    public async Task<int> GetUserIssuesCountAsync(string userLogin, FullRepository repository)
+    {
+        var searchQuery =
+            $"type:issue author:{userLogin} repo:{repository.Owner?.Login}/{repository.Name}";
+        var searchJson = await gitHubApi.SearchIssuesAsync(searchQuery);
+
+        var searchResponse = JsonSerializer.Deserialize<GitHubSearchResponse>(
+            searchJson,
+            GitHubAPIJsonContext.Default.GitHubSearchResponse
+        );
+        return searchResponse?.TotalCount ?? 0;
+    }
+
+    public async Task<(int total, int merged)> GetUserPullRequestsAsync(
+        string userLogin,
+        FullRepository repository
+    )
+    {
+        var baseQuery =
+            $"type:pr author:{userLogin} repo:{repository.Owner?.Login}/{repository.Name}";
+        var totalCountTask = GetSearchCountAsync(baseQuery);
+        var mergedCountTask = GetSearchCountAsync($"{baseQuery} is:merged");
+
+        await Task.WhenAll(totalCountTask, mergedCountTask);
+
+        return (totalCountTask.Result, mergedCountTask.Result);
+    }
+
+    public async Task<Issue?> GetIssueAsync(string owner, string repoName, long issueNumber) =>
+        await gitHubClient.Repos[owner][repoName].Issues[(int)issueNumber].GetAsync();
+
+    public async Task<List<IssueComment>?> GetIssueCommentsAsync(
+        string owner,
+        string repoName,
+        long issueNumber
+    ) => await gitHubApi.GetIssueCommentsAsync(owner, repoName, issueNumber);
+
+    public async Task<List<GitHubEvent>?> GetIssueEventsAsync(
+        string owner,
+        string repoName,
+        long issueNumber
+    ) => await gitHubApi.GetIssueEventsAsync(owner, repoName, issueNumber);
+
+    public async Task<string?> GetRepositoryReadmeAsync(string owner, string repoName)
+    {
+        var readmeResponse = await gitHubClient.Repos[owner][repoName].Readme.GetAsync();
+        return DecodeBase64Content(readmeResponse?.Content);
+    }
+
+    public async Task<string?> GetFileContentAsync(string owner, string repoName, string filePath)
+    {
+        var fileContent = await gitHubApi.GetRepositoryFileContentAsync(owner, repoName, filePath);
+        return DecodeBase64Content(fileContent?.Content);
+    }
+
+    public async Task<RepositoryTree?> GetRepositoryTreeAsync(
+        string owner,
+        string repoName,
+        bool recursive = true
+    )
+    {
+        try
+        {
+            var repo = await GetRepositoryInfoAsync(owner, repoName);
+            var defaultBranch = repo.DefaultBranch ?? "main";
+
+            var json = await gitHubApi.GetGitTreeAsync(
+                owner,
+                repoName,
+                defaultBranch,
+                recursive ? 1 : null
+            );
+            return json != null
+                ? JsonSerializer.Deserialize(json, GitHubAPIJsonContext.Default.RepositoryTree)
+                : null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Could not get repository tree for {Owner}/{RepoName}",
+                owner,
+                repoName
+            );
+            return null;
+        }
+    }
+
+    public static string CreateEventDescription(GitHubEvent evt) => evt.Event ?? "Unknown event";
+
+    private async Task<int> GetSearchCountAsync(string query)
+    {
+        var json = await gitHubApi.SearchIssuesAsync(query);
+        var response = JsonSerializer.Deserialize<GitHubSearchResponse>(
+            json,
+            GitHubAPIJsonContext.Default.GitHubSearchResponse
+        );
+        return response?.TotalCount ?? 0;
+    }
+
+    private static string? DecodeBase64Content(string? content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return null;
+
+        var bytes = Convert.FromBase64String(content);
+        return System.Text.Encoding.UTF8.GetString(bytes);
+    }
+}

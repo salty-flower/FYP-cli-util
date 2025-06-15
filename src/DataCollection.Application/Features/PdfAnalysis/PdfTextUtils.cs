@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.RegularExpressions;
 using DataCollection.Application.Features.Nlp;
@@ -169,6 +170,8 @@ public static partial class PdfTextUtils
     /// <param name="nlpService">Optional NLP service for adjective filtering</param>
     /// <param name="adjectivesOnly">Whether to filter for adjectives only</param>
     /// <returns>Total number of bug sentences found</returns>
+    [RequiresUnreferencedCode("Calls AnalyzeSentenceAdjectives which requires unreferenced code.")]
+    [RequiresDynamicCode("Calls AnalyzeSentenceAdjectives which requires dynamic code.")]
     public static int ExtractBugSentences(
         PdfData pdfData,
         Regex bugPattern,

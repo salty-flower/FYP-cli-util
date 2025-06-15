@@ -1,0 +1,16 @@
+<linker>
+  <assembly fullname="Microsoft.Extensions.DependencyInjection" preserve="all" />
+  <assembly fullname="DataCollection.Infrastructure">
+    <type
+      fullname="DataCollection.Infrastructure.Persistence.DataCollectionDbContext"
+      preserve="all"
+    />
+  </assembly>
+  <assembly fullname="DataCollection.Presentation.Cli">
+    <type fullname="DataCollection.Presentation.Cli.Filters.NLTKDataFilter" preserve="all" />
+    <type
+      fullname="DataCollection.Presentation.Cli.Setup.ServiceRegistrationExtensions"
+      preserve="all"
+    />
+  </assembly>
+</linker>

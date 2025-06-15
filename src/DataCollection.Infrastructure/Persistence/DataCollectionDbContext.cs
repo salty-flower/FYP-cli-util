@@ -1,21 +1,23 @@
+using System.Diagnostics.CodeAnalysis;
 using DataCollection.Core.Models.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 
 namespace DataCollection.Infrastructure.Persistence;
 
-public class DataCollectionDbContext : DbContext
+[RequiresUnreferencedCode("EF Core is not trim-compatible.")]
+[RequiresDynamicCode("EF Core is not trim-compatible.")]
+public class DataCollectionDbContext(DbContextOptions<DataCollectionDbContext> options)
+    : DbContext(options)
 {
-    public DataCollectionDbContext(DbContextOptions<DataCollectionDbContext> options)
-        : base(options) { }
-
-    public DbSet<PaperEntity> Papers { get; set; }
-    public DbSet<PdfDataEntity> PdfData { get; set; }
-    public DbSet<IssueAnalysisEntity> IssueAnalyses { get; set; }
-    public DbSet<BugListDiscoveryEntity> BugListDiscoveries { get; set; }
-    public DbSet<PatternRule> PatternRules { get; set; }
-    public DbSet<KeywordRule> KeywordRules { get; set; }
-    public DbSet<UrlTypeRule> UrlTypeRules { get; set; }
+    public DbSet<PaperEntity> Papers { get; set; } = null!;
+    public DbSet<PdfDataEntity> PdfData { get; set; } = null!;
+    public DbSet<IssueAnalysisEntity> IssueAnalyses { get; set; } = null!;
+    public DbSet<BugListDiscoveryEntity> BugListDiscoveries { get; set; } = null!;
+    public DbSet<PatternRule> PatternRules { get; set; } = null!;
+    public DbSet<KeywordRule> KeywordRules { get; set; } = null!;
+    public DbSet<UrlTypeRule> UrlTypeRules { get; set; } = null!;
+    public DbSet<ConfigurationRule> ConfigurationRules { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -95,6 +97,14 @@ public class DataCollectionDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.Type, e.IsActive });
+            entity.HasIndex(e => e.Priority);
+        });
+
+        modelBuilder.Entity<ConfigurationRule>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.Category, e.Key }).IsUnique();
+            entity.HasIndex(e => new { e.Category, e.IsActive });
             entity.HasIndex(e => e.Priority);
         });
     }

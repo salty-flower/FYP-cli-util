@@ -1,10 +1,8 @@
 namespace DataCollection.Infrastructure.Options;
 
-public partial class CredentialOptions
+public class CredentialOptions
 {
-    public required string GitHubToken { get; set; } = string.Empty;
-    public required string OpenAIToken { get; set; } = string.Empty;
-    public string OpenAIBaseUrl { get; set; } = "https://api.openai.com/v1";
-    public string BigModel { get; set; } = "gpt-4.1";
-    public string SmallModel { get; set; } = "o4-mini";
+    public required string GitHubToken { get; init; } = string.Empty;
+    public required string OpenAIToken { get; init; } = string.Empty;
+    public string OpenAIBaseUrl { get; init; } = "https://api.openai.com/v1";
 }

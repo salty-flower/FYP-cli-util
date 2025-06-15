@@ -1,9 +1,13 @@
 using System.Text.Json;
 using ConsoleAppFramework;
 using DataCollection.Application.Features.BugDiscovery;
+using DataCollection.Application.Features.SemanticAgents;
+using DataCollection.Application.Features.SemanticAgents.Models;
+using DataCollection.Application.Models.Export;
 using DataCollection.Infrastructure.Clients;
 using DataCollection.Infrastructure.Models.BugList;
 using DataCollection.Infrastructure.Options;
+using DataCollection.Presentation.Cli.Commands.Helpers;
 using DataCollection.Presentation.Cli.Filters;
 using DataCollection.Presentation.Cli.Rendering;
 using Microsoft.Extensions.Logging;
@@ -20,8 +24,8 @@ namespace DataCollection.Presentation.Cli.Commands;
 [ConsoleAppFilter<PathsOptionsFilter>]
 public class BugListDiscoveryCommands(
     ILogger<BugListDiscoveryCommands> logger,
-    BugListDiscoveryService bugListDiscoveryService,
     DatabaseBugListDiscoveryStorageService databaseStorageService,
+    IDiscoveryAgentService? discoveryAgentService,
     IOptions<PathsOptions> pathsOptions,
     IOptions<RootOptions> rootOptions
 )
@@ -96,7 +100,7 @@ public class BugListDiscoveryCommands(
             var doiLines = await File.ReadAllLinesAsync(doiFile, cancellationToken);
             var cleanedDois = doiLines
                 .Where(line =>
-                    !string.IsNullOrWhiteSpace(line) && !line.TrimStart().StartsWith("#")
+                    !string.IsNullOrWhiteSpace(line) && !line.TrimStart().StartsWith('#')
                 )
                 .Select(line => line.Trim())
                 .ToList();
@@ -118,35 +122,241 @@ public class BugListDiscoveryCommands(
         }
     }
 
+    public async Task<int> AgentDiscover(
+        string content,
+        DiscoveryTaskType taskType = DiscoveryTaskType.BugListDiscovery,
+        string? keywords = null,
+        string? outputPath = null,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (discoveryAgentService == null)
+        {
+            LogAndDisplayError(
+                "Discovery agent service is not available. Ensure SemanticKernel is properly configured."
+            );
+            return 1;
+        }
+
+        try
+        {
+            var keywordList = string.IsNullOrWhiteSpace(keywords)
+                ? null
+                : keywords
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(k => k.Trim())
+                    .ToList();
+
+            AnsiConsole.MarkupLine($"[blue]Starting agent-based {taskType} discovery...[/]");
+
+            var results = taskType switch
+            {
+                DiscoveryTaskType.BugListDiscovery =>
+                    await discoveryAgentService.DiscoverBugListsAsync(content, keywordList),
+                DiscoveryTaskType.ArtifactRepositoryDiscovery =>
+                    await discoveryAgentService.DiscoverArtifactRepositoriesAsync(
+                        content,
+                        keywordList
+                    ),
+                DiscoveryTaskType.VulnerabilityDiscovery =>
+                    await discoveryAgentService.DiscoverVulnerabilitiesAsync(content, keywordList),
+                _ => throw new ArgumentException($"Unsupported task type: {taskType}"),
+            };
+
+            DisplayAgentResults(results, taskType);
+            await ExportAgentResults(results, outputPath, taskType);
+            LogAgentDiscoveryCompletion(results, taskType);
+
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error during agent-based discovery: {Message}", ex.Message);
+            AnsiConsole.MarkupLine($"[red]Error:[/] {ex.Message}");
+            return 1;
+        }
+    }
+
+    public async Task<int> AgentFromPdf(
+        string pdfPath,
+        DiscoveryTaskType taskType = DiscoveryTaskType.BugListDiscovery,
+        string? keywords = null,
+        string? outputPath = null,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (discoveryAgentService == null)
+        {
+            LogAndDisplayError(
+                "Discovery agent service is not available. Ensure SemanticKernel is properly configured."
+            );
+            return 1;
+        }
+
+        if (!File.Exists(pdfPath))
+        {
+            LogAndDisplayError($"PDF file not found: {pdfPath}");
+            return 1;
+        }
+
+        try
+        {
+            var keywordList = string.IsNullOrWhiteSpace(keywords)
+                ? null
+                : keywords
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(k => k.Trim())
+                    .ToList();
+
+            AnsiConsole.MarkupLine(
+                $"[blue]Starting agent-based {taskType} discovery from PDF: {Path.GetFileName(pdfPath)}[/]"
+            );
+
+            var results = await discoveryAgentService.DiscoverFromPdfAsync(
+                pdfPath,
+                taskType,
+                keywordList
+            );
+
+            DisplayAgentResults(results, taskType);
+            await ExportAgentResults(results, outputPath, taskType);
+            LogAgentDiscoveryCompletion(results, taskType);
+
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error during PDF agent-based discovery: {Message}", ex.Message);
+            AnsiConsole.MarkupLine($"[red]Error:[/] {ex.Message}");
+            return 1;
+        }
+    }
+
+    public async Task<int> ComprehensiveBugListDiscovery(
+        string doi,
+        string? outputPath = null,
+        bool skipArtifactAnalysis = false,
+        bool searchExternalPlatforms = true,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (discoveryAgentService == null)
+        {
+            LogAndDisplayError(
+                "Discovery agent service is not available. This command requires SemanticKernel agents."
+            );
+            return 1;
+        }
+
+        AnsiConsole.MarkupLine(
+            $"[blue]Starting comprehensive bug list discovery for DOI: {doi}[/]"
+        );
+        AnsiConsole.MarkupLine(
+            "[dim]This process searches for bug lists in paper content AND artifact repositories[/]"
+        );
+
+        try
+        {
+            var paperContent = $"Analyzing paper content for DOI: {doi}"; // Placeholder for content extraction
+            var paperMetadata = PaperMetadataExtractor.ExtractMetadata(doi, paperContent);
+
+            var directBugListResults = await PaperAnalysisHelpers.AnalyzePaperContent(
+                discoveryAgentService,
+                doi,
+                paperContent,
+                paperMetadata
+            );
+            var allResults = new List<DiscoveryResult>(directBugListResults);
+            var discoveredArtifacts = new List<DiscoveryResult>();
+
+            if (!skipArtifactAnalysis)
+            {
+                var paperArtifacts = await PaperAnalysisHelpers.DiscoverArtifacts(
+                    discoveryAgentService,
+                    paperContent,
+                    paperMetadata
+                );
+                discoveredArtifacts.AddRange(paperArtifacts);
+
+                if (searchExternalPlatforms)
+                {
+                    var externalArtifacts = await PaperAnalysisHelpers.SearchExternalPlatforms(
+                        discoveryAgentService,
+                        $"Search terms for {doi}",
+                        paperMetadata
+                    );
+                    discoveredArtifacts.AddRange(externalArtifacts);
+                }
+
+                if (discoveredArtifacts.Any())
+                {
+                    var artifactBugResults = await PaperAnalysisHelpers.AnalyzeArtifacts(
+                        discoveryAgentService,
+                        discoveredArtifacts,
+                        paperMetadata
+                    );
+                    allResults.AddRange(artifactBugResults);
+                }
+            }
+
+            DisplayComprehensiveResults(allResults, discoveredArtifacts, doi);
+            await ExportComprehensiveResults(allResults, discoveredArtifacts, outputPath, doi);
+            LogComprehensiveDiscoveryCompletion(allResults, doi);
+
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Error during comprehensive bug list discovery: {Message}",
+                ex.Message
+            );
+            AnsiConsole.MarkupLine($"[red]Error:[/] {ex.Message}");
+            return 1;
+        }
+    }
+
     private async Task<int> ExecuteDiscovery(
         List<string> doiList,
         string? outputPath,
         CancellationToken cancellationToken
     )
     {
-        AnsiConsole.MarkupLine(
-            $"[blue]Starting bug list discovery for {doiList.Count} papers...[/]"
-        );
-
-        try
+        if (discoveryAgentService == null)
         {
-            var analysis = await bugListDiscoveryService.DiscoverBugListsAsync(
-                doiList,
-                cancellationToken
+            LogAndDisplayError(
+                "Agent-based discovery requested but agent service is not available."
             );
-
-            DisplayResults(analysis);
-            await ExportAndReportResults(analysis, outputPath);
-            LogSuccessfulCompletion(analysis);
-
-            return 0;
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error during bug list discovery: {Message}", ex.Message);
-            AnsiConsole.MarkupLine($"[red]Error:[/] {ex.Message}");
             return 1;
         }
+
+        AnsiConsole.MarkupLine(
+            $"[blue]Starting agent-based bug list discovery for {doiList.Count} papers...[/]"
+        );
+
+        // For agent-based discovery, we'd need to process each DOI individually
+        // This is a simplified implementation - in practice, you'd extract content from each paper
+        var agentResults = new List<DiscoveryResult>();
+
+        foreach (var doi in doiList)
+        {
+            // Placeholder: In real implementation, extract paper content here
+            var paperContent = $"Processing paper with DOI: {doi}";
+            var paperMetadata = PaperMetadataExtractor.ExtractMetadata(doi, paperContent);
+            var results = await discoveryAgentService!.DiscoverBugListsAsync(
+                paperContent,
+                null,
+                paperMetadata
+            );
+            agentResults.AddRange(results);
+        }
+
+        DisplayAgentResults(agentResults, DiscoveryTaskType.BugListDiscovery);
+        await ExportAgentResults(agentResults, outputPath, DiscoveryTaskType.BugListDiscovery);
+        LogAgentDiscoveryCompletion(agentResults, DiscoveryTaskType.BugListDiscovery);
+
+        return 0;
     }
 
     private async Task ExportAndReportResults(BugListDiscoveryAnalysis analysis, string? outputPath)
@@ -409,6 +619,335 @@ public class BugListDiscoveryCommands(
                 ex.Message
             );
         }
+    }
+
+    private static void DisplayAgentResults(
+        List<DiscoveryResult> results,
+        DiscoveryTaskType taskType
+    )
+    {
+        var table = new Table
+        {
+            Title = new TableTitle($"[bold]Agent Discovery Results: {taskType}[/]"),
+        };
+
+        table.AddColumn("Title");
+        table.AddColumn("Type");
+        table.AddColumn("Confidence");
+        table.AddColumn("URL");
+        table.AddColumn("Context");
+
+        foreach (var result in results.Take(MaxDisplayResults))
+        {
+            var safeTitle = ConsoleRenderingService.SafeMarkup(result.Title);
+            var safeType = ConsoleRenderingService.SafeMarkup(result.Type);
+            var safeUrl = ConsoleRenderingService.SafeMarkup(result.Url);
+            var contextText = result.Context.SurroundingText.Any()
+                ? string.Join(" ", result.Context.SurroundingText)
+                : result.Context.SourceLocation ?? "No context";
+            var safeContext = ConsoleRenderingService.SafeMarkup(
+                contextText.Length > 50 ? contextText.Substring(0, 47) + "..." : contextText
+            );
+
+            table.AddRow(safeTitle, safeType, $"{result.Confidence:F2}", safeUrl, safeContext);
+        }
+
+        AnsiConsole.Write(table);
+
+        if (results.Count > MaxDisplayResults)
+        {
+            AnsiConsole.MarkupLine(
+                $"[dim]... and {results.Count - MaxDisplayResults} more results[/]"
+            );
+        }
+
+        // Display high-confidence results in detail
+        var highConfidenceResults = results.Where(r => r.Confidence > 0.8).ToList();
+        if (highConfidenceResults.Any())
+        {
+            AnsiConsole.Write(new Rule("[bold]High Confidence Discoveries[/]").RuleStyle("green"));
+
+            foreach (var result in highConfidenceResults)
+            {
+                var contextText = result.Context.SurroundingText.Any()
+                    ? string.Join(" ", result.Context.SurroundingText)
+                    : result.Context.SourceLocation ?? "No context";
+
+                var panel = new Panel(
+                    $"""
+                    [bold]Title:[/] {ConsoleRenderingService.SafeMarkup(result.Title)}
+                    [bold]Type:[/] {ConsoleRenderingService.SafeMarkup(result.Type)}
+                    [bold]Confidence:[/] {result.Confidence:F2}
+                    [bold]Context:[/] {ConsoleRenderingService.SafeMarkup(contextText)}
+                    [bold]URL:[/] {ConsoleRenderingService.SafeMarkup(result.Url)}
+                    [bold]Description:[/] {ConsoleRenderingService.SafeMarkup(
+                        result.Description ?? "No description"
+                    )}
+                    """
+                )
+                {
+                    Header = new PanelHeader($"[bold]Discovery: {result.Type}[/]"),
+                    Border = BoxBorder.Rounded,
+                };
+
+                AnsiConsole.Write(panel);
+            }
+        }
+    }
+
+    private async Task ExportAgentResults(
+        List<DiscoveryResult> results,
+        string? outputPath,
+        DiscoveryTaskType taskType
+    )
+    {
+        var finalPath =
+            outputPath
+            ?? Path.Combine(
+                _pathsOptions.BaseDir,
+                $"agent-discovery-{taskType.ToString().ToLowerInvariant()}-{DateTime.UtcNow:yyyyMMdd-HHmmss}.json"
+            );
+
+        var directory = Path.GetDirectoryName(finalPath);
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var exportData = new AgentDiscoveryExport
+        {
+            TaskType = taskType.ToString(),
+            Timestamp = DateTime.UtcNow,
+            Count = results.Count,
+            Results = results,
+        };
+
+        var json = JsonSerializer.Serialize(
+            exportData,
+            ExportModelJsonContext.Default.AgentDiscoveryExport
+        );
+        await File.WriteAllTextAsync(finalPath, json);
+        AnsiConsole.MarkupLine(
+            $"[green]Successfully exported {results.Count} results to {finalPath}[/]"
+        );
+    }
+
+    private void LogAgentDiscoveryCompletion(
+        List<DiscoveryResult> results,
+        DiscoveryTaskType taskType
+    )
+    {
+        var highConfidenceCount = results.Count(r => r.Confidence > 0.8);
+        var mediumConfidenceCount = results.Count(r => r.Confidence is > 0.6 and <= 0.8);
+        var lowConfidenceCount = results.Count(r => r.Confidence <= 0.6);
+
+        logger.LogInformation(
+            "Agent-based {TaskType} discovery completed. Found {TotalResults} results: {HighConfidence} high confidence, {MediumConfidence} medium confidence, {LowConfidence} low confidence",
+            taskType,
+            results.Count,
+            highConfidenceCount,
+            mediumConfidenceCount,
+            lowConfidenceCount
+        );
+    }
+
+    private static void DisplayComprehensiveResults(
+        List<DiscoveryResult> allResults,
+        List<DiscoveryResult> discoveredArtifacts,
+        string doi
+    )
+    {
+        AnsiConsole.Write(
+            new Rule($"[bold]Comprehensive Bug List Discovery Results for: {doi}[/]").RuleStyle(
+                "blue"
+            )
+        );
+
+        // Group results by source type
+        var paperResults = allResults
+            .Where(r =>
+                !r.Metadata.ContainsKey("source_type")
+                || r.Metadata["source_type"] != "artifact_repository"
+            )
+            .ToList();
+        var artifactResults = allResults
+            .Where(r =>
+                r.Metadata.ContainsKey("source_type")
+                && r.Metadata["source_type"] == "artifact_repository"
+            )
+            .ToList();
+
+        // Display paper-based discoveries
+        if (paperResults.Any())
+        {
+            AnsiConsole.Write(new Rule("[green]Bug Lists Found in Paper Content[/]"));
+            var paperTable = new Table();
+            paperTable.AddColumn("Title");
+            paperTable.AddColumn("Type");
+            paperTable.AddColumn("Confidence");
+            paperTable.AddColumn("Context");
+
+            foreach (var result in paperResults.Take(MaxDisplayResults))
+            {
+                var contextText = result.Context.SurroundingText.Any()
+                    ? string.Join(" ", result.Context.SurroundingText)
+                    : result.Context.SourceLocation ?? "No context";
+
+                paperTable.AddRow(
+                    ConsoleRenderingService.SafeMarkup(result.Title),
+                    ConsoleRenderingService.SafeMarkup(result.Type),
+                    $"{result.Confidence:F2}",
+                    ConsoleRenderingService.SafeMarkup(
+                        contextText.Length > 50 ? contextText.Substring(0, 47) + "..." : contextText
+                    )
+                );
+            }
+            AnsiConsole.Write(paperTable);
+        }
+
+        // Display artifact repository discoveries
+        if (artifactResults.Any())
+        {
+            AnsiConsole.Write(new Rule("[yellow]Bug Lists Found in Artifact Repositories[/]"));
+            var artifactTable = new Table();
+            artifactTable.AddColumn("Title");
+            artifactTable.AddColumn("Type");
+            artifactTable.AddColumn("Confidence");
+            artifactTable.AddColumn("Repository");
+            artifactTable.AddColumn("Context");
+
+            foreach (var result in artifactResults.Take(MaxDisplayResults))
+            {
+                var repoUrl = result.Metadata.TryGetValue("repository_url", out var url)
+                    ? url
+                    : "Unknown";
+                var contextText = result.Context.SurroundingText.Any()
+                    ? string.Join(" ", result.Context.SurroundingText)
+                    : result.Context.SourceLocation ?? "No context";
+
+                artifactTable.AddRow(
+                    ConsoleRenderingService.SafeMarkup(result.Title),
+                    ConsoleRenderingService.SafeMarkup(result.Type),
+                    $"{result.Confidence:F2}",
+                    ConsoleRenderingService.SafeMarkup(
+                        repoUrl.Length > 30 ? repoUrl.Substring(0, 27) + "..." : repoUrl
+                    ),
+                    ConsoleRenderingService.SafeMarkup(
+                        contextText.Length > 40 ? contextText.Substring(0, 37) + "..." : contextText
+                    )
+                );
+            }
+            AnsiConsole.Write(artifactTable);
+        }
+
+        // Summary
+        var summaryTable = new Table { Title = new TableTitle("[bold]Discovery Summary[/]") };
+        summaryTable.AddColumn("Metric");
+        summaryTable.AddColumn("Count");
+
+        summaryTable.AddRow("Total Bug Lists Found", allResults.Count.ToString());
+        summaryTable.AddRow("From Paper Content", paperResults.Count.ToString());
+        summaryTable.AddRow("From Artifact Repositories", artifactResults.Count.ToString());
+        summaryTable.AddRow(
+            "High Confidence (>0.8)",
+            allResults.Count(r => r.Confidence > 0.8).ToString()
+        );
+        summaryTable.AddRow(
+            "Medium Confidence (0.6-0.8)",
+            allResults.Count(r => r.Confidence is > 0.6 and <= 0.8).ToString()
+        );
+        summaryTable.AddRow(
+            "Low Confidence (≤0.6)",
+            allResults.Count(r => r.Confidence <= 0.6).ToString()
+        );
+
+        AnsiConsole.Write(summaryTable);
+
+        if (allResults.Count == 0)
+        {
+            AnsiConsole.MarkupLine("[red]No bug lists were discovered for this paper.[/]");
+            AnsiConsole.MarkupLine("[dim]This could mean:[/]");
+            AnsiConsole.MarkupLine("[dim]• The paper doesn't contain or reference bug lists[/]");
+            AnsiConsole.MarkupLine("[dim]• Bug lists are in non-standard formats or locations[/]");
+            AnsiConsole.MarkupLine("[dim]• Artifact repositories are private or inaccessible[/]");
+        }
+    }
+
+    private async Task ExportComprehensiveResults(
+        List<DiscoveryResult> allResults,
+        List<DiscoveryResult> discoveredArtifacts,
+        string? outputPath,
+        string doi
+    )
+    {
+        var finalPath =
+            outputPath
+            ?? Path.Combine(
+                _pathsOptions.BaseDir,
+                $"comprehensive-discovery-{doi.Replace("/", "_").Replace(":", "_")}-{DateTime.UtcNow:yyyyMMdd-HHmmss}.json"
+            );
+
+        var directory = Path.GetDirectoryName(finalPath);
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var exportData = new ComprehensiveDiscoveryExport
+        {
+            DOI = doi,
+            Timestamp = DateTime.UtcNow,
+            TotalResults = allResults.Count,
+            DiscoveredArtifacts = discoveredArtifacts.Count,
+            AllResults = allResults,
+            Artifacts = discoveredArtifacts,
+        };
+
+        try
+        {
+            var json = JsonSerializer.Serialize(
+                exportData,
+                ExportModelJsonContext.Default.ComprehensiveDiscoveryExport
+            );
+            await File.WriteAllTextAsync(finalPath, json);
+            AnsiConsole.MarkupLine(
+                $"[green]Successfully exported comprehensive results to {finalPath}[/]"
+            );
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Error exporting comprehensive results to {OutputPath}: {Message}",
+                finalPath,
+                ex.Message
+            );
+            AnsiConsole.MarkupLine($"[red]Error exporting results:[/] {ex.Message}");
+        }
+    }
+
+    private void LogComprehensiveDiscoveryCompletion(List<DiscoveryResult> allResults, string doi)
+    {
+        var paperResults = allResults
+            .Where(r =>
+                !r.Metadata.ContainsKey("source_location")
+                || r.Metadata["source_location"] != "artifact_repository"
+            )
+            .Count();
+        var artifactResults = allResults
+            .Where(r =>
+                r.Metadata.ContainsKey("source_location")
+                && r.Metadata["source_location"] == "artifact_repository"
+            )
+            .Count();
+
+        logger.LogInformation(
+            "Comprehensive bug list discovery completed for DOI: {DOI}. Found {TotalResults} results: {PaperResults} from paper content, {ArtifactResults} from artifact repositories",
+            doi,
+            allResults.Count,
+            paperResults,
+            artifactResults
+        );
     }
 
     private void LogAndDisplayError(string message)

@@ -31,15 +31,15 @@ public class GitHubEvent
         };
 }
 
-public record class GitHubEventDetails
+public record GitHubEventDetails
 {
-    public GitHubRename? Rename { get; init; } = null;
-    public GitHubDismissedReview? DismissedReview { get; init; } = null;
-    public string? MilestoneTitle { get; init; } = null;
-    public string? Assignee { get; init; } = null;
-    public string? Assigner { get; init; } = null;
-    public string? ReviewRequester { get; init; } = null;
-    public string? RequestedReviewer { get; init; } = null;
+    public GitHubRename? Rename { get; init; }
+    public GitHubDismissedReview? DismissedReview { get; init; }
+    public string? MilestoneTitle { get; init; }
+    public string? Assignee { get; init; }
+    public string? Assigner { get; init; }
+    public string? ReviewRequester { get; init; }
+    public string? RequestedReviewer { get; init; }
 }
 
 public class GitHubUser

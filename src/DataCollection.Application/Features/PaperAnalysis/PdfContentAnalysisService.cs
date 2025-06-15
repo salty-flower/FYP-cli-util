@@ -1,4 +1,6 @@
 using System.Text.RegularExpressions;
+using DataCollection.Application.Common.Services;
+using DataCollection.Application.Features.BugDiscovery;
 using DataCollection.Application.Features.PatternMatching;
 using DataCollection.Common.Extensions;
 using DataCollection.Core.Models;
@@ -25,22 +27,19 @@ internal class PdfBugTableInfo
 /// <summary>
 /// Service responsible for analyzing PDF content to extract bug lists and artifact repositories
 /// </summary>
-public class PdfContentAnalysisService(
+public partial class PdfContentAnalysisService(
     DatabaseDataLoadingService databaseDataLoadingService,
     IPatternMatchingService patternMatchingService,
     ILogger<PdfContentAnalysisService> logger,
     OpenAIClient oaiClient,
     IOptionsSnapshot<LLMOptions> llmOpts,
-    IOptions<PathsOptions> pathsOptions
+    LlmPromptService llmPromptService,
+    ValidationService validationService
 )
 {
     private readonly ChatClient chatClient = oaiClient.GetChatClient(
         llmOpts.Value.PdfContentAnalysisModel
     );
-
-    // Constants
-    private const int ContextWindowSize = 200;
-    private const int MaxTextLengthForLlm = 4000;
 
     // Issue number patterns - keeping these as they're specific to PDF parsing
     private static readonly string[] IssueNumberPatterns =
@@ -60,46 +59,58 @@ public class PdfContentAnalysisService(
     /// <summary>
     /// Main method to extract bug lists and artifacts from PDF content
     /// </summary>
-    public async Task ExtractFromPdfContent(
+    public async Task<PdfAnalysisResult> ExtractFromPdfContent(
         Paper paper,
-        BugListDiscoveryResult result,
         CancellationToken cancellationToken
     )
     {
+        validationService.ValidatePaper(paper);
+
         var pdfData = await LoadPdfDataAsync(paper);
         if (pdfData == null)
         {
             logger.LogWarning("No PDF data found for paper {PaperDoi}", paper.Doi);
-            return;
+            return new PdfAnalysisResult();
         }
 
         var fullText = string.Join(" ", pdfData.TextLines).RemoveLineEndings();
         if (string.IsNullOrWhiteSpace(fullText))
         {
             logger.LogWarning("Empty PDF content for paper {PaperDoi}", paper.Doi);
-            return;
+            return new PdfAnalysisResult();
         }
 
-        logger.LogInformation(
-            "Analyzing PDF content for paper {PaperDoi} ({TextLength} chars)",
-            paper.Doi,
-            fullText.Length
-        );
+        LogPdfAnalysis(paper.Doi, "started", fullText.Length);
+
+        var bugLists = new List<BugListSource>();
+        var artifactRepositories = new List<ArtifactRepository>();
 
         // Extract direct URLs first
-        await ExtractDirectUrls(fullText, result, cancellationToken);
+        await ExtractDirectUrls(fullText, bugLists, artifactRepositories, cancellationToken);
 
         // Extract structured bug lists from tables
-        await ExtractStructuredBugLists(pdfData, result, cancellationToken);
+        await ExtractStructuredBugLists(pdfData, bugLists, cancellationToken);
 
         // Extract artifacts by keywords
-        await ExtractArtifactsByKeywords(fullText, result, paper, cancellationToken);
+        await ExtractArtifactsByKeywords(fullText, artifactRepositories, paper, cancellationToken);
 
         // Process URLs found in text
-        await ProcessUrlsInText(fullText, result, paper, cancellationToken);
+        await ProcessUrlsInText(fullText, bugLists, artifactRepositories, paper, cancellationToken);
 
         // Analyze with LLM for additional insights
-        await AnalyzeTextWithLlm(paper, fullText, result, cancellationToken);
+        await AnalyzeTextWithLlm(
+            paper,
+            fullText,
+            bugLists,
+            artifactRepositories,
+            cancellationToken
+        );
+
+        return new PdfAnalysisResult
+        {
+            BugLists = bugLists.DistinctBy(b => b.Url).ToList(),
+            ArtifactRepositories = artifactRepositories.DistinctBy(r => r.Url).ToList(),
+        };
     }
 
     private async Task<PdfData?> LoadPdfDataAsync(Paper paper)
@@ -117,17 +128,18 @@ public class PdfContentAnalysisService(
 
     private async Task ExtractDirectUrls(
         string text,
-        BugListDiscoveryResult result,
+        List<BugListSource> bugLists,
+        List<ArtifactRepository> artifactRepositories,
         CancellationToken cancellationToken
     )
     {
-        await ExtractBugTrackingUrls(text.Replace(" ", ""), result, cancellationToken);
-        await ExtractRepositoryUrls(text.Replace(" ", ""), result, cancellationToken);
+        await ExtractBugTrackingUrls(text.Replace(" ", ""), bugLists, cancellationToken);
+        await ExtractRepositoryUrls(text.Replace(" ", ""), artifactRepositories, cancellationToken);
     }
 
     private async Task ExtractBugTrackingUrls(
         string text,
-        BugListDiscoveryResult result,
+        List<BugListSource> bugLists,
         CancellationToken cancellationToken
     )
     {
@@ -138,24 +150,15 @@ public class PdfContentAnalysisService(
 
         foreach (var match in matches)
         {
-            if (
-                !result.BugLists.Any(b =>
-                    b.Url.Equals(match.Value, StringComparison.OrdinalIgnoreCase)
-                )
-            )
+            if (!bugLists.Any(b => b.Url.Equals(match.Value, StringComparison.OrdinalIgnoreCase)))
             {
                 var urlType = await patternMatchingService.DetermineUrlTypeAsync(
                     match.Value,
                     cancellationToken
                 );
-                var confidence = await patternMatchingService.CalculateConfidenceAsync(
-                    text,
-                    "PdfAnalysis",
-                    1,
-                    cancellationToken
-                );
+                var confidence = patternMatchingService.CalculateConfidence(text, "PdfAnalysis", 1);
 
-                result.BugLists.Add(
+                bugLists.Add(
                     new BugListSource
                     {
                         Url = match.Value,
@@ -171,7 +174,7 @@ public class PdfContentAnalysisService(
 
     private async Task ExtractRepositoryUrls(
         string text,
-        BugListDiscoveryResult result,
+        List<ArtifactRepository> artifactRepositories,
         CancellationToken cancellationToken
     )
     {
@@ -180,7 +183,7 @@ public class PdfContentAnalysisService(
         foreach (var match in matches)
         {
             if (
-                !result.ArtifactRepositories.Any(r =>
+                !artifactRepositories.Any(r =>
                     r.Url.Equals(match.Value, StringComparison.OrdinalIgnoreCase)
                 )
             )
@@ -189,14 +192,9 @@ public class PdfContentAnalysisService(
                     match.Value,
                     cancellationToken
                 );
-                var confidence = await patternMatchingService.CalculateConfidenceAsync(
-                    text,
-                    "PdfAnalysis",
-                    1,
-                    cancellationToken
-                );
+                var confidence = patternMatchingService.CalculateConfidence(text, "PdfAnalysis", 1);
 
-                result.ArtifactRepositories.Add(
+                artifactRepositories.Add(
                     new ArtifactRepository
                     {
                         Url = match.Value,
@@ -211,7 +209,7 @@ public class PdfContentAnalysisService(
 
     private async Task ExtractStructuredBugLists(
         PdfData pdfData,
-        BugListDiscoveryResult result,
+        List<BugListSource> bugLists,
         CancellationToken cancellationToken
     )
     {
@@ -234,7 +232,7 @@ public class PdfContentAnalysisService(
                     cancellationToken
                 );
 
-                result.BugLists.Add(
+                bugLists.Add(
                     new BugListSource
                     {
                         Url = repository ?? "Unknown",
@@ -287,8 +285,8 @@ public class PdfContentAnalysisService(
 
     private string ExtractTableContext(string text, int matchIndex)
     {
-        var start = Math.Max(0, matchIndex - ContextWindowSize);
-        var end = Math.Min(text.Length, matchIndex + ContextWindowSize);
+        var start = Math.Max(0, matchIndex - BugDiscoveryConstants.ContextWindowSize);
+        var end = Math.Min(text.Length, matchIndex + BugDiscoveryConstants.ContextWindowSize);
         return text.Substring(start, end - start);
     }
 
@@ -359,32 +357,22 @@ public class PdfContentAnalysisService(
         if (index == -1)
             return tableTitle;
 
-        var start = Math.Max(0, index - ContextWindowSize * 2);
-        var end = Math.Min(fullText.Length, index + ContextWindowSize * 2);
+        var start = Math.Max(0, index - BugDiscoveryConstants.ContextWindowSize * 2);
+        var end = Math.Min(fullText.Length, index + BugDiscoveryConstants.ContextWindowSize * 2);
         return fullText.Substring(start, end - start);
     }
 
     private double CalculateBugListConfidence(PdfBugTableInfo tableInfo, int issueCount)
     {
-        var confidence = 0.9; // PDF analysis base confidence
-
-        // Boost confidence based on issue count
-        if (issueCount > 10)
-            confidence += 0.05;
-        if (issueCount > 50)
-            confidence += 0.05;
-
-        // Boost confidence if table title contains specific keywords
         var title = tableInfo.Title.ToLowerInvariant();
-        if (title.Contains("bug") || title.Contains("issue") || title.Contains("defect"))
-            confidence += 0.05;
-
-        return Math.Min(1.0, confidence);
+        var hasKeywords =
+            title.Contains("bug") || title.Contains("issue") || title.Contains("defect");
+        return ConfidenceCalculationService.CalculatePdfAnalysisConfidence(issueCount, hasKeywords);
     }
 
     private async Task ExtractArtifactsByKeywords(
         string text,
-        BugListDiscoveryResult result,
+        List<ArtifactRepository> artifactRepositories,
         Paper paper,
         CancellationToken cancellationToken
     )
@@ -392,15 +380,20 @@ public class PdfContentAnalysisService(
         var normalizedText = text.ToLowerInvariant();
 
         // Process artifact sections
-        await ProcessArtifactSections(normalizedText, result, paper, cancellationToken);
+        await ProcessArtifactSections(
+            normalizedText,
+            artifactRepositories,
+            paper,
+            cancellationToken
+        );
 
         // Process keyword sentences
-        await ProcessKeywordSentences(normalizedText, result, cancellationToken);
+        await ProcessKeywordSentences(normalizedText, artifactRepositories, cancellationToken);
     }
 
     private async Task ProcessArtifactSections(
         string normalizedText,
-        BugListDiscoveryResult result,
+        List<ArtifactRepository> artifactRepositories,
         Paper paper,
         CancellationToken cancellationToken
     )
@@ -414,31 +407,48 @@ public class PdfContentAnalysisService(
         foreach (var match in artifactMatches)
         {
             var sectionContent = ExtractSurroundingContext(normalizedText, match.Value);
-            await ProcessUrlsInText(sectionContent, result, paper, cancellationToken);
+            await ProcessUrlsInText(
+                sectionContent,
+                new List<BugListSource>(),
+                artifactRepositories,
+                paper,
+                cancellationToken
+            ); // We only care about repos here
         }
     }
 
+    [GeneratedRegex(@"https?://[^\s<>""']+", RegexOptions.IgnoreCase)]
+    private static partial Regex UrlRegex();
+
     private async Task ProcessUrlsInText(
         string text,
-        BugListDiscoveryResult result,
+        List<BugListSource> bugLists,
+        List<ArtifactRepository> artifactRepositories,
         Paper paper,
         CancellationToken cancellationToken
     )
     {
-        var urlPattern = @"https?://[^\s<>""']+";
-        var matches = Regex.Matches(text, urlPattern, RegexOptions.IgnoreCase);
+        var matches = UrlRegex().Matches(text);
 
         foreach (Match match in matches)
         {
             var url = match.Value.TrimEnd('.', ',', ';', ')', ']', '}', ' ', '\t', '\n', '\r');
-            await ProcessFoundUrl(url, text, result, paper, cancellationToken);
+            await ProcessFoundUrl(
+                url,
+                text,
+                bugLists,
+                artifactRepositories,
+                paper,
+                cancellationToken
+            );
         }
     }
 
     private async Task ProcessFoundUrl(
         string url,
         string fullText,
-        BugListDiscoveryResult result,
+        List<BugListSource> bugLists,
+        List<ArtifactRepository> artifactRepositories,
         Paper paper,
         CancellationToken cancellationToken
     )
@@ -454,24 +464,29 @@ public class PdfContentAnalysisService(
 
         if (repoMatches.Any())
         {
-            await ProcessRepositoryUrl(url, fullText, result, paper, cancellationToken);
+            await ProcessRepositoryUrl(
+                url,
+                fullText,
+                artifactRepositories,
+                paper,
+                cancellationToken
+            );
         }
         else if (bugMatches.Any())
         {
-            if (!result.BugLists.Any(b => b.Url.Equals(url, StringComparison.OrdinalIgnoreCase)))
+            if (!bugLists.Any(b => b.Url.Equals(url, StringComparison.OrdinalIgnoreCase)))
             {
                 var urlType = await patternMatchingService.DetermineUrlTypeAsync(
                     url,
                     cancellationToken
                 );
-                var confidence = await patternMatchingService.CalculateConfidenceAsync(
+                var confidence = patternMatchingService.CalculateConfidence(
                     fullText,
                     "PdfAnalysis",
-                    1,
-                    cancellationToken
+                    1
                 );
 
-                result.BugLists.Add(
+                bugLists.Add(
                     new BugListSource
                     {
                         Url = url,
@@ -488,27 +503,21 @@ public class PdfContentAnalysisService(
     private async Task ProcessRepositoryUrl(
         string url,
         string fullText,
-        BugListDiscoveryResult result,
+        List<ArtifactRepository> artifactRepositories,
         Paper paper,
         CancellationToken cancellationToken
     )
     {
-        if (
-            !result.ArtifactRepositories.Any(r =>
-                r.Url.Equals(url, StringComparison.OrdinalIgnoreCase)
-            )
-        )
+        if (!artifactRepositories.Any(r => r.Url.Equals(url, StringComparison.OrdinalIgnoreCase)))
         {
             var context = ExtractUrlContext(url, fullText);
             var hasKeywords = await ContainsArtifactKeywords(context, cancellationToken);
-            var confidence = await patternMatchingService.CalculateConfidenceAsync(
+            var confidence = ConfidenceCalculationService.CalculateKeywordAnalysisConfidence(
                 context,
-                hasKeywords ? "KeywordAnalysis" : "PdfAnalysis",
-                1,
-                cancellationToken
+                hasKeywords
             );
 
-            result.ArtifactRepositories.Add(
+            artifactRepositories.Add(
                 new ArtifactRepository
                 {
                     Url = url,
@@ -529,14 +538,17 @@ public class PdfContentAnalysisService(
         if (index == -1)
             return "";
 
-        var start = Math.Max(0, index - ContextWindowSize);
-        var end = Math.Min(fullText.Length, index + url.Length + ContextWindowSize);
+        var start = Math.Max(0, index - BugDiscoveryConstants.ContextWindowSize);
+        var end = Math.Min(
+            fullText.Length,
+            index + url.Length + BugDiscoveryConstants.ContextWindowSize
+        );
         return fullText.Substring(start, end - start);
     }
 
     private async Task ProcessKeywordSentences(
         string normalizedText,
-        BugListDiscoveryResult result,
+        List<ArtifactRepository> artifactRepositories,
         CancellationToken cancellationToken
     )
     {
@@ -546,7 +558,7 @@ public class PdfContentAnalysisService(
         {
             if (await ContainsArtifactKeywords(sentence, cancellationToken))
             {
-                await ProcessUrlsInSentence(sentence, result, cancellationToken);
+                await ProcessUrlsInSentence(sentence, artifactRepositories, cancellationToken);
             }
         }
     }
@@ -566,7 +578,7 @@ public class PdfContentAnalysisService(
 
     private async Task ProcessUrlsInSentence(
         string sentence,
-        BugListDiscoveryResult result,
+        List<ArtifactRepository> artifactRepositories,
         CancellationToken cancellationToken
     )
     {
@@ -578,7 +590,7 @@ public class PdfContentAnalysisService(
         foreach (var match in matches)
         {
             if (
-                !result.ArtifactRepositories.Any(r =>
+                !artifactRepositories.Any(r =>
                     r.Url.Equals(match.Value, StringComparison.OrdinalIgnoreCase)
                 )
             )
@@ -587,14 +599,12 @@ public class PdfContentAnalysisService(
                     match.Value,
                     cancellationToken
                 );
-                var confidence = await patternMatchingService.CalculateConfidenceAsync(
+                var confidence = ConfidenceCalculationService.CalculateKeywordAnalysisConfidence(
                     sentence,
-                    "KeywordAnalysis",
-                    1,
-                    cancellationToken
+                    true
                 );
 
-                result.ArtifactRepositories.Add(
+                artifactRepositories.Add(
                     new ArtifactRepository
                     {
                         Url = match.Value,
@@ -607,35 +617,42 @@ public class PdfContentAnalysisService(
         }
     }
 
+    private void LogPdfAnalysis(string paperDoi, string action, int? textLength = null)
+    {
+        if (textLength.HasValue)
+            logger.LogInformation(
+                "PDF analysis {Action} for paper {PaperDoi} ({TextLength} chars)",
+                action,
+                paperDoi,
+                textLength.Value
+            );
+        else
+            logger.LogInformation("PDF analysis {Action} for paper {PaperDoi}", action, paperDoi);
+    }
+
     private async Task AnalyzeTextWithLlm(
         Paper paper,
         string fullText,
-        BugListDiscoveryResult result,
+        List<BugListSource> bugLists,
+        List<ArtifactRepository> artifactRepositories,
         CancellationToken cancellationToken
     )
     {
-        try
-        {
-            var truncatedText = TruncateTextForLlm(fullText);
-            var analysis = await GetLlmAnalysis(paper, truncatedText, cancellationToken);
+        var truncatedText = TruncateTextForLlm(fullText);
+        var analysis = await GetLlmAnalysis(paper, truncatedText, cancellationToken);
 
-            if (analysis != null)
-            {
-                // Process LLM analysis results
-                // This would parse the LLM response and add findings to result
-                logger.LogDebug("LLM analysis completed for paper {PaperDoi}", paper.Doi);
-            }
-        }
-        catch (Exception ex)
+        if (analysis != null)
         {
-            logger.LogWarning(ex, "LLM analysis failed for paper {PaperDoi}", paper.Doi);
+            // TODO: Process LLM analysis results
+            // This would parse the LLM response and add findings to the local lists
+            LogPdfAnalysis(paper.Doi, "LLM analysis completed");
         }
     }
 
     private string TruncateTextForLlm(string fullText)
     {
-        return fullText.Length > MaxTextLengthForLlm
-            ? fullText.Substring(0, MaxTextLengthForLlm)
+        return fullText.Length > BugDiscoveryConstants.MaxTextLengthForLlm
+            ? fullText.Substring(0, BugDiscoveryConstants.MaxTextLengthForLlm)
             : fullText;
     }
 
@@ -645,30 +662,12 @@ public class PdfContentAnalysisService(
         CancellationToken cancellationToken
     )
     {
-        var prompt =
-            $@"Analyze this research paper text and identify:
-1. Bug tracking systems or issue trackers mentioned
-2. Source code repositories or artifacts
-3. Any references to bug lists, defect databases, or issue collections
-
-Paper title: {paper.Title}
-Text: {text}
-
-Provide URLs and brief descriptions for any findings.";
-
-        try
-        {
-            var messages = new[] { new UserChatMessage(prompt) };
-            var response = await chatClient.CompleteChatAsync(
-                messages,
-                cancellationToken: cancellationToken
-            );
-            return response?.Value?.Content?.FirstOrDefault()?.Text;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to get LLM analysis");
-            return null;
-        }
+        var prompt = llmPromptService.CreatePdfAnalysisPrompt(paper, text);
+        var messages = new[] { new UserChatMessage(prompt) };
+        var response = await chatClient.CompleteChatAsync(
+            messages,
+            cancellationToken: cancellationToken
+        );
+        return response?.Value?.Content?.FirstOrDefault()?.Text;
     }
 }

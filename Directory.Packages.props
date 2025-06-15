@@ -8,35 +8,42 @@
     <CentralPackageTransitivePinningEnabled>
       true
     </CentralPackageTransitivePinningEnabled>
+    <DotNetPreviewVersion>10.0.0-preview.7.25368.102</DotNetPreviewVersion>
   </PropertyGroup>
   <ItemGroup>
     <!-- Functional programming -->
-    <PackageVersion Include="GitHub.Octokit.SDK" Version="0.0.31" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="9.0.5" />
-    <PackageVersion Include="Microsoft.SemanticKernel" Version="1.54.0" />
-    <PackageVersion Include="Microsoft.SemanticKernel.Plugins.Web" Version="1.54.0-alpha" />
+    <PackageVersion Include="AspectInjector" Version="2.8.2" />
     <PackageVersion Include="morelinq" Version="4.4.0" />
     <PackageVersion Include="Enums.NET" Version="5.0.0" />
     <!-- Data -->
-    <PackageVersion Include="HtmlAgilityPack" Version="1.12.1" />
-    <PackageVersion Include="Microsoft.Extensions.Http" Version="9.0.5" />
-    <PackageVersion Include="MinimalHttpLogger" Version="3.0.0" />
+    <PackageVersion Include="HtmlAgilityPack" Version="1.12.2" />
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageVersion Include="OpenAI" Version="2.2.0-beta.4" />
-    <PackageVersion Include="LarchSys.OpenAi.JsonSchema" Version="0.2.3" />
+    <PackageVersion Include="LarchSys.OpenAi.JsonSchema" Version="0.3.0" />
     <PackageVersion Include="NJsonSchema" Version="11.3.2" />
     <PackageVersion Include="Refit.HttpClientFactory" Version="8.0.0" />
-    <PackageVersion Include="System.Threading.RateLimiting" Version="9.0.5" />
+    <PackageVersion Include="System.Threading.RateLimiting" Version="$(DotNetPreviewVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="$(DotNetPreviewVersion)" />
     <!-- Entity Framework -->
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.5" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.5" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="$(DotNetPreviewVersion)" />
+    <PackageVersion
+      Include="Microsoft.EntityFrameworkCore.Sqlite"
+      Version="$(DotNetPreviewVersion)"
+    />
+    <PackageVersion
+      Include="Microsoft.EntityFrameworkCore.Design"
+      Version="$(DotNetPreviewVersion)"
+    />
     <!-- Hosting -->
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.5" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="$(DotNetPreviewVersion)" />
     <PackageVersion
       Include="Microsoft.Extensions.Configuration.EnvironmentVariables"
-      Version="9.0.5"
+      Version="$(DotNetPreviewVersion)"
     />
-    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="9.0.5" />
+    <PackageVersion
+      Include="Microsoft.Extensions.Configuration.Json"
+      Version="$(DotNetPreviewVersion)"
+    />
     <!-- IDisposable -->
     <PackageVersion Include="Fody" Version="6.9.1">
       <PrivateAssets>all</PrivateAssets>
@@ -55,7 +62,11 @@
     <PackageVersion Include="Serilog.Sinks.Console" Version="6.0.0" />
     <PackageVersion Include="Serilog.Enrichers.Environment" Version="3.0.1" />
     <PackageVersion Include="Serilog.AspNetCore" Version="8.0.3" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.5" />
+    <PackageVersion
+      Include="Microsoft.Extensions.Logging.Abstractions"
+      Version="$(DotNetPreviewVersion)"
+    />
+    <PackageVersion Include="MinimalHttpLogger" Version="3.0.0" />
     <!-- Memory -->
     <PackageVersion Include="CommunityToolkit.HighPerformance" Version="8.4.0-preview2" />
     <!-- Testing -->
@@ -71,9 +82,18 @@
     <PackageVersion Include="coverlet.collector" Version="6.0.2" />
     <PackageVersion Include="Moq" Version="4.20.72" />
     <!-- Console -->
-    <PackageVersion Include="ConsoleAppFramework" Version="5.4.1" />
+    <PackageVersion Include="ConsoleAppFramework" Version="5.5.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageVersion>
     <PackageVersion Include="Spectre.Console" Version="0.50.0" />
     <!-- Foreign Language -->
     <PackageVersion Include="pythonnet" Version="3.0.5" />
+    <!-- Semantic Kernel -->
+    <PackageVersion Include="Microsoft.SemanticKernel" Version="1.60.0" />
+    <PackageVersion Include="Microsoft.SemanticKernel.Connectors.OpenAI" Version="1.60.0" />
+    <PackageVersion Include="Microsoft.SemanticKernel.Plugins.Web" Version="1.60.0-alpha" />
+    <!-- GitHub -->
+    <PackageVersion Include="GitHub.Octokit.SDK" Version="0.0.31" />
   </ItemGroup>
 </Project>

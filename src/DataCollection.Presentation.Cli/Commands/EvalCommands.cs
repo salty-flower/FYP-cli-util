@@ -1,4 +1,5 @@
-﻿using ConsoleAppFramework;
+﻿using System.Diagnostics.CodeAnalysis;
+using ConsoleAppFramework;
 using DataCollection.Presentation.Cli.Commands.Repl;
 using DataCollection.Presentation.Cli.Filters;
 
@@ -35,6 +36,10 @@ public class EvalCommands(PdfReplCommand pdfReplCommand, MetadataReplCommand met
     /// <param name="expression">Keyword expression to evaluate</param>
     /// <param name="exportPath">Optional path to export results (JSON)</param>
     /// <returns>Number of PDFs matching the expression</returns>
+    [RequiresUnreferencedCode(
+        "Calls RunNonInteractiveEvaluation which requires unreferenced code."
+    )]
+    [RequiresDynamicCode("Calls RunNonInteractiveEvaluation which requires dynamic code.")]
     public async Task<int> Pdf(
         string expression,
         string? exportPath = null,

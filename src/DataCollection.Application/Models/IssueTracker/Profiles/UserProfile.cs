@@ -5,14 +5,14 @@ namespace DataCollection.Application.Models.IssueTracker.Profiles;
 public record UserProfile
 {
     public required string Login { get; init; }
-    public bool? IsCollaboratorOrMember { get; set; }
-    public required bool IsContributor { get; set; }
+    public bool? IsCollaboratorOrMember { get; init; }
+    public required bool IsContributor { get; init; }
 
     public required int TotalIssues { get; init; }
     public required int TotalPullRequests { get; init; }
     public required int TotalMergedPullRequests { get; init; }
 
-    public bool? IsDeveloper { get; set; }
+    public bool? IsDeveloper { get; init; }
 
     public override string ToString()
     {

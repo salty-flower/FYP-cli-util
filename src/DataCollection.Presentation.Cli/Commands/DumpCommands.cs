@@ -1,4 +1,5 @@
 ﻿using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using ConsoleAppFramework;
 using DataCollection.Core.Models;
@@ -29,12 +30,14 @@ public class DumpCommands(
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
     [ConsoleAppFilter<PythonEngineInitFilter>]
+    [RequiresUnreferencedCode("Uses dynamic types for Python interop.")]
+    [RequiresDynamicCode("Uses dynamic types for Python interop.")]
     public async Task PDF(CancellationToken cancellationToken = default)
     {
         var paperBinDir = new DirectoryInfo(_pathsOptions.PaperBinDir);
 
         // Get already processed files from database
-        var existingPdfData = await databaseDataLoadingService.LoadPdfDataAsync();
+        var existingPdfData = await databaseDataLoadingService.LoadAllPdfDataAsync();
         var alreadyDumpedDict = existingPdfData
             .ToDictionary(p => p.FileName, _ => true)
             .AsReadOnly();
@@ -49,6 +52,8 @@ public class DumpCommands(
         logger.LogInformation("PyMuPDF dump completed");
     }
 
+    [RequiresUnreferencedCode("Uses dynamic types for Python interop.")]
+    [RequiresDynamicCode("Uses dynamic types for Python interop.")]
     private IEnumerable<PdfData> ExtractPdfData(
         DirectoryInfo paperDir,
         ReadOnlyDictionary<string, bool>? skipMap
@@ -78,6 +83,8 @@ public class DumpCommands(
     /// </summary>
     /// <param name="pdfFile">The PDF file to process</param>
     /// <returns>A PdfData object containing the extracted data</returns>
+    [RequiresUnreferencedCode("Uses dynamic types for Python interop.")]
+    [RequiresDynamicCode("Uses dynamic types for Python interop.")]
     private PdfData ProcessSinglePdf(FileInfo pdfFile, dynamic fitz)
     {
         using (Py.GIL())

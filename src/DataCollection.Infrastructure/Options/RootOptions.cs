@@ -2,14 +2,14 @@ using System.Text.RegularExpressions;
 
 namespace DataCollection.Infrastructure.Options;
 
-public partial class RootOptions
+public class RootOptions
 {
     /// <summary>
     /// Job name, typically in the format 'conf-yyyy', e.g., 'icse-2024', 'issta-2021'
     /// </summary>
-    public required string JobName { get; set; }
+    public required string JobName { get; init; }
 
-    private JobName? parsedJobNameCache = null;
+    private JobName? parsedJobNameCache;
 
     public bool TryParseJobName(out JobName? jobName)
     {
@@ -25,7 +25,7 @@ public readonly partial struct JobName
     public int Year { get; init; }
 
     [GeneratedRegex(@"^(.+)-(\d{4})$", RegexOptions.Compiled)]
-    public static partial Regex JobNamePattern();
+    private static partial Regex JobNamePattern();
 
     public static JobName? TryParse(string jobName)
     {

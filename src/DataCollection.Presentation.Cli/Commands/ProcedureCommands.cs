@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ConsoleAppFramework;
@@ -238,6 +239,8 @@ public class ProcedureCommands(
     /// <returns>Number of sentences containing "bug" found across all papers</returns>
     [ConsoleAppFilter<PythonEngineInitFilter>]
     [ConsoleAppFilter<NLTKDataFilter>]
+    [RequiresUnreferencedCode("Calls ExtractBugSentences which requires unreferenced code.")]
+    [RequiresDynamicCode("Calls ExtractBugSentences which requires dynamic code.")]
     public async Task<int> AnalyzeBugTerminology(
         string bugPattern = @"\b(?:bug|bugs)\b",
         string outputFile = "bug-terminology-analysis.json",

@@ -1,6 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
 using ConsoleAppFramework;
-using DataCollection.Core.Models;
-using DataCollection.Infrastructure.Clients;
+using DataCollection.Infrastructure.Clients.ACM;
 using DataCollection.Infrastructure.Options;
 using DataCollection.Infrastructure.Persistence;
 using DataCollection.Presentation.Cli.Filters;
@@ -17,6 +17,7 @@ namespace DataCollection.Presentation.Cli.Commands;
 public class ScrapeCommands(
     AcmScraper scraper,
     AcmPaperDownloader paperDownloader,
+    PaperEnricher paperEnricher,
     ILogger<ScrapeCommands> logger,
     IOptions<PathsOptions> pathsOptions,
     DatabaseDataLoadingService databaseDataLoadingService
@@ -34,7 +35,14 @@ public class ScrapeCommands(
         logger.LogInformation("Starting paper metadata scraping...");
         var count = 0;
 
-        await foreach (var paper in scraper.GetSectionPapersAsync(proceedingDOI, cancellationToken))
+        // 1. Scrape papers (without abstracts)
+        var paperStubs = scraper.GetSectionPapersAsync(proceedingDOI, cancellationToken);
+
+        // 2. Enrich papers with abstracts
+        var enrichedPapers = paperEnricher.EnrichWithAbstractsAsync(paperStubs, cancellationToken);
+
+        // 3. Save enriched papers to the database
+        await foreach (var paper in enrichedPapers.WithCancellation(cancellationToken))
         {
             count++;
             logger.LogInformation("Processing paper: {Title}", paper.Title);
@@ -65,6 +73,8 @@ public class ScrapeCommands(
     /// </summary>
     /// <param name="proceedingDOI">-p, The DOI of the proceedings to scrape</param>
     /// <param name="cancellationToken">Cancellation token</param>
+    [RequiresUnreferencedCode("Calls PDF which requires unreferenced code.")]
+    [RequiresDynamicCode("Calls PDF which requires dynamic code.")]
     public async Task Pipeline(string proceedingDOI, CancellationToken cancellationToken = default)
     {
         logger.LogInformation("Starting full pipeline...");

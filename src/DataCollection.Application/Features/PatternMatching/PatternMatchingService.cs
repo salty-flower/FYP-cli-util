@@ -21,12 +21,7 @@ public interface IPatternMatchingService
         CancellationToken cancellationToken = default
     );
     Task<string> DetermineUrlTypeAsync(string url, CancellationToken cancellationToken = default);
-    Task<double> CalculateConfidenceAsync(
-        string text,
-        string category,
-        int matchCount,
-        CancellationToken cancellationToken = default
-    );
+    double CalculateConfidence(string text, string category, int matchCount);
 }
 
 public class PatternMatch
@@ -91,12 +86,7 @@ public class PatternMatchingService(DataCollectionDbContext dbContext) : IPatter
         return "Unknown";
     }
 
-    public async Task<double> CalculateConfidenceAsync(
-        string text,
-        string category,
-        int matchCount,
-        CancellationToken cancellationToken = default
-    )
+    public double CalculateConfidence(string text, string category, int matchCount)
     {
         var baseConfidence = category switch
         {

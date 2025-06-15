@@ -12,13 +12,7 @@ public class ConsoleRenderingService(PdfDescriptionService pdfDescriptionService
     /// <summary>
     /// Escape markup for safe display in Spectre.Console
     /// </summary>
-    public static string SafeMarkup(string? text)
-    {
-        if (string.IsNullOrEmpty(text))
-            return string.Empty;
-
-        return Markup.Escape(text);
-    }
+    public static string SafeMarkup(string text) => Markup.Escape(text);
 
     /// <summary>
     /// Display a list of PDFs in a table
@@ -193,11 +187,6 @@ public class ConsoleRenderingService(PdfDescriptionService pdfDescriptionService
     )
     {
         // Safety check for null results
-        if (results == null)
-        {
-            AnsiConsole.MarkupLine("[red]Error:[/] Search results are null");
-            return;
-        }
 
         string escapedPattern = SafeMarkup(pattern);
 
