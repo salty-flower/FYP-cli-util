@@ -83,19 +83,6 @@ var app = builder.ConfigureServices(
             options.UseSqlite($"Data Source={dbPath}");
         });
 
-        services.AddHttpClient(
-            "OpenAIBatchApi",
-            (sp, client) =>
-            {
-                var credentialOptions = sp.GetOptions<CredentialOptions>();
-                client.DefaultRequestHeaders.Add(
-                    "Authorization",
-                    $"Bearer {credentialOptions.OpenAIToken}"
-                );
-                client.DefaultRequestHeaders.Add("User-Agent", "OpenAI-DotNet-Batch");
-            }
-        );
-
         services
             .AddHttpClient(
                 "acm-scraper",
@@ -238,6 +225,7 @@ var app = builder.ConfigureServices(
         services.AddRefactoredIssueProcessing();
         services.AddRefactoredProcedureAnalysis(config);
         services.AddRefactoredBatchProcessing();
+        services.AddRefactoredIssueAnalysis(config);
 
         // Register Configuration Service
         services.AddScoped<IConfigurationService, ConfigurationService>();
@@ -247,6 +235,11 @@ var app = builder.ConfigureServices(
 
         // Register Issue Tracker Services
         services.AddSingleton<IIssueTrackerClientFactory, IssueTrackerClientFactory>();
+        services.AddRefactoredPdfAnalysis(config);
+        services.AddRefactoredPatternMatching(config);
+
+        services.AddScoped<TextProcessor>();
+        services.AddScoped<PaperAnalyzer>();
 
         // Register SemanticKernel Agent Services
         // Note: These services enable AI-powered discovery agents for bug lists and artifacts
