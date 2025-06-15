@@ -233,6 +233,12 @@ var app = builder.ConfigureServices(
         services.AddSingleton<BugListDiscoveryCommands>();
         services.AddSingleton<SeedCommand>();
 
+        // Register refactored command classes
+        services.AddRefactoredBugListDiscovery(config);
+        services.AddRefactoredIssueProcessing();
+        services.AddRefactoredProcedureAnalysis(config);
+        services.AddRefactoredBatchProcessing();
+
         // Register Configuration Service
         services.AddScoped<IConfigurationService, ConfigurationService>();
         services.AddScoped<IChatCompletionService, OpenAIChatCompletionService>(sp =>

@@ -18,6 +18,7 @@
     <PackageVersion Include="Microsoft.SemanticKernel.Plugins.Web" Version="1.54.0-alpha" />
     <PackageVersion Include="morelinq" Version="4.4.0" />
     <PackageVersion Include="Enums.NET" Version="5.0.0" />
+    <PackageVersion Include="CSharpFunctionalExtensions" Version="3.6.0" />
     <!-- Data -->
     <PackageVersion Include="HtmlAgilityPack" Version="1.12.1" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="9.0.5" />

@@ -9,6 +9,7 @@
     <!-- Programming -->
     <PackageReference Include="morelinq" />
     <PackageReference Include="Enums.NET" />
+    <PackageReference Include="CSharpFunctionalExtensions" />
     <!-- Logging -->
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Settings.Configuration" />
