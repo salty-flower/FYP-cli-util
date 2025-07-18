@@ -8,6 +8,7 @@ namespace DataCollection.Presentation.Cli.Commands;
 [RegisterCommands("issue")]
 [ConsoleAppFilter<PathsOptionsFilter>]
 [ConsoleAppFilter<CredentialOptionsFilter>]
+[ConsoleAppFilter<EnsureDBFilter>]
 public class IssueCommands(
     ILogger<IssueCommands> logger,
     SingleIssueProcessingService singleIssueService,
