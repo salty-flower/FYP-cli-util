@@ -1,6 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
 using DataCollection.Application.Features.SemanticAgents.Models;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace DataCollection.Application.Features.SemanticAgents;
@@ -180,41 +179,5 @@ public class DiscoveryAgentService(
             Keywords = keywords ?? [],
             Metadata = metadata,
         };
-    }
-}
-
-// Extension for easy semantic kernel setup
-public static class SemanticKernelExtensions
-{
-    public static IServiceCollection AddDiscoveryAgent(
-        this IServiceCollection services,
-        string openAiApiKey,
-        string model = "gpt-4"
-    )
-    {
-        // Note: This will require Microsoft.SemanticKernel NuGet package
-        // For now, we'll comment this out to avoid build errors
-
-        /*
-        services.AddSingleton(provider =>
-        {
-            var kernelBuilder = Kernel.CreateBuilder();
-            kernelBuilder.AddOpenAIChatCompletion(model, openAiApiKey);
-            
-            var kernel = kernelBuilder.Build();
-            
-            // Register tools
-            var discoveryTools = provider.GetRequiredService<DiscoveryTools>();
-            kernel.Plugins.AddFromObject(discoveryTools, "DiscoveryTools");
-            
-            return kernel;
-        });
-
-        services.AddScoped<DiscoveryTools>();
-        services.AddScoped<IDiscoveryAgent, DiscoveryAgent>();
-        services.AddScoped<IDiscoveryAgentService, DiscoveryAgentService>();
-        */
-
-        return services;
     }
 }
