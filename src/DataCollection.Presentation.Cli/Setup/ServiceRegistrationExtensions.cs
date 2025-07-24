@@ -16,6 +16,7 @@ using DataCollection.Infrastructure.Clients;
 using DataCollection.Infrastructure.Clients.ACM;
 using DataCollection.Infrastructure.Clients.Handlers;
 using DataCollection.Infrastructure.Clients.IssueTrackers;
+using DataCollection.Infrastructure.Clients.WebSearch;
 using DataCollection.Infrastructure.Options;
 using DataCollection.Infrastructure.Persistence;
 using DataCollection.Presentation.Cli.Commands;
@@ -26,6 +27,7 @@ using GitHub.Octokit.Client.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
@@ -181,6 +183,7 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<PaperEnricher>();
         services.AddSingleton<PdfDescriptionService>();
         services.AddSingleton<IGitHubClient, GitHubClient>();
+        services.AddSingleton<IWebSearchService, DuckDuckGoSearchService>();
         services.AddSingleton<IRepositoryCache, RepositoryCache>();
         services.AddSingleton<ConsoleRenderingService>();
         services.AddSingleton<PdfSearchService>();
@@ -204,6 +207,9 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<IssueCommands>();
         services.AddSingleton<BugListDiscoveryCommands>();
         services.AddSingleton<SeedCommand>();
+        services.AddSingleton<OpenAIClient>(sp => new OpenAIClient(
+            sp.GetOptions<CredentialOptions>().OpenAIToken
+        ));
         services.AddScoped<IChatCompletionService, OpenAIChatCompletionService>(sp =>
             new("o4-mini", sp.GetOptions<CredentialOptions>().OpenAIToken)
         );
@@ -281,14 +287,37 @@ public static class ServiceRegistrationExtensions
 
     public static IServiceCollection AddSemanticKernel(this IServiceCollection services)
     {
-        services.AddSingleton<Kernel>(sp =>
+        services.AddScoped<Kernel>(sp =>
         {
             var llmOptions = sp.GetOptions<LLMOptions>();
             var openAIClient = sp.GetRequiredService<OpenAIClient>();
+            var discoveryTools = sp.GetRequiredService<DiscoveryTools>();
+
             var kernelBuilder = Kernel.CreateBuilder();
             kernelBuilder.AddOpenAIChatCompletion(llmOptions.AgentPlanningModel, openAIClient);
+
+            // Copy all required services from the main DI container to the kernel's DI container
             kernelBuilder.Services.AddSingleton(openAIClient);
-            return kernelBuilder.Build();
+            kernelBuilder.Services.AddSingleton(
+                sp.GetRequiredService<IOptionsSnapshot<KeywordOptions>>()
+            );
+            kernelBuilder.Services.AddSingleton(sp.GetRequiredService<IGitHubClient>());
+            kernelBuilder.Services.AddSingleton(sp.GetRequiredService<IWebSearchService>());
+            kernelBuilder.Services.AddSingleton(sp.GetRequiredService<ILoggerFactory>());
+
+            var kernel = kernelBuilder.Build();
+
+            // Register DiscoveryTools as a plugin using instance-based approach
+            var plugin = kernel.Plugins.AddFromObject(discoveryTools, "DiscoveryTools");
+
+            // Log plugin registration for debugging
+            var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("SemanticKernel");
+            logger.LogInformation(
+                "Registered DiscoveryTools plugin with {FunctionCount} functions",
+                plugin.FunctionCount
+            );
+
+            return kernel;
         });
         return services;
     }

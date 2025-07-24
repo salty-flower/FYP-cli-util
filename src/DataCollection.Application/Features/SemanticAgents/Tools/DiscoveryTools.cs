@@ -16,7 +16,7 @@ namespace DataCollection.Application.Features.SemanticAgents.Tools;
 
 public class DiscoveryTools(
     IOptionsSnapshot<KeywordOptions> keywordOptions,
-    GitHubClient gitHubClient,
+    IGitHubClient gitHubClient,
     IWebSearchService webSearchService,
     ILogger<DiscoveryTools> logger
 )

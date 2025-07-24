@@ -13,6 +13,11 @@
   <ItemGroup>
     <!-- Functional programming -->
     <PackageVersion Include="AspectInjector" Version="2.8.2" />
+    <PackageVersion Include="Microsoft.SemanticKernel.Agents.Core" Version="1.60.0" />
+    <PackageVersion
+      Include="Microsoft.SemanticKernel.Connectors.InMemory"
+      Version="1.60.0-preview"
+    />
     <PackageVersion Include="morelinq" Version="4.4.0" />
     <PackageVersion Include="Enums.NET" Version="5.0.0" />
     <!-- Data -->

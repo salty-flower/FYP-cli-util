@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DataCollection.Application.Features.SemanticAgents.Models;
+using Microsoft.SemanticKernel;
 
 namespace DataCollection.Application.Serialization;
 
@@ -13,6 +14,7 @@ namespace DataCollection.Application.Serialization;
 [JsonSerializable(typeof(AgentPlan))]
 [JsonSerializable(typeof(AgentAction))]
 [JsonSerializable(typeof(AgentReflection))]
+[JsonSerializable(typeof(FunctionResultContent))]
 [JsonSerializable(typeof(UrlAnalysis))]
 [JsonSerializable(typeof(UrlValidationResult))]
 [JsonSerializable(typeof(List<UrlValidationResult>))]
