@@ -12,7 +12,9 @@ description = """
 """
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["nltk>=3.9.1", "pymupdf>=1.25.5",
+dependencies = [
+    "nltk>=3.9.1",
+    "pymupdf>=1.25.5",
     "anyio>=4.10.0",
     "langfuse>=3.2.4",
     "nest-asyncio>=1.6.0",
@@ -20,7 +22,12 @@ dependencies = ["nltk>=3.9.1", "pymupdf>=1.25.5",
     "pydantic>=2.11.7",
     "pydantic-ai[logfire]>=0.6.2",
     "pydantic-settings>=2.10.1",
-    "rich>=14.1.0"
+    "rich>=14.1.0",
+    "pythonnet>=3.0.5",
+    "sqlalchemy>=2.0.43",
+    "aiosqlite>=0.21.0",
+    "readability-lxml>=0.8.4.1",
+    "markdownify>=1.2.0",
 ]
 
 [dependency-groups]
@@ -29,3 +36,11 @@ lint = [
     "mypy>=1.17.1",
     "ruff>=0.12.8",
 ]
+
+[tool.basedpyright]
+typeCheckingMode = "recommended"
+reportMissingTypeStubs = false
+reportImplicitRelativeImport = false
+
+[tool.mypy]
+disable_error_code = ["prop-decorator", "import-untyped"]
