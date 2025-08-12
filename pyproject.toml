@@ -7,10 +7,25 @@ description = """
     By default, it uses `.venv` as the virtual environment.
     Initialize this by:
     ```bash
-    micromamba create -p ./.venv python=3.12
-    uv sync --python .venv
+    uv sync
     ```
 """
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["nltk>=3.9.1", "pymupdf>=1.25.5", "setuptools>=80.0.1"]
+dependencies = ["nltk>=3.9.1", "pymupdf>=1.25.5",
+    "anyio>=4.10.0",
+    "langfuse>=3.2.4",
+    "nest-asyncio>=1.6.0",
+    "openai-agents>=0.2.6",
+    "pydantic>=2.11.7",
+    "pydantic-ai[logfire]>=0.6.2",
+    "pydantic-settings>=2.10.1",
+    "rich>=14.1.0"
+]
+
+[dependency-groups]
+lint = [
+    "basedpyright>=1.31.1",
+    "mypy>=1.17.1",
+    "ruff>=0.12.8",
+]

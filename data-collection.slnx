@@ -6,6 +6,9 @@
     <File Path="Directory.Packages.props" />
     <File Path="NuGet.config" />
   </Folder>
+  <Folder Name="/Python/">
+    <File Path="pyproject.toml" />
+  </Folder>
   <Project Path="src/DataCollection.Core/DataCollection.Core.csproj" />
   <Project Path="src/DataCollection.Infrastructure/DataCollection.Infrastructure.csproj" />
   <Project Path="src/DataCollection.Common/DataCollection.Common.csproj" />
