@@ -40,10 +40,10 @@ async def fetch_paper_by_doi(
                     row["Url"],
                     row["Doi"],
                     row["Conf"],
-                    int(row["Year"]) if row["Year"] is not None else 0,
+                    int(row["Year"]) if row["Year"] is not None else 0,  # pyright: ignore[reportAny]
                 )
             )
-            return paper, int(row["Id"])  # type: ignore[return-value]
+            return paper, int(row["Id"])  # pyright: ignore[reportAny]
 
 
 async def fetch_textlines_by_doi(db_path: str, doi: str) -> PaperText:

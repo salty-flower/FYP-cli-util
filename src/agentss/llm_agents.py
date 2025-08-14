@@ -5,7 +5,7 @@ from typing import cast
 from agents import Agent, AgentOutputSchema, Runner
 
 from . import llm_tools
-from .context import clear_context, set_context
+from .context import AgentContext
 from .models import AgentDiscoveryResults, DiscoveryOutput, RunConfig
 from .prompts import SYSTEM_INSTRUCTIONS
 from .settings import settings
@@ -54,12 +54,11 @@ async def run_discovery_agent(
         f"- Abstract: {abstract_snippet}"
     )
 
-    # Set context for tools (not visible to the agent)
-    set_context(doi=doi, db_path=db_path, tower_base_url=tower_base_url)
-    try:
-        result = await Runner.run(agent, input=user_input, max_turns=cfg.max_rounds)
-    finally:
-        clear_context()
+    # Create context for tools (not visible to the agent)
+    context = AgentContext(doi=doi, db_path=db_path, tower_base_url=tower_base_url)
+    result = await Runner.run(
+        agent, input=user_input, context=context, max_turns=cfg.max_rounds
+    )
 
     # Collect final output text for now; structured tool results can be added later
     out = DiscoveryOutput(

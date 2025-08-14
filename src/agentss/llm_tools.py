@@ -1,18 +1,35 @@
-from __future__ import annotations
-
 import re
-from enum import StrEnum
+from functools import wraps
+from typing import Any, cast
 
 import anyio
 import httpx
-from agents import function_tool
+import markdownify
+import readability
+from agents import RunContextWrapper
+from agents.tool import FunctionTool, ToolFunction, function_tool
 from pydantic import BaseModel
 
-from .context import get_context
+from .context import AgentContext
 from .db_access import fetch_paper_by_doi, fetch_textlines_by_doi
 from .models import PaperRecord, PaperText, UrlValidationResult
 from .search_client import TowerClient
 from .search_contracts.core import SearchEngine, Spell, SpellComponents, SpellJobStatus
+
+
+def json_tool(func: ToolFunction[...]) -> FunctionTool:
+    """Decorator that automatically converts Pydantic model returns to JSON strings."""
+
+    @wraps(func)
+    async def wrapper(*args: Any, **kwargs: Any) -> str:  # pyright: ignore[reportAny,reportExplicitAny]
+        result = await func(*args, **kwargs)  # pyright: ignore[reportAny]
+        if isinstance(result, BaseModel):
+            return result.model_dump_json()
+        return str(
+            result  # pyright: ignore[reportAny]
+        )  # Fallback for non-BaseModel returns
+
+    return function_tool(wrapper)
 
 
 class GetPaperResult(BaseModel):
@@ -20,11 +37,11 @@ class GetPaperResult(BaseModel):
     has_text: bool
 
 
-@function_tool
-async def get_paper() -> GetPaperResult:  # type: ignore[no-untyped-def]
-    ctx = get_context()
-    doi = ctx.doi or ""
-    db_path = ctx.db_path or ""
+@json_tool
+async def get_paper(ctx: RunContextWrapper[AgentContext]) -> GetPaperResult:  # type: ignore[no-untyped-def]
+    context = ctx.context
+    doi = context.doi or ""
+    db_path = context.db_path or ""
     paper, _paper_id = await fetch_paper_by_doi(db_path, doi)
     if paper is None:
         return GetPaperResult(paper=None, has_text=False)
@@ -36,13 +53,13 @@ class GetTextLinesResult(BaseModel):
     text_lines: list[str]
 
 
-@function_tool
+@json_tool
 async def get_textlines(  # type: ignore[no-untyped-def]
-    offset: int = 0, limit: int = 1000
+    ctx: RunContextWrapper[AgentContext], offset: int = 0, limit: int = 1000
 ) -> GetTextLinesResult:
-    ctx = get_context()
-    doi = ctx.doi or ""
-    db_path = ctx.db_path or ""
+    context = ctx.context
+    doi = context.doi or ""
+    db_path = context.db_path or ""
     text: PaperText = await fetch_textlines_by_doi(db_path, doi)
     if offset < 0:
         offset = 0
@@ -62,16 +79,17 @@ class GrepResult(BaseModel):
     hits: list[GrepHit]
 
 
-@function_tool
-async def grep_text(  # type: ignore[no-untyped-def]
+@json_tool
+async def grep_text(
+    ctx: RunContextWrapper[AgentContext],
     pattern: str,
     regex: bool = True,
     max_hits: int = 20,
     context_lines: int = 2,
 ) -> GrepResult:
-    ctx = get_context()
-    doi = ctx.doi or ""
-    db_path = ctx.db_path or ""
+    context = ctx.context
+    doi = context.doi or ""
+    db_path = context.db_path or ""
     text = await fetch_textlines_by_doi(db_path, doi)
     lines = text.text_lines
     hits: list[GrepHit] = []
@@ -159,22 +177,22 @@ async def _tower_search(
     return []
 
 
-@function_tool
-async def search_web(  # type: ignore[no-untyped-def]
-    query: str, total_results: int = 50
+@json_tool
+async def search_web(
+    ctx: RunContextWrapper[AgentContext], query: str, total_results: int = 50
 ) -> WebSearchResultList:
-    base_url = get_context().tower_base_url or ""
+    base_url = ctx.context.tower_base_url or ""
     async with TowerClient(base_url=base_url) as client:
         items = await _tower_search(client, query, total_results)
         return WebSearchResultList(results=items)
 
 
-@function_tool
-async def search_site(  # type: ignore[no-untyped-def]
-    site: str, terms: str, total_results: int = 50
+@json_tool
+async def search_site(
+    ctx: RunContextWrapper[AgentContext], site: str, terms: str, total_results: int = 50
 ) -> WebSearchResultList:
     q = f"site:{site} {terms}".strip()
-    base_url = get_context().tower_base_url or ""
+    base_url = ctx.context.tower_base_url or ""
     async with TowerClient(base_url=base_url) as client:
         items = await _tower_search(client, q, total_results)
         return WebSearchResultList(results=items)
@@ -184,9 +202,12 @@ class ValidateUrlsResult(BaseModel):
     results: list[UrlValidationResult]
 
 
-@function_tool
+@json_tool
 async def validate_urls(  # type: ignore[no-untyped-def]
-    urls: list[str], timeout_s: float = 10.0, max_urls: int = 10
+    _ctx: RunContextWrapper[AgentContext],
+    urls: list[str],
+    timeout_s: float = 10.0,
+    max_urls: int = 10,
 ) -> ValidateUrlsResult:
     async with httpx.AsyncClient(timeout=timeout_s) as client:
         sem = anyio.Semaphore(5)
@@ -197,7 +218,9 @@ async def validate_urls(  # type: ignore[no-untyped-def]
                 try:
                     resp = await client.get(u)
                     ok = resp.status_code < 400
-                    ctype: str | None = resp.headers.get("content-type")
+                    ctype: str | None = cast(
+                        str | None, resp.headers.get("content-type")
+                    )
                     title = None
                     desc = None
                     if ok and ctype is not None and ctype.startswith("text/html"):
@@ -249,11 +272,7 @@ class FetchUrlResult(BaseModel):
 def _html_to_markdown(html: str) -> tuple[str, str | None]:
     # Prefer readability-lxml + markdownify if available, import dynamically to avoid hard deps in type-check
     try:
-        import importlib
-
-        readability = importlib.import_module("readability")
-        Document = getattr(readability, "Document")  # type: ignore[reportAttributeAccessIssue]
-        doc = Document(html)
+        doc = readability.Document(html)
         title_val = getattr(doc, "short_title", None)
         title_str: str | None
         if callable(title_val):
@@ -263,13 +282,9 @@ def _html_to_markdown(html: str) -> tuple[str, str | None]:
                 title_str = None
         else:
             title_str = None
-        content_html = doc.summary(html_partial=True)  # type: ignore[reportUnknownMemberType]
+        content_html = cast(str, doc.summary(html_partial=True))
         try:
-            markdownify = importlib.import_module("markdownify")
-            md_func = getattr(markdownify, "markdownify", None)
-            md_text = md_func(content_html or "") if callable(md_func) else None
-            if not isinstance(md_text, str):
-                md_text = re.sub(r"<[^>]+>", " ", content_html or "")
+            md_text = markdownify.markdownify(content_html or "")
         except Exception:
             md_text = re.sub(r"<[^>]+>", " ", content_html or "")
         return md_text.strip(), title_str
@@ -286,30 +301,18 @@ def _html_to_markdown(html: str) -> tuple[str, str | None]:
         return text.strip(), title
 
 
-class FetchModes(StrEnum):
-    MARKDOWN = "markdown"
-    RAW = "raw"
-
-
-@function_tool
+@json_tool
 async def fetch_url(  # type: ignore[no-untyped-def]
-    url: str, timeout_s: float = 20.0
+    _ctx: RunContextWrapper[AgentContext], url: str, timeout_s: float = 20.0
 ) -> FetchUrlResult:
     async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=True) as client:
-        mode = FetchModes.MARKDOWN
         resp = await client.get(url)
-        ctype: str | None = resp.headers.get("content-type")
+        ctype: str | None = cast(str | None, resp.headers.get("content-type"))
         final_url = str(resp.url)
         if ctype and "text/html" in ctype.lower():
             html = resp.text
-            if mode == FetchModes.RAW:
-                content = html
-                title = None
-                m = re.search(r"<title[^>]*>([^<]+)</title>", html, flags=re.I)
-                if m:
-                    title = m.group(1).strip()
-            else:
-                content, title = _html_to_markdown(html)
+            content, title = _html_to_markdown(html)
+
         elif ctype and "text/" in ctype.lower():
             content = resp.text
             title = None
@@ -321,7 +324,7 @@ async def fetch_url(  # type: ignore[no-untyped-def]
             final_url=final_url,
             status_code=resp.status_code,
             content_type=ctype,
-            mode=mode,
+            mode="markdown",
             content=content,
             title=title,
         )
