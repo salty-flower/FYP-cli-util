@@ -83,7 +83,7 @@ class BugSource(StrEnum):
 class BugItem(BaseModel):
     url: str
     platform: BugPlatform
-    format: BugItemFormat
+    format: BugItemFormat | None
     source: BugSource
     container_url: str | None = None
     item_path: str | None = None
