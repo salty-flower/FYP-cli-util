@@ -15,6 +15,8 @@ class PaperTraces(BaseModel):
     doi: str
     title: str | None
     bugs: list["Bug"]
+    total_claimed_bugs: int | None = None
+    claimed_bugs_by_status: dict[str, int] | None = None
     artifact_repos: list["ArtifactRepoTraces"] | None
 
 
@@ -25,19 +27,21 @@ class ArtifactRepoTraces(BaseModel):
 
 
 class Bug(BaseModel):
-    claimed_status: str | None
+    claimed_status: str | None = None
     id_in_paper: str | int | None = None
     title: str | None = None
     description: str | None = None
-    list_on_platforms: list["ArtifactPlatformName"]
-    list_url: str | list[str]
-    report: "BugReportMetadata | None"
+    list_on_platforms: list["ArtifactPlatformName"] | None = None
+    list_location_in_paper: str | None = None
+    list_url: str | list[str] | None = None
+    report: "BugReportMetadata | None" = None
 
 
 class ArtifactPlatformName(StrEnum):
     github = "github"
     zenodo = "zenodo"
     figshare = "figshare"
+    google_sites = "google_sites"
 
 
 class BugReportPlatforms(StrEnum):
@@ -47,13 +51,14 @@ class BugReportPlatforms(StrEnum):
     bugzilla = "bugzilla"
     sourceforge = "sourceforge"
     cve = "cve"
+    chromium = "chromium"
 
 
 class BugReportMetadata(BaseModel):
-    title: str | None
-    url: str | None
+    title: str | None = None
+    url: str | None = None
     platform: "BugReportPlatforms"
-    platform_specific_id: str | None
+    platform_specific_id: str | None = None
 
 
 _all_models: list[type[BaseModel]] = [
