@@ -12,8 +12,7 @@
   </PropertyGroup>
   <!-- Solution properties -->
   <PropertyGroup>
-    <SolutionDir Condition="'$(SolutionDir)' == ''"
-      >
+    <SolutionDir Condition="'$(SolutionDir)' == ''">
       $(MSBuildThisFileDirectory)
     </SolutionDir
     >

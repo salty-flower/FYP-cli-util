@@ -13,9 +13,26 @@
     <PackageReference Include="Newtonsoft.Json" />
     <PackageReference Include="Refit.HttpClientFactory" />
     <PackageReference Include="System.Threading.RateLimiting" />
+    <PackageReference
+      Include="Microsoft.CodeAnalysis.Workspaces.MSBuild"
+      GeneratePathProperty="true"
+    />
     <ProjectReference Include="..\DataCollection.Core\DataCollection.Core.csproj" />
     <ProjectReference Include="..\DataCollection.Common\DataCollection.Common.csproj" />
   </ItemGroup>
+  <!-- Workaround for .NET 10 preview MSBuild workspaces issue -->
+  <Target BeforeTargets="GenerateDepsFile" Name="CopyMissingMSBuildWorkspaceDll">
+    <PropertyGroup>
+      <SourceDllPath>$(PkgMicrosoft_CodeAnalysis_Workspaces_MSBuild)\contentFiles\any\any\BuildHost-netcore\Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.dll</SourceDllPath>
+      <TargetDllPath>$(PkgMicrosoft_CodeAnalysis_Workspaces_MSBuild)\lib\net9.0\Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.dll</TargetDllPath>
+    </PropertyGroup>
+    <Copy
+      SourceFiles="$(SourceDllPath)"
+      DestinationFiles="$(TargetDllPath)"
+      Condition="!Exists('$(TargetDllPath)') AND Exists('$(SourceDllPath)')"
+      SkipUnchangedFiles="true"
+    />
+  </Target>
   <Target BeforeTargets="CoreCompile" Name="GenerateBuildConstants">
     <PropertyGroup>
       <BuildConstantsFile>

@@ -100,5 +100,7 @@
     <PackageVersion Include="Microsoft.SemanticKernel.Plugins.Web" Version="1.60.0-alpha" />
     <!-- GitHub -->
     <PackageVersion Include="GitHub.Octokit.SDK" Version="0.0.31" />
+    <!-- Workaround for .NET 10 preview MSBuild issue -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="4.14.0" />
   </ItemGroup>
 </Project>
