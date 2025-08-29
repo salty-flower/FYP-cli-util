@@ -1,10 +1,8 @@
 using System.Collections.Concurrent;
 using DataCollection.Infrastructure.Options;
-using DataCollection.Infrastructure.Serialization;
 using GitHub.Models;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
-using JsonSerializer = System.Text.Json.JsonSerializer;
 
 namespace DataCollection.Infrastructure.Clients.IssueTrackers;
 
@@ -53,10 +51,7 @@ public class RepositoryCache(IOptions<PathsOptions> pathsOptions) : IRepositoryC
         }
 
         var repoFile = GetRepositoryFilePath(owner, repoName);
-        await File.WriteAllTextAsync(
-            repoFile,
-            JsonSerializer.Serialize(repository, GitHubAPIJsonContext.Default.FullRepository)
-        );
+        await File.WriteAllTextAsync(repoFile, JsonConvert.SerializeObject(repository));
     }
 
     private string GetRepositoryFilePath(string owner, string repoName) =>
