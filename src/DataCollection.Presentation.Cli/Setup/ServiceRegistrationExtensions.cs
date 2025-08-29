@@ -9,8 +9,6 @@ using DataCollection.Application.Features.IssueAnalysis.Rules;
 using DataCollection.Application.Features.IssueProcessing;
 using DataCollection.Application.Features.PaperAnalysis;
 using DataCollection.Application.Features.PatternMatching;
-using DataCollection.Application.Features.SemanticAgents;
-using DataCollection.Application.Features.SemanticAgents.Tools;
 using DataCollection.Application.Options;
 using DataCollection.Infrastructure.Clients;
 using DataCollection.Infrastructure.Clients.ACM;
@@ -205,7 +203,6 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<MetadataReplCommand>();
         services.AddSingleton<ProcedureCommands>();
         services.AddSingleton<IssueCommands>();
-        services.AddSingleton<BugListDiscoveryCommands>();
         services.AddSingleton<SeedCommand>();
         services.AddSingleton<OpenAIClient>(sp => new OpenAIClient(
             sp.GetOptions<CredentialOptions>().OpenAIToken
@@ -214,9 +211,6 @@ public static class ServiceRegistrationExtensions
             new("o4-mini", sp.GetOptions<CredentialOptions>().OpenAIToken)
         );
         services.AddSingleton<IIssueTrackerClientFactory, IssueTrackerClientFactory>();
-        services.AddScoped<DiscoveryTools>();
-        services.AddScoped<IDiscoveryAgent, DiscoveryAgent>();
-        services.AddScoped<IDiscoveryAgentService, DiscoveryAgentService>();
         return services;
     }
 
@@ -282,43 +276,6 @@ public static class ServiceRegistrationExtensions
                 $"Data Source={Path.Combine(services.BuildServiceProvider().GetOptions<PathsOptions>().BaseDir, "data-collection.db")}"
             )
         );
-        return services;
-    }
-
-    public static IServiceCollection AddSemanticKernel(this IServiceCollection services)
-    {
-        services.AddScoped<Kernel>(sp =>
-        {
-            var llmOptions = sp.GetOptions<LLMOptions>();
-            var openAIClient = sp.GetRequiredService<OpenAIClient>();
-            var discoveryTools = sp.GetRequiredService<DiscoveryTools>();
-
-            var kernelBuilder = Kernel.CreateBuilder();
-            kernelBuilder.AddOpenAIChatCompletion(llmOptions.AgentPlanningModel, openAIClient);
-
-            // Copy all required services from the main DI container to the kernel's DI container
-            kernelBuilder.Services.AddSingleton(openAIClient);
-            kernelBuilder.Services.AddSingleton(
-                sp.GetRequiredService<IOptionsSnapshot<KeywordOptions>>()
-            );
-            kernelBuilder.Services.AddSingleton(sp.GetRequiredService<IGitHubClient>());
-            kernelBuilder.Services.AddSingleton(sp.GetRequiredService<IWebSearchService>());
-            kernelBuilder.Services.AddSingleton(sp.GetRequiredService<ILoggerFactory>());
-
-            var kernel = kernelBuilder.Build();
-
-            // Register DiscoveryTools as a plugin using instance-based approach
-            var plugin = kernel.Plugins.AddFromObject(discoveryTools, "DiscoveryTools");
-
-            // Log plugin registration for debugging
-            var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("SemanticKernel");
-            logger.LogInformation(
-                "Registered DiscoveryTools plugin with {FunctionCount} functions",
-                plugin.FunctionCount
-            );
-
-            return kernel;
-        });
         return services;
     }
 }

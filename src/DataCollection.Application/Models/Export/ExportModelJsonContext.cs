@@ -34,6 +34,4 @@ namespace DataCollection.Application.Models.Export;
 [JsonSerializable(typeof(RepositoryBugFileAnalysisRequest))]
 [JsonSerializable(typeof(RepositoryBugFileAnalysisResponse))]
 [JsonSerializable(typeof(BugRelatedFile))]
-[JsonSerializable(typeof(AgentDiscoveryExport))]
-[JsonSerializable(typeof(ComprehensiveDiscoveryExport))]
 public partial class ExportModelJsonContext : JsonSerializerContext { }

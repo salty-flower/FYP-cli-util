@@ -34,7 +34,6 @@ var app = builder.ConfigureServices(
         services.AddHttpClients(config);
         services.AddGitHubServices(config);
         services.AddDiscoveryServices();
-        services.AddSemanticKernel();
     }
 );
 
