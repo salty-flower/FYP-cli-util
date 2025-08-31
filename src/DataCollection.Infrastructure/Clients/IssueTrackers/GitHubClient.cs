@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
+using System.Net;
 using DataCollection.Infrastructure.Models.GitHub;
 using DataCollection.Infrastructure.Serialization;
 using GitHub.Models;
 using Microsoft.Extensions.Logging;
+using Refit;
 using JsonSerializer = System.Text.Json.JsonSerializer;
 
 namespace DataCollection.Infrastructure.Clients.IssueTrackers;
@@ -11,6 +13,9 @@ public class GitHubClient(
     GitHub.GitHubClient gitHubClient,
     IGitHubApi gitHubApi,
     IRepositoryCache repositoryCache,
+    IIssueCommentsCache issueCommentsCache,
+    IIssueEventsCache issueEventsCache,
+    ISearchResultsCache searchResultsCache,
     ILogger<GitHubClient> logger
 ) : IGitHubClient
 {
@@ -90,13 +95,35 @@ public class GitHubClient(
     {
         var searchQuery =
             $"type:issue author:{userLogin} repo:{repository.Owner?.Login}/{repository.Name}";
-        var searchJson = await gitHubApi.SearchIssuesAsync(searchQuery);
 
-        var searchResponse = JsonSerializer.Deserialize<GitHubSearchResponse>(
-            searchJson,
-            GitHubAPIJsonContext.Default.GitHubSearchResponse
-        );
-        return searchResponse?.TotalCount ?? 0;
+        var cachedCount = await searchResultsCache.TryGetAsync(searchQuery);
+        if (cachedCount.HasValue)
+        {
+            return cachedCount.Value;
+        }
+
+        try
+        {
+            var searchJson = await gitHubApi.SearchIssuesAsync(searchQuery);
+            var searchResponse = JsonSerializer.Deserialize<GitHubSearchResponse>(
+                searchJson,
+                GitHubAPIJsonContext.Default.GitHubSearchResponse
+            );
+            var count = searchResponse?.TotalCount ?? 0;
+            await searchResultsCache.SetAsync(searchQuery, count);
+            return count;
+        }
+        catch (ApiException ex) when (ex.StatusCode == HttpStatusCode.UnprocessableEntity)
+        {
+            logger.LogWarning(
+                "GitHub search validation failed for query '{Query}': {Message}. User '{User}' may not exist or be searchable.",
+                searchQuery,
+                ex.Content,
+                userLogin
+            );
+            await searchResultsCache.SetAsync(searchQuery, 0);
+            return 0;
+        }
     }
 
     public async Task<(int total, int merged)> GetUserPullRequestsAsync(
@@ -121,13 +148,69 @@ public class GitHubClient(
         string owner,
         string repoName,
         long issueNumber
-    ) => await gitHubApi.GetIssueCommentsAsync(owner, repoName, issueNumber);
+    )
+    {
+        var cachedComments = await issueCommentsCache.TryGetAsync(owner, repoName, issueNumber);
+        if (cachedComments != null)
+        {
+            return cachedComments;
+        }
+
+        try
+        {
+            var comments = await gitHubApi.GetIssueCommentsAsync(owner, repoName, issueNumber);
+            await issueCommentsCache.SetAsync(owner, repoName, issueNumber, comments);
+            return comments;
+        }
+        catch (ApiException ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to get issue comments for {Owner}/{RepoName}#{IssueNumber}: {StatusCode} {Message}",
+                owner,
+                repoName,
+                issueNumber,
+                ex.StatusCode,
+                ex.Content
+            );
+            await issueCommentsCache.SetAsync(owner, repoName, issueNumber, null);
+            return null;
+        }
+    }
 
     public async Task<List<GitHubEvent>?> GetIssueEventsAsync(
         string owner,
         string repoName,
         long issueNumber
-    ) => await gitHubApi.GetIssueEventsAsync(owner, repoName, issueNumber);
+    )
+    {
+        var cachedEvents = await issueEventsCache.TryGetAsync(owner, repoName, issueNumber);
+        if (cachedEvents != null)
+        {
+            return cachedEvents;
+        }
+
+        try
+        {
+            var events = await gitHubApi.GetIssueEventsAsync(owner, repoName, issueNumber);
+            await issueEventsCache.SetAsync(owner, repoName, issueNumber, events);
+            return events;
+        }
+        catch (ApiException ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to get issue events for {Owner}/{RepoName}#{IssueNumber}: {StatusCode} {Message}",
+                owner,
+                repoName,
+                issueNumber,
+                ex.StatusCode,
+                ex.Content
+            );
+            await issueEventsCache.SetAsync(owner, repoName, issueNumber, null);
+            return null;
+        }
+    }
 
     public async Task<string?> GetRepositoryReadmeAsync(string owner, string repoName)
     {
@@ -178,12 +261,33 @@ public class GitHubClient(
 
     private async Task<int> GetSearchCountAsync(string query)
     {
-        var json = await gitHubApi.SearchIssuesAsync(query);
-        var response = JsonSerializer.Deserialize<GitHubSearchResponse>(
-            json,
-            GitHubAPIJsonContext.Default.GitHubSearchResponse
-        );
-        return response?.TotalCount ?? 0;
+        var cachedCount = await searchResultsCache.TryGetAsync(query);
+        if (cachedCount.HasValue)
+        {
+            return cachedCount.Value;
+        }
+
+        try
+        {
+            var json = await gitHubApi.SearchIssuesAsync(query);
+            var response = JsonSerializer.Deserialize<GitHubSearchResponse>(
+                json,
+                GitHubAPIJsonContext.Default.GitHubSearchResponse
+            );
+            var count = response?.TotalCount ?? 0;
+            await searchResultsCache.SetAsync(query, count);
+            return count;
+        }
+        catch (ApiException ex) when (ex.StatusCode == HttpStatusCode.UnprocessableEntity)
+        {
+            logger.LogWarning(
+                "GitHub search validation failed for query '{Query}': {Message}",
+                query,
+                ex.Content
+            );
+            await searchResultsCache.SetAsync(query, 0);
+            return 0;
+        }
     }
 
     private static string? DecodeBase64Content(string? content)

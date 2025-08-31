@@ -204,6 +204,9 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<IGitHubClient, GitHubClient>();
         services.AddSingleton<IWebSearchService, DuckDuckGoSearchService>();
         services.AddSingleton<IRepositoryCache, RepositoryCache>();
+        services.AddSingleton<IIssueCommentsCache, IssueCommentsCache>();
+        services.AddSingleton<IIssueEventsCache, IssueEventsCache>();
+        services.AddSingleton<ISearchResultsCache, SearchResultsCache>();
         services.AddSingleton<ConsoleRenderingService>();
         services.AddSingleton<PdfSearchService>();
         services.AddScoped<DatabaseDataLoadingService>();
