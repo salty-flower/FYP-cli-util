@@ -13,6 +13,8 @@
     <PackageReference Include="Newtonsoft.Json" />
     <PackageReference Include="Refit.HttpClientFactory" />
     <PackageReference Include="System.Threading.RateLimiting" />
+    <PackageReference Include="Microsoft.Extensions.Http.Polly" />
+    <PackageReference Include="Polly.Extensions.Http" />
     <PackageReference
       Include="Microsoft.CodeAnalysis.Workspaces.MSBuild"
       GeneratePathProperty="true"

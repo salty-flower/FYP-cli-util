@@ -28,6 +28,8 @@
     <PackageVersion Include="Refit.HttpClientFactory" Version="8.0.0" />
     <PackageVersion Include="System.Threading.RateLimiting" Version="$(DotNetPreviewVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="$(DotNetPreviewVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Http.Polly" Version="8.0.12" />
+    <PackageVersion Include="Polly.Extensions.Http" Version="3.0.0" />
     <!-- Entity Framework -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="$(DotNetPreviewVersion)" />
     <PackageVersion

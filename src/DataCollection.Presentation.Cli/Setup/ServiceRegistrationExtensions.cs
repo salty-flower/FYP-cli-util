@@ -163,6 +163,23 @@ public static class ServiceRegistrationExtensions
                     );
                 }
             )
+            .ConfigurePrimaryHttpMessageHandler(() =>
+                new ClientSideRateLimitedHandler(
+                    new SlidingWindowRateLimiter(
+                        new SlidingWindowRateLimiterOptions
+                        {
+                            QueueLimit = int.MaxValue,
+                            Window = TimeSpan.FromMinutes(1),
+                            PermitLimit = 25, // Conservative: 25/30 requests per minute for GitHub search API
+                            SegmentsPerWindow = 5, // Spread requests evenly across the minute (5 per 12-second segment)
+                        }
+                    )
+                )
+            )
+            .AddPolicyHandler(
+                (sp, request) =>
+                    GitHubRetryPolicyHandler.GetRetryPolicy(sp.GetService<ILogger<IGitHubApi>>())
+            )
             .AddHttpMessageHandler<GitHubDebugLoggingHandler>();
 
         return services;
