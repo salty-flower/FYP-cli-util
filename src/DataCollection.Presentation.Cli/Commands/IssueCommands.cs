@@ -1,5 +1,7 @@
 using ConsoleAppFramework;
 using DataCollection.Application.Features.IssueProcessing;
+using DataCollection.Core.Models.IssueTracker;
+using DataCollection.Infrastructure.Clients.IssueTrackers;
 using DataCollection.Presentation.Cli.Filters;
 using Microsoft.Extensions.Logging;
 
@@ -12,16 +14,18 @@ namespace DataCollection.Presentation.Cli.Commands;
 public class IssueCommands(
     ILogger<IssueCommands> logger,
     SingleIssueProcessingService singleIssueService,
-    IssueBatchProcessingService batchProcessingService
+    IssueBatchProcessingService batchProcessingService,
+    UniversalIssueProcessingService universalIssueService,
+    IIssueTrackerClientFactory issueTrackerFactory
 )
 {
     /// <summary>
-    /// Analyzes an issue and determines its status.
+    /// Analyzes an issue and determines its status. Supports GitHub, Bugzilla, and Jira.
     /// </summary>
-    /// <param name="url">Optional URL to the GitHub issue</param>
-    /// <param name="owner">The owner of the repository (if URL not provided)</param>
-    /// <param name="repoName">The name of the repository (if URL not provided)</param>
-    /// <param name="issueNumber">The number of the issue (if URL not provided)</param>
+    /// <param name="url">Optional URL to the issue (GitHub, Bugzilla, or Jira)</param>
+    /// <param name="owner">The owner of the repository (if URL not provided, GitHub only)</param>
+    /// <param name="repoName">The name of the repository (if URL not provided, GitHub only)</param>
+    /// <param name="issueNumber">The number of the issue (if URL not provided, GitHub only)</param>
     /// <param name="saveResults">Whether to save analysis results to disk</param>
     /// <param name="useCache">Whether to use cached analysis results if available</param>
     public async Task DecideStatus(
@@ -36,6 +40,38 @@ public class IssueCommands(
         // Parse URL if provided
         if (url != null)
         {
+            var provider = issueTrackerFactory.DetectProviderFromUrl(url);
+            if (provider == null || provider == BugTrackingProvider.Unknown)
+            {
+                logger.LogError("Unsupported or invalid issue tracker URL: {Url}", url);
+                return;
+            }
+
+            // For non-GitHub providers, use universal processing service
+            if (provider != BugTrackingProvider.GitHub)
+            {
+                logger.LogInformation(
+                    "Processing non-GitHub issue with universal service: {Url}",
+                    url
+                );
+                var result = await universalIssueService.ProcessIssueAsync(url, saveResults);
+
+                if (result.HasValue)
+                {
+                    logger.LogInformation(
+                        "✅ Issue analysis complete! Status: {Status}, Explanation: {Explanation}",
+                        result.Value.Status,
+                        result.Value.Analysis.NuanceOrExplanation
+                    );
+                }
+                else
+                {
+                    logger.LogError("❌ Failed to process issue");
+                }
+                return;
+            }
+
+            // GitHub-specific parsing for backward compatibility
             var (parsedOwner, parsedRepo, parsedIssueNumber) = ParseGitHubIssueUrl(url);
             if (parsedOwner == null || parsedRepo == null || !parsedIssueNumber.HasValue)
             {
@@ -149,6 +185,121 @@ public class IssueCommands(
                 issueTasks,
                 saveResults,
                 useCache
+            );
+        }
+    }
+
+    /// <summary>
+    /// Demonstrates the new issue tracker functionality with Bugzilla and Jira
+    /// </summary>
+    private async Task DemonstrateIssueTrackerAsync(string url, BugTrackingProvider provider)
+    {
+        logger.LogInformation(
+            "🚀 Demonstrating {Provider} issue tracker support with URL: {Url}",
+            provider,
+            url
+        );
+
+        try
+        {
+            var client = issueTrackerFactory.CreateClient(provider);
+            logger.LogInformation("✅ Created {Provider} client successfully", provider);
+
+            var repositoryId = issueTrackerFactory.ExtractRepositoryIdentifier(url, provider);
+            var issueId = issueTrackerFactory.ExtractIssueId(url, provider);
+
+            logger.LogInformation("📋 Extracted Repository ID: {RepositoryId}", repositoryId);
+            logger.LogInformation("🔍 Extracted Issue ID: {IssueId}", issueId);
+
+            if (repositoryId != null && issueId != null)
+            {
+                // Try to get repository info
+                var repository = await client.GetRepositoryAsync(repositoryId);
+                if (repository != null)
+                {
+                    logger.LogInformation(
+                        "✅ Repository: {Name} - {Description}",
+                        repository.Name,
+                        repository.Description
+                    );
+                }
+
+                // Try to get issue info
+                var issue = await client.GetIssueAsync(repositoryId, issueId);
+                if (issue != null)
+                {
+                    logger.LogInformation("✅ Issue: {Title}", issue.Title);
+                    logger.LogInformation("   📝 Status: {Status}", issue.Status);
+                    logger.LogInformation("   👤 Author: {Author}", issue.Author);
+                    logger.LogInformation(
+                        "   🔧 Assignees: {Assignees}",
+                        string.Join(", ", issue.Assignees)
+                    );
+                    logger.LogInformation(
+                        "   🏷️ Labels: {Labels}",
+                        string.Join(", ", issue.Labels)
+                    );
+                    logger.LogInformation("   📅 Created: {Created}", issue.CreatedAt);
+
+                    if (issue.UpdatedAt.HasValue)
+                        logger.LogInformation("   📅 Updated: {Updated}", issue.UpdatedAt);
+
+                    // Try to get comments
+                    var comments = await client.GetIssueCommentsAsync(repositoryId, issueId);
+                    logger.LogInformation("   💬 Comments: {Count}", comments.Count);
+
+                    // Try to get events
+                    var events = await client.GetIssueEventsAsync(repositoryId, issueId);
+                    logger.LogInformation("   📊 Events: {Count}", events.Count);
+
+                    // Try to get user profile for author
+                    var userProfile = await client.GetUserProfileAsync(issue.Author);
+                    if (userProfile != null)
+                    {
+                        logger.LogInformation("   👤 Author Profile:");
+                        logger.LogInformation(
+                            "      🔰 Is Developer: {IsDeveloper}",
+                            userProfile.IsDeveloper
+                        );
+                        logger.LogInformation(
+                            "      🔧 Is Maintainer: {IsMaintainer}",
+                            userProfile.IsMaintainer
+                        );
+                        logger.LogInformation(
+                            "      ⚡ Is Committer: {IsCommitter}",
+                            userProfile.IsCommitter
+                        );
+                        logger.LogInformation(
+                            "      🏷️ Role Indicators: {RoleIndicators}",
+                            userProfile.RoleIndicators
+                        );
+                        logger.LogInformation(
+                            "      📊 Activity Score: {ActivityScore:F1}",
+                            userProfile.ActivityScore
+                        );
+                    }
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "⚠️ Issue not found or not accessible (may require authentication)"
+                    );
+                }
+            }
+            else
+            {
+                logger.LogError("❌ Could not extract repository or issue information from URL");
+            }
+
+            logger.LogInformation("🎉 {Provider} demonstration complete!", provider);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "❌ Error demonstrating {Provider} support: {Message}",
+                provider,
+                ex.Message
             );
         }
     }

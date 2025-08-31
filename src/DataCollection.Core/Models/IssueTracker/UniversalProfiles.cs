@@ -20,6 +20,12 @@ public record UniversalUserProfile
     public int? TotalStoriesCompleted { get; init; }
     public int? TotalBugsResolved { get; init; }
 
+    // Platform-specific role detection (from analysis)
+    public bool? IsMaintainer { get; set; }
+    public bool? IsCommitter { get; set; }
+    public bool? IsTriageOwner { get; set; }
+    public string? RoleIndicators { get; set; } // Raw role text from platform
+
     // Computed properties
     public bool? IsDeveloper { get; set; }
     public double ActivityScore { get; set; } // Normalized activity across providers

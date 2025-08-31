@@ -1,4 +1,5 @@
-﻿using DataCollection.Infrastructure.Models.GitHub;
+using DataCollection.Core.Models.IssueTracker;
+using DataCollection.Infrastructure.Models.GitHub;
 using GitHub.Models;
 
 namespace DataCollection.Application.Models.IssueTracker.Profiles;
@@ -46,4 +47,16 @@ public record IssueProfile
     public required LabelEventProfile[] LabelEvents { get; init; }
     public required CommentEventProfile[] CommentEvents { get; init; }
     public required OtherEventProfile[] OtherEvents { get; init; }
+}
+
+// Extension methods to convert between GitHub-specific and Universal profiles
+public static class IssueProfileExtensions
+{
+    public static UniversalIssueProfile ToUniversal(this IssueProfile githubProfile)
+    {
+        // This would need to be implemented when we want to migrate GitHub profiles to universal
+        throw new NotImplementedException(
+            "GitHub to Universal profile conversion not yet implemented"
+        );
+    }
 }

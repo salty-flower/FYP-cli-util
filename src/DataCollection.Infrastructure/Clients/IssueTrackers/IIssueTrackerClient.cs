@@ -58,6 +58,7 @@ public abstract class BaseIssueTrackerClient : IIssueTrackerClient
             BugTrackingProvider.Jira => MapJiraStatus(providerStatus),
             BugTrackingProvider.Bugzilla => MapBugzillaStatus(providerStatus),
             BugTrackingProvider.GitLab => MapGitLabStatus(providerStatus),
+            BugTrackingProvider.GnuSavannah => MapGnuSavannahStatus(providerStatus),
             _ => IssueStatus.Unknown,
         };
 
@@ -99,6 +100,18 @@ public abstract class BaseIssueTrackerClient : IIssueTrackerClient
         {
             "opened" => IssueStatus.Open,
             "closed" => IssueStatus.Closed,
+            _ => IssueStatus.Unknown,
+        };
+
+    private static IssueStatus MapGnuSavannahStatus(string status) =>
+        status.ToLowerInvariant() switch
+        {
+            "open" or "none" => IssueStatus.Open,
+            "closed" => IssueStatus.Closed,
+            "fixed" => IssueStatus.Resolved,
+            "invalid" => IssueStatus.Invalid,
+            "duplicate" => IssueStatus.Duplicate,
+            "wontfix" or "works for me" => IssueStatus.Wontfix,
             _ => IssueStatus.Unknown,
         };
 }

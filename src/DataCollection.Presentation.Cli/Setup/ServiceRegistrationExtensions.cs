@@ -107,6 +107,23 @@ public static class ServiceRegistrationExtensions
                 new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All }
             );
 
+        // Add issue tracker HTTP client
+        services
+            .AddHttpClient(
+                "issue-tracker",
+                client =>
+                {
+                    client.DefaultRequestHeaders.Add(
+                        "User-Agent",
+                        "DataCollection-IssueTracker/1.0"
+                    );
+                    client.Timeout = TimeSpan.FromSeconds(30);
+                }
+            )
+            .ConfigurePrimaryHttpMessageHandler(() =>
+                new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All }
+            );
+
         return services;
     }
 
@@ -226,8 +243,10 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<GitHubService>();
         services.AddSingleton<SingleIssueProcessingService>();
         services.AddSingleton<IssueBatchProcessingService>();
+        services.AddSingleton<UniversalIssueProcessingService>();
         services.AddSingleton<IsDeveloperCriterion>();
         services.AddSingleton<IssueOverallStatusCriterion>();
+        services.AddSingleton<UniversalIssueOverallStatusCriterion>();
         services.AddScoped<BatchFileHandler>();
         services.AddScoped<BatchJobPoller>();
         services.AddScoped<IUserProfileCache, UserProfileCache>();
@@ -245,7 +264,13 @@ public static class ServiceRegistrationExtensions
         services.AddScoped<IChatCompletionService, OpenAIChatCompletionService>(sp =>
             new("o4-mini", sp.GetOptions<CredentialOptions>().OpenAIToken)
         );
-        services.AddSingleton<IIssueTrackerClientFactory, IssueTrackerClientFactory>();
+        services.AddSingleton<IIssueTrackerClientFactory, IssueTrackerClientFactory>(
+            sp => new IssueTrackerClientFactory(
+                sp.GetService<IHttpClientFactory>()?.CreateClient("issue-tracker")
+                    ?? new HttpClient(),
+                sp.GetRequiredService<ILoggerFactory>()
+            )
+        );
         return services;
     }
 

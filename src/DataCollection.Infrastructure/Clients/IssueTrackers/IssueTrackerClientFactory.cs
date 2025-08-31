@@ -1,10 +1,20 @@
 using System.Text.RegularExpressions;
 using DataCollection.Core.Models.IssueTracker;
+using Microsoft.Extensions.Logging;
 
 namespace DataCollection.Infrastructure.Clients.IssueTrackers;
 
 public class IssueTrackerClientFactory : IIssueTrackerClientFactory
 {
+    private readonly HttpClient _httpClient;
+    private readonly ILoggerFactory _loggerFactory;
+
+    public IssueTrackerClientFactory(HttpClient httpClient, ILoggerFactory loggerFactory)
+    {
+        _httpClient = httpClient;
+        _loggerFactory = loggerFactory;
+    }
+
     private static readonly Dictionary<BugTrackingProvider, Regex[]> ProviderUrlPatterns = new()
     {
         [BugTrackingProvider.GitHub] =
@@ -39,6 +49,10 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
                 @"jira\.([^/]+)/browse/([A-Z]+-\d+)",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
+            new Regex(
+                @"(bugs\.[^/]+)/browse/([A-Z]+-\d+)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase
+            ),
         ],
         [BugTrackingProvider.Bugzilla] =
         [
@@ -47,7 +61,22 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
                 RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
             new Regex(
+                @"bugs\.([^/]+)/show_bug\.cgi\?id=(\d+)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase
+            ),
+            new Regex(
                 @"([^/]+)/bugzilla/show_bug\.cgi\?id=(\d+)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase
+            ),
+        ],
+        [BugTrackingProvider.GnuSavannah] =
+        [
+            new Regex(
+                @"savannah\.gnu\.org/bugs/\?(\d+)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase
+            ),
+            new Regex(
+                @"savannah\.([^/]+)/bugs/\?(\d+)",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
         ],
@@ -79,11 +108,26 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
                 @"([^/]+)\.atlassian\.net/projects/([A-Z]+)",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
+            new Regex(
+                @"(bugs\.[^/]+)/browse/([A-Z]+)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase
+            ),
         ],
         [BugTrackingProvider.Bugzilla] =
         [
             new Regex(
                 @"bugzilla\.([^/]+)/describecomponents\.cgi\?product=([^&]+)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase
+            ),
+            new Regex(
+                @"bugs\.([^/]+)/show_bug\.cgi\?id=(\d+)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase
+            ),
+        ],
+        [BugTrackingProvider.GnuSavannah] =
+        [
+            new Regex(
+                @"savannah\.gnu\.org/(projects/)?([^/]+)",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
         ],
@@ -112,6 +156,10 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
             new Regex(@"show_bug\.cgi\?id=(\d+)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
             new Regex(@"bug\.cgi\?id=(\d+)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
         ],
+        [BugTrackingProvider.GnuSavannah] =
+        [
+            new Regex(@"/bugs/\?(\d+)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        ],
     };
 
     public IIssueTrackerClient CreateClient(BugTrackingProvider provider)
@@ -121,14 +169,19 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
             BugTrackingProvider.GitHub => throw new NotImplementedException(
                 "GitHub client will be implemented later"
             ),
-            BugTrackingProvider.Jira => throw new NotImplementedException(
-                "Jira client not yet implemented"
+            BugTrackingProvider.Jira => new JiraClient(
+                _httpClient,
+                _loggerFactory.CreateLogger<JiraClient>()
             ),
             BugTrackingProvider.GitLab => throw new NotImplementedException(
                 "GitLab client not yet implemented"
             ),
-            BugTrackingProvider.Bugzilla => throw new NotImplementedException(
-                "Bugzilla client not yet implemented"
+            BugTrackingProvider.Bugzilla => new BugzillaClient(
+                _httpClient,
+                _loggerFactory.CreateLogger<BugzillaClient>()
+            ),
+            BugTrackingProvider.GnuSavannah => throw new NotImplementedException(
+                "GNU Savannah client not yet implemented"
             ),
             _ => throw new ArgumentException($"Unsupported provider: {provider}"),
         };
@@ -169,8 +222,13 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
                         $"{match.Groups[2].Value}/{match.Groups[3].Value}",
                     BugTrackingProvider.GitLab =>
                         $"{match.Groups[1].Value}/{match.Groups[2].Value}",
-                    BugTrackingProvider.Jira => match.Groups[2].Value, // Project key
-                    BugTrackingProvider.Bugzilla => match.Groups[2].Value, // Product name
+                    BugTrackingProvider.Jira => match.Groups.Count >= 3
+                        ? $"{match.Groups[1].Value}/{match.Groups[2].Value}" // hostname/project for bugs.openjdk.org and atlassian.net patterns
+                        : match.Groups[2].Value, // Just project key fallback
+                    BugTrackingProvider.Bugzilla => pattern.ToString().Contains("bugs\\.")
+                        ? $"{match.Groups[1].Value}/WebKit" // For bugs.webkit.org format - use hostname/WebKit
+                        : match.Groups[2].Value, // Product name for other formats
+                    BugTrackingProvider.GnuSavannah => match.Groups[2].Value, // Project name
                     _ => null,
                 };
             }
@@ -198,6 +256,7 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
                     BugTrackingProvider.GitLab => match.Groups[1].Value,
                     BugTrackingProvider.Jira => match.Groups[1].Value,
                     BugTrackingProvider.Bugzilla => match.Groups[1].Value,
+                    BugTrackingProvider.GnuSavannah => match.Groups[1].Value,
                     _ => null,
                 };
             }

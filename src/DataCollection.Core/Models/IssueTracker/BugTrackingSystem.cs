@@ -6,6 +6,7 @@ public enum BugTrackingProvider
     Jira,
     Bugzilla,
     GitLab,
+    GnuSavannah,
     Unknown,
 }
 
