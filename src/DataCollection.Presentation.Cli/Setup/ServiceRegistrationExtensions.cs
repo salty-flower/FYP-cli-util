@@ -27,7 +27,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 using OpenAI;
@@ -128,6 +127,12 @@ public static class ServiceRegistrationExtensions
                 (sp, client) =>
                 {
                     var credentialOptions = sp.GetOptions<CredentialOptions>();
+                    var logger = sp.GetRequiredService<ILogger<GitHubService>>();
+                    logger.LogDebug(
+                        "Using GitHub token: {githubToken} for {name}",
+                        credentialOptions.GitHubToken,
+                        nameof(GitHubService)
+                    );
                     client.BaseAddress = new Uri("https://api.github.com/");
                     client.DefaultRequestHeaders.Accept.Add(
                         new MediaTypeWithQualityHeaderValue("application/vnd.github+json")
@@ -155,6 +160,12 @@ public static class ServiceRegistrationExtensions
                 (sp, client) =>
                 {
                     var credentialOptions = sp.GetOptions<CredentialOptions>();
+                    var logger = sp.GetRequiredService<ILogger<IGitHubApi>>();
+                    logger.LogDebug(
+                        "Using GitHub token: {githubToken} for {name}",
+                        credentialOptions.GitHubToken,
+                        nameof(IGitHubApi)
+                    );
                     client.BaseAddress = new Uri("https://api.github.com/");
                     client.DefaultRequestHeaders.Add("User-Agent", "BugMiner/1.0");
                     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
@@ -177,7 +188,7 @@ public static class ServiceRegistrationExtensions
                 )
             )
             .AddPolicyHandler(
-                (sp, request) =>
+                (sp, _) =>
                     GitHubRetryPolicyHandler.GetRetryPolicy(sp.GetService<ILogger<IGitHubApi>>())
             )
             .AddHttpMessageHandler<GitHubDebugLoggingHandler>();
