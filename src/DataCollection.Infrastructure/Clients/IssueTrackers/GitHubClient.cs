@@ -179,6 +179,66 @@ public class GitHubClient(
             await issueCommentsCache.SetAsync(owner, repoName, issueNumber, comments);
             return comments;
         }
+        catch (ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            logger.LogInformation(
+                "Issue comments not found at {Owner}/{RepoName}#{IssueNumber}, checking for redirected location",
+                owner,
+                repoName,
+                issueNumber
+            );
+
+            var redirectedLocation = await GetRedirectedIssueLocationAsync(
+                owner,
+                repoName,
+                issueNumber
+            );
+            if (redirectedLocation.HasValue)
+            {
+                var (newOwner, newRepoName, newIssueNumber) = redirectedLocation.Value;
+                logger.LogInformation(
+                    "Found redirected issue location: {NewOwner}/{NewRepoName}#{NewIssueNumber}",
+                    newOwner,
+                    newRepoName,
+                    newIssueNumber
+                );
+
+                try
+                {
+                    var comments = await gitHubApi.GetIssueCommentsAsync(
+                        newOwner,
+                        newRepoName,
+                        newIssueNumber
+                    );
+                    await issueCommentsCache.SetAsync(owner, repoName, issueNumber, comments);
+                    return comments;
+                }
+                catch (ApiException redirectEx)
+                {
+                    logger.LogWarning(
+                        redirectEx,
+                        "Failed to get issue comments from redirected location {NewOwner}/{NewRepoName}#{NewIssueNumber}: {StatusCode} {Message}",
+                        newOwner,
+                        newRepoName,
+                        newIssueNumber,
+                        redirectEx.StatusCode,
+                        redirectEx.Content
+                    );
+                }
+            }
+
+            logger.LogWarning(
+                ex,
+                "Failed to get issue comments for {Owner}/{RepoName}#{IssueNumber}: {StatusCode} {Message}",
+                owner,
+                repoName,
+                issueNumber,
+                ex.StatusCode,
+                ex.Content
+            );
+            await issueCommentsCache.SetAsync(owner, repoName, issueNumber, null);
+            return null;
+        }
         catch (ApiException ex)
         {
             logger.LogWarning(
@@ -212,6 +272,66 @@ public class GitHubClient(
             var events = await gitHubApi.GetIssueEventsAsync(owner, repoName, issueNumber);
             await issueEventsCache.SetAsync(owner, repoName, issueNumber, events);
             return events;
+        }
+        catch (ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            logger.LogInformation(
+                "Issue events not found at {Owner}/{RepoName}#{IssueNumber}, checking for redirected location",
+                owner,
+                repoName,
+                issueNumber
+            );
+
+            var redirectedLocation = await GetRedirectedIssueLocationAsync(
+                owner,
+                repoName,
+                issueNumber
+            );
+            if (redirectedLocation.HasValue)
+            {
+                var (newOwner, newRepoName, newIssueNumber) = redirectedLocation.Value;
+                logger.LogInformation(
+                    "Found redirected issue location: {NewOwner}/{NewRepoName}#{NewIssueNumber}",
+                    newOwner,
+                    newRepoName,
+                    newIssueNumber
+                );
+
+                try
+                {
+                    var events = await gitHubApi.GetIssueEventsAsync(
+                        newOwner,
+                        newRepoName,
+                        newIssueNumber
+                    );
+                    await issueEventsCache.SetAsync(owner, repoName, issueNumber, events);
+                    return events;
+                }
+                catch (ApiException redirectEx)
+                {
+                    logger.LogWarning(
+                        redirectEx,
+                        "Failed to get issue events from redirected location {NewOwner}/{NewRepoName}#{NewIssueNumber}: {StatusCode} {Message}",
+                        newOwner,
+                        newRepoName,
+                        newIssueNumber,
+                        redirectEx.StatusCode,
+                        redirectEx.Content
+                    );
+                }
+            }
+
+            logger.LogWarning(
+                ex,
+                "Failed to get issue events for {Owner}/{RepoName}#{IssueNumber}: {StatusCode} {Message}",
+                owner,
+                repoName,
+                issueNumber,
+                ex.StatusCode,
+                ex.Content
+            );
+            await issueEventsCache.SetAsync(owner, repoName, issueNumber, null);
+            return null;
         }
         catch (ApiException ex)
         {
@@ -305,6 +425,56 @@ public class GitHubClient(
             await searchResultsCache.SetAsync(query, 0);
             return 0;
         }
+    }
+
+    private async Task<(
+        string owner,
+        string repoName,
+        long issueNumber
+    )?> GetRedirectedIssueLocationAsync(
+        string originalOwner,
+        string originalRepoName,
+        long originalIssueNumber
+    )
+    {
+        try
+        {
+            var issueJson = await gitHubApi.GetIssueJsonAsync(
+                originalOwner,
+                originalRepoName,
+                originalIssueNumber
+            );
+            var issueInfo = JsonSerializer.Deserialize<GitHubIssueRedirect>(
+                issueJson,
+                GitHubAPIJsonContext.Default.GitHubIssueRedirect
+            );
+
+            if (issueInfo?.Url != null)
+            {
+                var urlParts = issueInfo.Url.Split('/');
+                if (urlParts.Length >= 6 && urlParts[^3] == "issues")
+                {
+                    var newOwner = urlParts[^5];
+                    var newRepoName = urlParts[^4];
+                    if (long.TryParse(urlParts[^1], out var newIssueNumber))
+                    {
+                        return (newOwner, newRepoName, newIssueNumber);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(
+                ex,
+                "Failed to check for redirected issue location for {Owner}/{RepoName}#{IssueNumber}",
+                originalOwner,
+                originalRepoName,
+                originalIssueNumber
+            );
+        }
+
+        return null;
     }
 
     private static string? DecodeBase64Content(string? content)

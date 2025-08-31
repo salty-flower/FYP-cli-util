@@ -24,6 +24,7 @@ namespace DataCollection.Infrastructure.Serialization;
 [JsonSerializable(typeof(RepositoryTree.TreeItem))]
 [JsonSerializable(typeof(GitHubSearchResponse))]
 [JsonSerializable(typeof(GitHubFileContent))]
+[JsonSerializable(typeof(GitHubIssueRedirect))]
 [JsonSerializable(typeof(Repository_merge_commit_message))]
 [JsonSerializable(typeof(Repository_merge_commit_title))]
 [JsonSerializable(typeof(Repository_squash_merge_commit_message))]

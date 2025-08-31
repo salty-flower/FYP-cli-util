@@ -43,4 +43,10 @@ public interface IGitHubApi
         string tree_sha,
         [AliasAs("recursive")] int? recursive
     );
+
+    /// <summary>
+    /// Get issue info to check for transfers/redirects
+    /// </summary>
+    [Get("/repos/{owner}/{repoName}/issues/{issueNumber}")]
+    Task<string> GetIssueJsonAsync(string owner, string repoName, long issueNumber);
 }
