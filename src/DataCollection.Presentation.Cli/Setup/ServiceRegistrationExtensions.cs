@@ -147,6 +147,8 @@ public static class ServiceRegistrationExtensions
                 }
             );
 
+        services.AddTransient<GitHubDebugLoggingHandler>();
+
         services
             .AddRefitClient<IGitHubApi>()
             .ConfigureHttpClient(
@@ -154,12 +156,14 @@ public static class ServiceRegistrationExtensions
                 {
                     var credentialOptions = sp.GetOptions<CredentialOptions>();
                     client.BaseAddress = new Uri("https://api.github.com/");
+                    client.DefaultRequestHeaders.Add("User-Agent", "BugMiner/1.0");
                     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
                         "Bearer",
                         credentialOptions.GitHubToken
                     );
                 }
-            );
+            )
+            .AddHttpMessageHandler<GitHubDebugLoggingHandler>();
 
         return services;
     }
