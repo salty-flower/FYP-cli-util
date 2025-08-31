@@ -96,7 +96,7 @@ public class GitHubService(
         return finalProfile;
     }
 
-    public async Task<IssueProfile> BuildComprehensiveIssueProfileAsync(
+    public async Task<IssueProfile?> BuildComprehensiveIssueProfileAsync(
         string owner,
         string repoName,
         long issueNumber
@@ -106,9 +106,10 @@ public class GitHubService(
 
         var issue = await gitHubClient.GetIssueAsync(owner, repoName, issueNumber);
         if (issue == null)
-            throw new ArgumentException(
-                $"Issue {issueNumber} not found in repository {owner}/{repoName}"
-            );
+        {
+            logger.LogError($"Issue {issueNumber} not found in repository {owner}/{repoName}");
+            return null;
+        }
 
         // Use Refit API client to avoid SDK integer overflow bug
         var issueEvents =

@@ -25,7 +25,7 @@ public class SingleIssueProcessingService(
     /// <summary>
     /// Processes a single issue and returns the status and analysis result
     /// </summary>
-    public async Task<(IssueStatus Status, IssueAnalysisResponse Analysis)> ProcessIssueAsync(
+    public async Task<(IssueStatus Status, IssueAnalysisResponse Analysis)?> ProcessIssueAsync(
         string owner,
         string repoName,
         long issueNumber,
@@ -72,6 +72,16 @@ public class SingleIssueProcessingService(
             repoName,
             issueNumber
         );
+        if (issueProfile == null)
+        {
+            logger.LogWarning(
+                "No issue profile found for {Owner}/{Repo}#{IssueNumber}",
+                owner,
+                repoName,
+                issueNumber
+            );
+            return null;
+        }
 
         // Cache user profiles
         await CacheUserProfilesAsync(issueProfile);

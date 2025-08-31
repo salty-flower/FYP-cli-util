@@ -141,8 +141,25 @@ public class GitHubClient(
         return (totalCountTask.Result, mergedCountTask.Result);
     }
 
-    public async Task<Issue?> GetIssueAsync(string owner, string repoName, long issueNumber) =>
-        await gitHubClient.Repos[owner][repoName].Issues[(int)issueNumber].GetAsync();
+    public async Task<Issue?> GetIssueAsync(string owner, string repoName, long issueNumber)
+    {
+        try
+        {
+            return await gitHubClient.Repos[owner][repoName].Issues[(int)issueNumber].GetAsync();
+        }
+        catch (BasicError ex)
+        {
+            logger.LogWarning(
+                "Issue {IssueNumber} not found at {Owner}/{RepoName}: {StatusCode} {Message}",
+                issueNumber,
+                owner,
+                repoName,
+                ex.Status,
+                ex.Message
+            );
+            return null;
+        }
+    }
 
     public async Task<List<IssueComment>?> GetIssueCommentsAsync(
         string owner,

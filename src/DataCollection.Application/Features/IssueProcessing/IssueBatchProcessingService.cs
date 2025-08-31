@@ -215,6 +215,16 @@ public class IssueBatchProcessingService(
                 repoName,
                 issueNumber.Value
             );
+            if (issueProfile == null)
+            {
+                logger.LogWarning(
+                    "No issue profile found for {Owner}/{Repo}#{IssueNumber}",
+                    owner,
+                    repoName,
+                    issueNumber.Value
+                );
+                continue;
+            }
 
             var customId = $"{owner}/{repoName}#{issueNumber.Value}";
             issueProfiles[customId] = issueProfile;
