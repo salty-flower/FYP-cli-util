@@ -74,7 +74,7 @@ public record BugzillaBugSearchResponse([property: JsonPropertyName("bugs")] Bug
 public record BugzillaBug(
     [property: JsonPropertyName("id")] int Id,
     [property: JsonPropertyName("summary")] string Summary,
-    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("status")] string? Status,
     [property: JsonPropertyName("resolution")] string? Resolution,
     [property: JsonPropertyName("priority")] string Priority,
     [property: JsonPropertyName("severity")] string Severity,

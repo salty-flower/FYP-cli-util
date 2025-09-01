@@ -78,6 +78,53 @@ public class BugzillaHistoryService
     }
 
     /// <summary>
+    /// Get issue details using REST API for any Bugzilla instance
+    /// </summary>
+    public async Task<Issue?> GetIssueDetailsAsync(string hostname, int bugId)
+    {
+        try
+        {
+            var bugzillaApi = GetOrCreateBugzillaApi(hostname);
+            var bugResponse = await bugzillaApi.GetBugAsync(bugId);
+            var bug = bugResponse?.Bugs?.FirstOrDefault();
+
+            if (bug == null)
+                return null;
+
+            return new Issue
+            {
+                Id = bug.Id.ToString(),
+                Title = bug.Summary,
+                Status = BaseIssueTrackerClient.MapToUniversalStatus(
+                    bug.Status ?? "",
+                    BugTrackingProvider.Bugzilla
+                ),
+                Author = bug.CreatorDetail?.RealName ?? bug.Creator,
+                CreatedAt = bug.CreationTime,
+                UpdatedAt = bug.LastChangeTime,
+                ClosedAt = IsClosedStatus(bug.Status) ? bug.LastChangeTime : null,
+                Labels = bug.Keywords?.ToList() ?? [],
+                Assignees = string.IsNullOrEmpty(bug.AssignedTo)
+                    ? []
+                    : [bug.AssignedToDetail?.RealName ?? bug.AssignedTo],
+                Priority = bug.Priority,
+                Severity = bug.Severity,
+                Provider = BugTrackingProvider.Bugzilla,
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to get Bugzilla issue details for bug {BugId} from {Hostname}",
+                bugId,
+                hostname
+            );
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Get enhanced comments for any Bugzilla instance
     /// </summary>
     public async Task<List<Comment>> GetEnhancedCommentsAsync(string hostname, int bugId)
@@ -184,4 +231,11 @@ public class BugzillaHistoryService
             _ => $"{fieldName}_changed",
         };
     }
+
+    private static bool IsClosedStatus(string? status) =>
+        status?.ToUpperInvariant() switch
+        {
+            "RESOLVED" or "VERIFIED" or "CLOSED" => true,
+            _ => false,
+        };
 }

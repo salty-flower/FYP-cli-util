@@ -83,8 +83,8 @@ public abstract class BaseIssueTrackerClient : IIssueTrackerClient
             _ => IssueStatus.Unknown,
         };
 
-    private static IssueStatus MapBugzillaStatus(string status) =>
-        status.ToLowerInvariant() switch
+    private static IssueStatus MapBugzillaStatus(string? status) =>
+        status?.ToLowerInvariant() switch
         {
             "new" or "unconfirmed" or "assigned" => IssueStatus.Open,
             "resolved" => IssueStatus.Resolved,
@@ -92,6 +92,7 @@ public abstract class BaseIssueTrackerClient : IIssueTrackerClient
             "duplicate" => IssueStatus.Duplicate,
             "invalid" => IssueStatus.Invalid,
             "wontfix" => IssueStatus.Wontfix,
+            null => IssueStatus.Unknown,
             _ => IssueStatus.Unknown,
         };
 

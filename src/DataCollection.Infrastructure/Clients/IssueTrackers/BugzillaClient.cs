@@ -123,7 +123,43 @@ public class BugzillaClient : BaseIssueTrackerClient
                     $"Invalid repository identifier: {repositoryIdentifier}"
                 );
 
-            var baseUrl = $"https://{parts[0]}";
+            var hostname = parts[0];
+
+            // Try enhanced REST API approach first if BugzillaHistoryService is available
+            if (_bugzillaHistoryService != null && int.TryParse(issueId, out var bugId))
+            {
+                try
+                {
+                    var restApiIssue = await GetIssueViaRestApiAsync(hostname, bugId);
+                    if (restApiIssue != null)
+                    {
+                        _logger.LogDebug(
+                            "Retrieved Bugzilla issue {IssueId} via REST API from {Hostname}",
+                            issueId,
+                            hostname
+                        );
+                        return restApiIssue;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "REST API failed for Bugzilla issue {IssueId}, falling back to basic HTTP",
+                        issueId
+                    );
+                    // Fall through to basic HTTP fallback
+                }
+            }
+
+            // Fallback to basic HTTP approach
+            _logger.LogDebug(
+                "Using basic HTTP approach for Bugzilla issue {IssueId} from {Hostname}",
+                issueId,
+                hostname
+            );
+
+            var baseUrl = $"https://{hostname}";
             var response = await _httpClient.GetStringAsync(
                 $"{baseUrl}/rest/bug/{issueId}?include_fields=*"
             );
@@ -137,7 +173,7 @@ public class BugzillaClient : BaseIssueTrackerClient
             {
                 Id = bug.Id.ToString(),
                 Title = bug.Summary,
-                Status = MapToUniversalStatus(bug.Status, BugTrackingProvider.Bugzilla),
+                Status = MapToUniversalStatus(bug.Status ?? "", BugTrackingProvider.Bugzilla),
                 Author = bug.CreatorDetail?.RealName ?? bug.Creator,
                 CreatedAt = bug.CreationTime,
                 UpdatedAt = bug.LastChangeTime,
@@ -170,6 +206,39 @@ public class BugzillaClient : BaseIssueTrackerClient
                 "Failed to get issue {IssueId} from repository {RepositoryIdentifier}",
                 issueId,
                 repositoryIdentifier
+            );
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Get issue via enhanced Refit+Polly REST API approach
+    /// </summary>
+    private async Task<Issue?> GetIssueViaRestApiAsync(string hostname, int bugId)
+    {
+        if (_bugzillaHistoryService == null)
+            return null;
+
+        try
+        {
+            // Use BugzillaHistoryService to get bug details via Refit API with enterprise-grade resilience
+            var issue = await _bugzillaHistoryService.GetIssueDetailsAsync(hostname, bugId);
+            if (issue != null)
+            {
+                _logger.LogDebug(
+                    "Successfully retrieved Bugzilla issue {BugId} via enhanced REST API",
+                    bugId
+                );
+            }
+            return issue;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to get Bugzilla issue {BugId} via REST API from {Hostname}",
+                bugId,
+                hostname
             );
             return null;
         }
@@ -226,7 +295,10 @@ public class BugzillaClient : BaseIssueTrackerClient
                     {
                         Id = bug.Id.ToString(),
                         Title = bug.Summary,
-                        Status = MapToUniversalStatus(bug.Status, BugTrackingProvider.Bugzilla),
+                        Status = MapToUniversalStatus(
+                            bug.Status ?? "",
+                            BugTrackingProvider.Bugzilla
+                        ),
                         Author = bug.CreatorDetail?.RealName ?? bug.Creator,
                         CreatedAt = bug.CreationTime,
                         UpdatedAt = bug.LastChangeTime,
