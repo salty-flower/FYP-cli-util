@@ -32,6 +32,54 @@ public record UniversalUserProfile
 
     // Provider-specific data
     public ProviderSpecificData? ProviderSpecificData { get; init; }
+
+    /// <summary>
+    /// Provides a concise representation for LLM prompts, showing only relevant non-empty fields
+    /// </summary>
+    public string ToPromptString()
+    {
+        var parts = new List<string> { $"@{Username}" };
+
+        // Add role indicators if available
+        var roles = new List<string>();
+        if (IsMaintainer == true)
+            roles.Add("maintainer");
+        if (IsCommitter == true)
+            roles.Add("committer");
+        if (IsTriageOwner == true)
+            roles.Add("triage-owner");
+        if (IsDeveloper == true && roles.Count == 0)
+            roles.Add("developer");
+        if (IsCollaboratorOrMember == true)
+            roles.Add("collaborator");
+        if (IsContributor == true)
+            roles.Add("contributor");
+
+        if (roles.Count > 0)
+            parts.Add($"({string.Join(", ", roles)})");
+
+        // Add activity metrics if meaningful
+        var metrics = new List<string>();
+        if (TotalIssuesOpened > 0)
+            metrics.Add($"{TotalIssuesOpened} issues");
+        if (TotalIssuesAssigned > 0)
+            metrics.Add($"{TotalIssuesAssigned} assigned");
+        if (TotalCommentsPosted > 0)
+            metrics.Add($"{TotalCommentsPosted} comments");
+        if (TotalPullRequests > 0)
+            metrics.Add($"{TotalPullRequests} PRs");
+        if (TotalMergedPullRequests > 0)
+            metrics.Add($"{TotalMergedPullRequests} merged");
+
+        if (metrics.Count > 0)
+            parts.Add($"[{string.Join(", ", metrics)}]");
+
+        // Add raw role indicators if available and different from parsed roles
+        if (!string.IsNullOrEmpty(RoleIndicators) && roles.Count == 0)
+            parts.Add($"({RoleIndicators})");
+
+        return string.Join(" ", parts);
+    }
 }
 
 public record UniversalIssueProfile

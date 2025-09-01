@@ -140,9 +140,9 @@ public class UniversalIssueOverallStatusCriterion(
                 );
         }
 
-        var users = new HashSet<string> { profile.AuthorProfile.ToString() };
+        var users = new HashSet<string> { profile.AuthorProfile.ToPromptString() };
         foreach (var participant in profile.Participants)
-            users.Add(participant.ToString());
+            users.Add(participant.ToPromptString());
 
         var repoInfo = new StringBuilder();
         repoInfo.Append(

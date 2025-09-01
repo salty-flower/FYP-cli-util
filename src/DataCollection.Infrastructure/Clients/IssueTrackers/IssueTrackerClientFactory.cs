@@ -8,11 +8,20 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
 {
     private readonly HttpClient _httpClient;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly JiraHistoryService? _jiraHistoryService;
+    private readonly BugzillaHistoryService? _bugzillaHistoryService;
 
-    public IssueTrackerClientFactory(HttpClient httpClient, ILoggerFactory loggerFactory)
+    public IssueTrackerClientFactory(
+        HttpClient httpClient,
+        ILoggerFactory loggerFactory,
+        JiraHistoryService? jiraHistoryService = null,
+        BugzillaHistoryService? bugzillaHistoryService = null
+    )
     {
         _httpClient = httpClient;
         _loggerFactory = loggerFactory;
+        _jiraHistoryService = jiraHistoryService;
+        _bugzillaHistoryService = bugzillaHistoryService;
     }
 
     private static readonly Dictionary<BugTrackingProvider, Regex[]> ProviderUrlPatterns = new()
@@ -53,15 +62,19 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
                 @"(bugs\.[^/]+)/browse/([A-Z]+-\d+)",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
+            new Regex(
+                @"([^/]+\.[^/]+)/jira/browse/([A-Z]+-\d+)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase
+            ),
         ],
         [BugTrackingProvider.Bugzilla] =
         [
             new Regex(
-                @"bugzilla\.([^/]+)/show_bug\.cgi\?id=(\d+)",
+                @"(bugzilla\.[^/]+)/show_bug\.cgi\?id=(\d+)",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
             new Regex(
-                @"bugs\.([^/]+)/show_bug\.cgi\?id=(\d+)",
+                @"(bugs\.[^/]+)/show_bug\.cgi\?id=(\d+)",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
             new Regex(
@@ -120,7 +133,7 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
                 RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
             new Regex(
-                @"bugs\.([^/]+)/show_bug\.cgi\?id=(\d+)",
+                @"(bugs\.[^/]+)/show_bug\.cgi\?id=(\d+)",
                 RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
         ],
@@ -171,14 +184,16 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
             ),
             BugTrackingProvider.Jira => new JiraClient(
                 _httpClient,
-                _loggerFactory.CreateLogger<JiraClient>()
+                _loggerFactory.CreateLogger<JiraClient>(),
+                _jiraHistoryService
             ),
             BugTrackingProvider.GitLab => throw new NotImplementedException(
                 "GitLab client not yet implemented"
             ),
             BugTrackingProvider.Bugzilla => new BugzillaClient(
                 _httpClient,
-                _loggerFactory.CreateLogger<BugzillaClient>()
+                _loggerFactory.CreateLogger<BugzillaClient>(),
+                _bugzillaHistoryService
             ),
             BugTrackingProvider.GnuSavannah => throw new NotImplementedException(
                 "GNU Savannah client not yet implemented"
@@ -226,7 +241,7 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
                         ? $"{match.Groups[1].Value}/{match.Groups[2].Value}" // hostname/project for bugs.openjdk.org and atlassian.net patterns
                         : match.Groups[2].Value, // Just project key fallback
                     BugTrackingProvider.Bugzilla => pattern.ToString().Contains("bugs\\.")
-                        ? $"{match.Groups[1].Value}/WebKit" // For bugs.webkit.org format - use hostname/WebKit
+                        ? $"{match.Groups[1].Value}/WebKit" // For bugs.webkit.org format - assume WebKit product
                         : match.Groups[2].Value, // Product name for other formats
                     BugTrackingProvider.GnuSavannah => match.Groups[2].Value, // Project name
                     _ => null,

@@ -48,7 +48,7 @@ public abstract class BaseIssueTrackerClient : IIssueTrackerClient
     public abstract Task<List<string>> GetRepositoryContributorsAsync(string repositoryIdentifier);
     public abstract Task<List<Repository>> SearchRepositoriesAsync(string query);
 
-    protected static IssueStatus MapToUniversalStatus(
+    public static IssueStatus MapToUniversalStatus(
         string providerStatus,
         BugTrackingProvider provider
     ) =>

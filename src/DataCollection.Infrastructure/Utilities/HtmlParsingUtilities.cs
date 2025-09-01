@@ -101,11 +101,20 @@ public static class HtmlParsingUtilities
             return html.Contains("login.jsp") || html.Contains("permissionViolation=true");
         }
 
-        // Check for login-related content in HTML
-        return html.Contains("login.jsp")
-            || html.Contains("You are not logged in")
+        // If we can extract issue content (title/summary), then auth is not required for viewing
+        // even if login navigation links are present
+        var hasIssueTitle = html.Contains("id=\"summary-val\"") || html.Contains("summary-val");
+        if (hasIssueTitle)
+        {
+            return false; // Issue content is accessible
+        }
+
+        // Check for actual authentication barriers (not just navigation links)
+        return html.Contains("You are not logged in")
             || html.Contains("authentication required")
-            || html.Contains("permission denied");
+            || html.Contains("permission denied")
+            || html.Contains("Access Denied")
+            || (html.Contains("login") && html.Contains("Please log in to access"));
     }
 
     public static bool IsUserAdmin(Dictionary<string, string> metaTags)

@@ -12,6 +12,7 @@ public class BugzillaClient : BaseIssueTrackerClient
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<BugzillaClient> _logger;
+    private readonly BugzillaHistoryService? _bugzillaHistoryService;
     private readonly ConcurrentDictionary<string, UniversalUserProfile> _userProfileCache = new();
     private readonly ConcurrentDictionary<string, Repository> _repositoryCache = new();
 
@@ -23,10 +24,15 @@ public class BugzillaClient : BaseIssueTrackerClient
         RegexOptions.Compiled | RegexOptions.IgnoreCase
     );
 
-    public BugzillaClient(HttpClient httpClient, ILogger<BugzillaClient> logger)
+    public BugzillaClient(
+        HttpClient httpClient,
+        ILogger<BugzillaClient> logger,
+        BugzillaHistoryService? bugzillaHistoryService = null
+    )
     {
         _httpClient = httpClient;
         _logger = logger;
+        _bugzillaHistoryService = bugzillaHistoryService;
     }
 
     public override BugTrackingProvider Provider => BugTrackingProvider.Bugzilla;
@@ -136,7 +142,7 @@ public class BugzillaClient : BaseIssueTrackerClient
                 CreatedAt = bug.CreationTime,
                 UpdatedAt = bug.LastChangeTime,
                 ClosedAt = IsClosedStatus(bug.Status) ? bug.LastChangeTime : null,
-                Labels = bug.Keywords,
+                Labels = bug.Keywords?.ToList() ?? [],
                 Assignees = string.IsNullOrEmpty(bug.AssignedTo)
                     ? []
                     : [bug.AssignedToDetail?.RealName ?? bug.AssignedTo],
@@ -225,7 +231,7 @@ public class BugzillaClient : BaseIssueTrackerClient
                         CreatedAt = bug.CreationTime,
                         UpdatedAt = bug.LastChangeTime,
                         ClosedAt = IsClosedStatus(bug.Status) ? bug.LastChangeTime : null,
-                        Labels = bug.Keywords,
+                        Labels = bug.Keywords?.ToList() ?? [],
                         Assignees = string.IsNullOrEmpty(bug.AssignedTo)
                             ? []
                             : [bug.AssignedToDetail?.RealName ?? bug.AssignedTo],
@@ -271,7 +277,36 @@ public class BugzillaClient : BaseIssueTrackerClient
                     $"Invalid repository identifier: {repositoryIdentifier}"
                 );
 
-            var baseUrl = $"https://{parts[0]}";
+            var hostname = parts[0];
+
+            // Use BugzillaHistoryService for enhanced comments if available
+            if (_bugzillaHistoryService != null && int.TryParse(issueId, out var bugId))
+            {
+                try
+                {
+                    var enhancedComments = await _bugzillaHistoryService.GetEnhancedCommentsAsync(
+                        hostname,
+                        bugId
+                    );
+                    _logger.LogDebug(
+                        "Retrieved {Count} enhanced comments for Bugzilla issue {IssueId}",
+                        enhancedComments.Count,
+                        issueId
+                    );
+                    return enhancedComments;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Failed to get enhanced comments, falling back to basic comments"
+                    );
+                    // Fall through to basic implementation
+                }
+            }
+
+            // Fallback to basic comment retrieval
+            var baseUrl = $"https://{hostname}";
             var response = await _httpClient.GetStringAsync(
                 $"{baseUrl}/rest/bug/{issueId}/comment"
             );
@@ -281,7 +316,7 @@ public class BugzillaClient : BaseIssueTrackerClient
             if (bugComments == null)
                 return [];
 
-            return bugComments
+            var comments = bugComments
                 .Comments.Select(comment => new Comment
                 {
                     Id = comment.Id.ToString(),
@@ -293,6 +328,13 @@ public class BugzillaClient : BaseIssueTrackerClient
                     ProviderSpecificData = null, // Comments don't have specific Bugzilla data class defined
                 })
                 .ToList();
+
+            _logger.LogDebug(
+                "Retrieved {Count} basic comments for Bugzilla issue {IssueId}",
+                comments.Count,
+                issueId
+            );
+            return comments;
         }
         catch (Exception ex)
         {
@@ -319,7 +361,27 @@ public class BugzillaClient : BaseIssueTrackerClient
                     $"Invalid repository identifier: {repositoryIdentifier}"
                 );
 
-            var baseUrl = $"https://{parts[0]}";
+            var hostname = parts[0];
+
+            // Use BugzillaHistoryService with Refit, rate limiting, and retry policies
+            if (_bugzillaHistoryService != null && int.TryParse(issueId, out var bugId))
+            {
+                var events = await _bugzillaHistoryService.GetIssueHistoryAsync(hostname, bugId);
+                _logger.LogDebug(
+                    "Retrieved {Count} events for Bugzilla issue {IssueId}",
+                    events.Count,
+                    issueId
+                );
+                return events;
+            }
+
+            // Fallback to basic history retrieval
+            _logger.LogWarning(
+                "Bugzilla history service not available, using fallback implementation for {IssueId}",
+                issueId
+            );
+
+            var baseUrl = $"https://{hostname}";
             var response = await _httpClient.GetStringAsync(
                 $"{baseUrl}/rest/bug/{issueId}/history"
             );
@@ -329,13 +391,13 @@ public class BugzillaClient : BaseIssueTrackerClient
             if (bugHistory == null)
                 return [];
 
-            var events = new List<IssueEvent>();
+            var fallbackEvents = new List<IssueEvent>();
 
             foreach (var historyEvent in bugHistory.History)
             {
                 foreach (var change in historyEvent.Changes)
                 {
-                    events.Add(
+                    fallbackEvents.Add(
                         new IssueEvent
                         {
                             Id = $"{historyEvent.When.Ticks}_{change.FieldName}",
@@ -351,7 +413,7 @@ public class BugzillaClient : BaseIssueTrackerClient
                 }
             }
 
-            return events;
+            return fallbackEvents;
         }
         catch (Exception ex)
         {
@@ -365,10 +427,10 @@ public class BugzillaClient : BaseIssueTrackerClient
         }
     }
 
-    public override async Task<UniversalUserProfile?> GetUserProfileAsync(string username)
+    public override Task<UniversalUserProfile?> GetUserProfileAsync(string username)
     {
         if (_userProfileCache.TryGetValue(username, out var cachedProfile))
-            return cachedProfile;
+            return Task.FromResult<UniversalUserProfile?>(cachedProfile);
 
         try
         {
@@ -388,25 +450,23 @@ public class BugzillaClient : BaseIssueTrackerClient
             ExtractRoleInformation(profile, username);
 
             _userProfileCache[username] = profile;
-            return profile;
+            return Task.FromResult<UniversalUserProfile?>(profile);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get user profile for {Username}", username);
-            return null;
+            return Task.FromResult<UniversalUserProfile?>(null);
         }
     }
 
-    public override async Task<List<string>> GetRepositoryContributorsAsync(
-        string repositoryIdentifier
-    )
+    public override Task<List<string>> GetRepositoryContributorsAsync(string repositoryIdentifier)
     {
         try
         {
             // This would typically require searching all bugs for unique users
             // For now, return empty list as this requires more complex queries
             _logger.LogWarning("GetRepositoryContributorsAsync not fully implemented for Bugzilla");
-            return [];
+            return Task.FromResult(new List<string>());
         }
         catch (Exception ex)
         {
@@ -415,23 +475,23 @@ public class BugzillaClient : BaseIssueTrackerClient
                 "Failed to get contributors for repository {RepositoryIdentifier}",
                 repositoryIdentifier
             );
-            return [];
+            return Task.FromResult(new List<string>());
         }
     }
 
-    public override async Task<List<Repository>> SearchRepositoriesAsync(string query)
+    public override Task<List<Repository>> SearchRepositoriesAsync(string query)
     {
         try
         {
             // Bugzilla doesn't have a direct repository search - you search for products
             // This is a simplified implementation
             _logger.LogWarning("SearchRepositoriesAsync not fully implemented for Bugzilla");
-            return [];
+            return Task.FromResult(new List<Repository>());
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to search repositories with query {Query}", query);
-            return [];
+            return Task.FromResult(new List<Repository>());
         }
     }
 

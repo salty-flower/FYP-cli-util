@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Text.Json;
 using DataCollection.Core.Models.IssueTracker;
 using DataCollection.Infrastructure.Models;
 using DataCollection.Infrastructure.Utilities;
@@ -22,13 +23,19 @@ public class JiraClient : BaseIssueTrackerClient
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<JiraClient> _logger;
+    private readonly JiraHistoryService? _jiraHistoryService;
     private readonly ConcurrentDictionary<string, UniversalUserProfile> _userProfileCache = new();
     private readonly ConcurrentDictionary<string, Repository> _repositoryCache = new();
 
-    public JiraClient(HttpClient httpClient, ILogger<JiraClient> logger)
+    public JiraClient(
+        HttpClient httpClient,
+        ILogger<JiraClient> logger,
+        JiraHistoryService? jiraHistoryService = null
+    )
     {
         _httpClient = httpClient;
         _logger = logger;
+        _jiraHistoryService = jiraHistoryService;
     }
 
     public override BugTrackingProvider Provider => BugTrackingProvider.Jira;
@@ -139,6 +146,44 @@ public class JiraClient : BaseIssueTrackerClient
                 );
 
             var hostname = parts[0];
+
+            // Try enhanced REST API approach first if JiraHistoryService is available
+            if (_jiraHistoryService != null)
+            {
+                try
+                {
+                    var restApiIssue = await _jiraHistoryService.GetIssueDetailsAsync(
+                        hostname,
+                        issueId
+                    );
+                    if (restApiIssue != null)
+                    {
+                        _logger.LogDebug(
+                            "Retrieved issue {IssueId} via REST API from {Hostname}",
+                            issueId,
+                            hostname
+                        );
+                        return restApiIssue;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "REST API failed for issue {IssueId}, falling back to HTML parsing",
+                        issueId
+                    );
+                    // Fall through to HTML parsing fallback
+                }
+            }
+
+            // Fallback to HTML parsing approach
+            _logger.LogDebug(
+                "Using HTML parsing fallback for issue {IssueId} from {Hostname}",
+                issueId,
+                hostname
+            );
+
             var projectKey = parts[1];
             var baseUrl = $"https://{hostname}";
             var issueUrl = $"{baseUrl}/browse/{issueId}";
@@ -213,7 +258,7 @@ public class JiraClient : BaseIssueTrackerClient
         }
     }
 
-    public override async Task<List<Issue>> SearchIssuesAsync(
+    public override Task<List<Issue>> SearchIssuesAsync(
         string repositoryIdentifier,
         IssueSearchQuery query
     )
@@ -222,7 +267,7 @@ public class JiraClient : BaseIssueTrackerClient
         {
             // For now, return empty list as Jira search requires more complex JQL parsing
             _logger.LogWarning("Jira search not fully implemented yet");
-            return [];
+            return Task.FromResult(new List<Issue>());
         }
         catch (Exception ex)
         {
@@ -231,7 +276,7 @@ public class JiraClient : BaseIssueTrackerClient
                 "Failed to search Jira issues in repository {RepositoryIdentifier}",
                 repositoryIdentifier
             );
-            return [];
+            return Task.FromResult(new List<Issue>());
         }
     }
 
@@ -249,25 +294,84 @@ public class JiraClient : BaseIssueTrackerClient
                 );
 
             var hostname = parts[0];
-            var baseUrl = $"https://{hostname}";
-            var issueUrl = $"{baseUrl}/browse/{issueId}";
 
-            using var response = await _httpClient.GetAsync(issueUrl);
+            // Use JiraHistoryService for enhanced comments (includes worklog) if available
+            if (_jiraHistoryService != null)
+            {
+                try
+                {
+                    var enhancedComments = await _jiraHistoryService.GetEnhancedCommentsAsync(
+                        hostname,
+                        issueId
+                    );
+                    _logger.LogDebug(
+                        "Retrieved {Count} enhanced comments for Jira issue {IssueId}",
+                        enhancedComments.Count,
+                        issueId
+                    );
+                    return enhancedComments;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Failed to get enhanced comments, falling back to basic comments"
+                    );
+                    // Fall through to basic implementation
+                }
+            }
+
+            // Fallback to basic comment retrieval
+            var baseUrl = $"https://{hostname}";
+            var commentsUrl = $"{baseUrl}/rest/api/2/issue/{issueId}/comment";
+
+            using var response = await _httpClient.GetAsync(commentsUrl);
             var content = await response.Content.ReadAsStringAsync();
 
             // Check for auth requirement
             if (IsAuthRequired(response, content))
             {
-                _logger.LogWarning(
-                    "Authentication required to access comments for issue {IssueId}",
-                    issueId
+                throw new JiraAccessDeniedException(
+                    issueId,
+                    $"Authentication required to access comments for issue {issueId}"
                 );
-                return [];
             }
 
-            // For now, return empty list as comment parsing requires more complex HTML analysis
-            _logger.LogWarning("Jira comment parsing not fully implemented yet");
-            return [];
+            // Parse JSON response
+            var jsonDoc = JsonDocument.Parse(content);
+            var comments = new List<Comment>();
+
+            if (jsonDoc.RootElement.TryGetProperty("comments", out var commentsArray))
+            {
+                foreach (var commentElement in commentsArray.EnumerateArray())
+                {
+                    var author =
+                        commentElement.GetProperty("author").GetProperty("name").GetString()
+                        ?? "unknown";
+                    var body = commentElement.GetProperty("body").GetString() ?? "";
+                    var created = commentElement.GetProperty("created").GetString();
+
+                    if (DateTime.TryParse(created, out var createdDate))
+                    {
+                        comments.Add(
+                            new Comment
+                            {
+                                Author = author,
+                                Content = body,
+                                CreatedAt = createdDate,
+                                Id = commentElement.GetProperty("id").GetString() ?? "",
+                            }
+                        );
+                    }
+                }
+            }
+
+            _logger.LogDebug(
+                "Retrieved {Count} basic comments for Jira issue {IssueId}",
+                comments.Count,
+                issueId
+            );
+            return comments;
         }
         catch (Exception ex)
         {
@@ -283,9 +387,33 @@ public class JiraClient : BaseIssueTrackerClient
     {
         try
         {
-            // For now, return empty list as history parsing requires more complex HTML analysis
-            _logger.LogWarning("Jira history parsing not fully implemented yet");
-            return [];
+            if (_jiraHistoryService == null)
+            {
+                _logger.LogWarning(
+                    "Jira history service not available, falling back to empty events list"
+                );
+                return [];
+            }
+
+            var parts = repositoryIdentifier.Split('/');
+            if (parts.Length < 2)
+            {
+                throw new ArgumentException(
+                    $"Invalid Jira repository identifier: {repositoryIdentifier}"
+                );
+            }
+
+            var hostname = parts[0];
+
+            // Use JiraHistoryService with Refit, rate limiting, and retry policies
+            var events = await _jiraHistoryService.GetIssueHistoryAsync(hostname, issueId);
+
+            _logger.LogDebug(
+                "Retrieved {Count} events for Jira issue {IssueId}",
+                events.Count,
+                issueId
+            );
+            return events;
         }
         catch (Exception ex)
         {
@@ -296,26 +424,34 @@ public class JiraClient : BaseIssueTrackerClient
 
     public override async Task<UniversalUserProfile?> GetUserProfileAsync(string username)
     {
+        // Return null for empty usernames - this will trigger fallback profile creation
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            _logger.LogDebug("Skipping user profile creation for empty username");
+            return null;
+        }
+
         if (_userProfileCache.TryGetValue(username, out var cachedProfile))
             return cachedProfile;
 
         try
         {
-            // Create a basic profile for now - user profile detection would require accessing user pages
+            // Create a basic profile with proper username
             var profile = new UniversalUserProfile
             {
                 Username = username,
                 Provider = BugTrackingProvider.Jira,
-                TotalIssuesOpened = 0, // Would need JQL queries
-                TotalIssuesAssigned = 0, // Would need JQL queries
-                TotalCommentsPosted = 0, // Would need complex parsing
+                TotalIssuesOpened = 0, // Would need JQL queries to populate
+                TotalIssuesAssigned = 0, // Would need JQL queries to populate
+                TotalCommentsPosted = 0, // Would need complex parsing to populate
                 ActivityScore = 0.0,
             };
 
-            // Note: Role detection from HTML meta tags would happen during issue parsing
-            // when we have access to the current user's permissions
+            // TODO: Future enhancement - role detection from Jira user pages or permissions
+            // For now, basic profile with correct username is sufficient
 
             _userProfileCache[username] = profile;
+            _logger.LogDebug("Created basic user profile for {Username}", username);
             return profile;
         }
         catch (Exception ex)

@@ -213,6 +213,74 @@ public static class ServiceRegistrationExtensions
         return services;
     }
 
+    public static IServiceCollection AddJiraServices(this IServiceCollection services)
+    {
+        services
+            .AddRefitClient<IJiraApi>()
+            .ConfigureHttpClient(client =>
+            {
+                // Base address will be set dynamically per request based on Jira instance
+                client.DefaultRequestHeaders.Add("User-Agent", "DataCollection-IssueTracker/1.0");
+                client.DefaultRequestHeaders.Add("Accept", "application/json");
+                client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .ConfigurePrimaryHttpMessageHandler(() =>
+                new ClientSideRateLimitedHandler(
+                    new SlidingWindowRateLimiter(
+                        new SlidingWindowRateLimiterOptions
+                        {
+                            QueueLimit = int.MaxValue,
+                            Window = TimeSpan.FromMinutes(1),
+                            PermitLimit = 10, // Conservative: 10 requests per minute for Jira
+                            SegmentsPerWindow = 6, // Spread requests evenly (1-2 per 10-second segment)
+                        }
+                    )
+                )
+            )
+            .AddPolicyHandler(
+                (sp, _) => JiraRetryPolicyHandler.GetRetryPolicy(sp.GetService<ILogger<IJiraApi>>())
+            );
+
+        return services;
+    }
+
+    /// <summary>
+    /// Add Bugzilla-specific HTTP services with rate limiting and retry policies
+    /// </summary>
+    public static IServiceCollection AddBugzillaServices(this IServiceCollection services)
+    {
+        services
+            .AddRefitClient<IBugzillaApi>()
+            .ConfigureHttpClient(client =>
+            {
+                // Base address will be set dynamically per request based on Bugzilla instance
+                client.DefaultRequestHeaders.Add("User-Agent", "DataCollection-IssueTracker/1.0");
+                client.DefaultRequestHeaders.Add("Accept", "application/json");
+                client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .ConfigurePrimaryHttpMessageHandler(() =>
+                new ClientSideRateLimitedHandler(
+                    new SlidingWindowRateLimiter(
+                        new SlidingWindowRateLimiterOptions
+                        {
+                            QueueLimit = int.MaxValue,
+                            Window = TimeSpan.FromMinutes(1),
+                            PermitLimit = 15, // Moderate: 15 requests per minute for Bugzilla
+                            SegmentsPerWindow = 6, // Spread requests evenly
+                        }
+                    )
+                )
+            )
+            .AddPolicyHandler(
+                (sp, _) =>
+                    BugzillaRetryPolicyHandler.GetRetryPolicy(
+                        sp.GetService<ILogger<IBugzillaApi>>()
+                    )
+            );
+
+        return services;
+    }
+
     public static IServiceCollection AddDiscoveryServices(this IServiceCollection services)
     {
         services.AddSingleton<IPatternMatchingService, PatternMatchingService>();
@@ -268,9 +336,19 @@ public static class ServiceRegistrationExtensions
             sp => new IssueTrackerClientFactory(
                 sp.GetService<IHttpClientFactory>()?.CreateClient("issue-tracker")
                     ?? new HttpClient(),
-                sp.GetRequiredService<ILoggerFactory>()
+                sp.GetRequiredService<ILoggerFactory>(),
+                sp.GetService<JiraHistoryService>(),
+                sp.GetService<BugzillaHistoryService>()
             )
         );
+
+        // Register Jira Refit client and history service
+        services.AddJiraServices();
+        services.AddSingleton<JiraHistoryService>();
+
+        // Register Bugzilla Refit client and history service
+        services.AddBugzillaServices();
+        services.AddSingleton<BugzillaHistoryService>();
         return services;
     }
 
