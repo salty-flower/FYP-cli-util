@@ -7,6 +7,7 @@ public enum BugTrackingProvider
     Bugzilla,
     GitLab,
     GnuSavannah,
+    Trac,
     Unknown,
 }
 

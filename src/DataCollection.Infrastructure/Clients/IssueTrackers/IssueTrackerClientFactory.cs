@@ -93,6 +93,17 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
                 RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
         ],
+        [BugTrackingProvider.Trac] =
+        [
+            new Regex(
+                @"(code\.djangoproject\.com)/ticket/(\d+)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase
+            ),
+            new Regex(
+                @"([^/]+\.trac\.(?:org|com|net))/ticket/(\d+)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase
+            ),
+        ],
     };
 
     private static readonly Dictionary<BugTrackingProvider, Regex[]> RepositoryPatterns = new()
@@ -144,6 +155,17 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
                 RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
         ],
+        [BugTrackingProvider.Trac] =
+        [
+            new Regex(
+                @"(code\.djangoproject\.com)/?(?:ticket|wiki|timeline)?",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase
+            ),
+            new Regex(
+                @"([^/]+\.trac\.(?:org|com|net))/?(?:ticket|wiki|timeline)?",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase
+            ),
+        ],
     };
 
     private static readonly Dictionary<BugTrackingProvider, Regex[]> IssueIdPatterns = new()
@@ -173,6 +195,10 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
         [
             new Regex(@"/bugs/\?(\d+)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
         ],
+        [BugTrackingProvider.Trac] =
+        [
+            new Regex(@"/ticket/(\d+)", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        ],
     };
 
     public IIssueTrackerClient CreateClient(BugTrackingProvider provider)
@@ -197,6 +223,10 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
             ),
             BugTrackingProvider.GnuSavannah => throw new NotImplementedException(
                 "GNU Savannah client not yet implemented"
+            ),
+            BugTrackingProvider.Trac => new TracClient(
+                _httpClient,
+                _loggerFactory.CreateLogger<TracClient>()
             ),
             _ => throw new ArgumentException($"Unsupported provider: {provider}"),
         };
@@ -244,6 +274,7 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
                         ? $"{match.Groups[1].Value}/WebKit" // For bugs.webkit.org format - assume WebKit product
                         : match.Groups[2].Value, // Product name for other formats
                     BugTrackingProvider.GnuSavannah => match.Groups[2].Value, // Project name
+                    BugTrackingProvider.Trac => $"https://{match.Groups[1].Value}", // Base URL
                     _ => null,
                 };
             }
@@ -272,6 +303,7 @@ public class IssueTrackerClientFactory : IIssueTrackerClientFactory
                     BugTrackingProvider.Jira => match.Groups[1].Value,
                     BugTrackingProvider.Bugzilla => match.Groups[1].Value,
                     BugTrackingProvider.GnuSavannah => match.Groups[1].Value,
+                    BugTrackingProvider.Trac => match.Groups[1].Value,
                     _ => null,
                 };
             }

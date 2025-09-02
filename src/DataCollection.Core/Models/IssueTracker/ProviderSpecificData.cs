@@ -164,6 +164,37 @@ public sealed record GitLabUserData : ProviderSpecificData
     public required bool IsAdmin { get; init; }
 }
 
+// Trac-specific data
+public sealed record TracRepositoryData : ProviderSpecificData
+{
+    public override BugTrackingProvider Provider => BugTrackingProvider.Trac;
+    public required string BaseUrl { get; init; }
+    public required string ProjectName { get; init; }
+}
+
+public sealed record TracIssueData : ProviderSpecificData
+{
+    public override BugTrackingProvider Provider => BugTrackingProvider.Trac;
+    public required string Component { get; init; }
+    public required string Type { get; init; }
+    public required string Stage { get; init; }
+    public required string Resolution { get; init; }
+    public required string Version { get; init; }
+    public required bool HasPatch { get; init; }
+    public required bool NeedsTests { get; init; }
+    public required bool NeedsDocs { get; init; }
+    public required bool Easy { get; init; }
+    public required bool UiUx { get; init; }
+}
+
+public sealed record TracUserData : ProviderSpecificData
+{
+    public override BugTrackingProvider Provider => BugTrackingProvider.Trac;
+    public required string Username { get; init; }
+    public required bool IsAdmin { get; init; }
+    public required List<string> Roles { get; init; }
+}
+
 // Unknown provider fallback
 public sealed record UnknownProviderData : ProviderSpecificData
 {

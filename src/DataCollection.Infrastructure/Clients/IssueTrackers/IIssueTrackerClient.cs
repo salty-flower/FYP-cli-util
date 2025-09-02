@@ -59,6 +59,7 @@ public abstract class BaseIssueTrackerClient : IIssueTrackerClient
             BugTrackingProvider.Bugzilla => MapBugzillaStatus(providerStatus),
             BugTrackingProvider.GitLab => MapGitLabStatus(providerStatus),
             BugTrackingProvider.GnuSavannah => MapGnuSavannahStatus(providerStatus),
+            BugTrackingProvider.Trac => MapTracStatus(providerStatus),
             _ => IssueStatus.Unknown,
         };
 
@@ -113,6 +114,18 @@ public abstract class BaseIssueTrackerClient : IIssueTrackerClient
             "invalid" => IssueStatus.Invalid,
             "duplicate" => IssueStatus.Duplicate,
             "wontfix" or "works for me" => IssueStatus.Wontfix,
+            _ => IssueStatus.Unknown,
+        };
+
+    private static IssueStatus MapTracStatus(string status) =>
+        status.ToLowerInvariant() switch
+        {
+            "new" or "assigned" or "accepted" => IssueStatus.Open,
+            "closed" => IssueStatus.Closed,
+            "fixed" => IssueStatus.Resolved,
+            "invalid" => IssueStatus.Invalid,
+            "duplicate" => IssueStatus.Duplicate,
+            "wontfix" => IssueStatus.Wontfix,
             _ => IssueStatus.Unknown,
         };
 }
