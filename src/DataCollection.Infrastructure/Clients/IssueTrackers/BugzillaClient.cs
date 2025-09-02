@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using DataCollection.Core.Models.IssueTracker;
 using DataCollection.Infrastructure.Models;
 using DataCollection.Infrastructure.Models.Bugzilla;
+using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
 
 namespace DataCollection.Infrastructure.Clients.IssueTrackers;
@@ -163,7 +164,7 @@ public class BugzillaClient : BaseIssueTrackerClient
             if (bug == null)
                 return null;
 
-            return new Issue
+            var issue = new Issue
             {
                 Id = bug.Id.ToString(),
                 Title = bug.Summary,
@@ -192,6 +193,26 @@ public class BugzillaClient : BaseIssueTrackerClient
                     Classification = bug.Classification ?? "",
                 },
             };
+
+            // Best-effort: fetch show_bug.cgi HTML to anchor badges next to visible usernames
+            // Only hostname is known here; try anonymously and ignore failures
+            try
+            {
+                var html = await _httpClient.GetStringAsync($"{baseUrl}/show_bug.cgi?id={issueId}");
+
+                var author = issue.Author;
+                if (!string.IsNullOrWhiteSpace(author))
+                    UpdateCachedProfileFromHtml(author, html);
+
+                foreach (var a in issue.Assignees)
+                {
+                    if (!string.IsNullOrWhiteSpace(a))
+                        UpdateCachedProfileFromHtml(a, html);
+                }
+            }
+            catch { }
+
+            return issue;
         }
         catch (Exception ex)
         {
@@ -522,6 +543,103 @@ public class BugzillaClient : BaseIssueTrackerClient
             _logger.LogError(ex, "Failed to get user profile for {Username}", username);
             return Task.FromResult<UniversalUserProfile?>(null);
         }
+    }
+
+    public static void DetectExplicitAuthorityFromHtml(
+        UniversalUserProfile profile,
+        string username,
+        string html
+    )
+    {
+        if (string.IsNullOrWhiteSpace(html) || string.IsNullOrWhiteSpace(username))
+            return;
+
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+
+        var indicators = new List<string>();
+
+        var textNodes =
+            doc.DocumentNode.SelectNodes("//*[not(self::script) and not(self::style)]")
+                ?.Where(n =>
+                    n.InnerText?.Trim().Equals(username, StringComparison.OrdinalIgnoreCase) == true
+                )
+                .ToList()
+            ?? new List<HtmlNode>();
+
+        foreach (var userNode in textNodes)
+        {
+            var container = userNode;
+            for (int i = 0; i < 3 && container.ParentNode != null; i++)
+                container = container.ParentNode;
+
+            var badgeNodes = container
+                .Descendants()
+                .Where(n =>
+                    n.Name is "span" or "a" or "div"
+                    && (
+                        n.GetAttributeValue("class", "")
+                            .Contains("badge", StringComparison.OrdinalIgnoreCase)
+                        || n.GetAttributeValue("class", "")
+                            .Contains("group", StringComparison.OrdinalIgnoreCase)
+                        || n.GetAttributeValue("class", "")
+                            .Contains("role", StringComparison.OrdinalIgnoreCase)
+                    )
+                );
+
+            foreach (var badge in badgeNodes)
+            {
+                var text = (badge.InnerText ?? string.Empty).Trim();
+                if (string.IsNullOrEmpty(text))
+                    continue;
+
+                if (text.Equals("Administrator", StringComparison.OrdinalIgnoreCase))
+                {
+                    profile.IsMaintainer = true;
+                    indicators.Add("Administrator");
+                }
+                else if (text.Equals("canconfirm", StringComparison.OrdinalIgnoreCase))
+                {
+                    profile.IsTriageOwner = true;
+                    indicators.Add("canconfirm");
+                }
+                else if (text.Equals("editbugs", StringComparison.OrdinalIgnoreCase))
+                {
+                    profile.IsDeveloper = true;
+                    indicators.Add("editbugs");
+                }
+                else if (text.Equals("creategroups", StringComparison.OrdinalIgnoreCase))
+                {
+                    profile.IsMaintainer = true;
+                    indicators.Add("creategroups");
+                }
+            }
+        }
+
+        if (indicators.Count > 0)
+            profile.RoleIndicators = string.Join("; ", indicators.Distinct());
+    }
+
+    private void UpdateCachedProfileFromHtml(string username, string html)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+            return;
+
+        if (!_userProfileCache.TryGetValue(username, out var profile) || profile == null)
+        {
+            profile = new UniversalUserProfile
+            {
+                Username = username,
+                Provider = BugTrackingProvider.Bugzilla,
+                ActivitySummary = "Requires cross-instance search",
+                ContributionMetrics = null,
+                ProjectInvolvement = null,
+                ActivityLevel = "Unknown",
+            };
+            _userProfileCache[username] = profile;
+        }
+
+        DetectExplicitAuthorityFromHtml(profile, username, html);
     }
 
     public override Task<List<string>> GetRepositoryContributorsAsync(string repositoryIdentifier)

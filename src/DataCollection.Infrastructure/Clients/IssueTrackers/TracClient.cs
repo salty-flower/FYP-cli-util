@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using DataCollection.Core.Models.IssueTracker;
 using DataCollection.Infrastructure.Models;
 using DataCollection.Infrastructure.Utilities;
+using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
 
 namespace DataCollection.Infrastructure.Clients.IssueTrackers;
@@ -262,7 +263,7 @@ public class TracClient : BaseIssueTrackerClient
                     var changesJson = changesMatch.Groups[1].Value;
                     var changes = JsonSerializer.Deserialize<TracChange[]>(changesJson);
 
-                    foreach (var change in changes)
+                    foreach (var change in changes ?? Array.Empty<TracChange>())
                     {
                         if (!string.IsNullOrEmpty(change.Comment))
                         {
@@ -678,11 +679,61 @@ public class TracClient : BaseIssueTrackerClient
         string pageContent
     )
     {
-        // Only detect roles from explicit Trac platform indicators
-        // No assumptions based on username patterns or activity
+        if (string.IsNullOrWhiteSpace(pageContent) || string.IsNullOrWhiteSpace(username))
+            return;
 
-        // TODO: Research and implement actual Trac role indicators
-        // Examples to look for: admin badges, permission lists, role labels
+        var doc = new HtmlDocument();
+        doc.LoadHtml(pageContent);
+
+        var rows =
+            doc.DocumentNode.SelectNodes("//tr")?.AsEnumerable() ?? Enumerable.Empty<HtmlNode>();
+        foreach (var row in rows)
+        {
+            if (!row.InnerText.Contains(username, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var text = System.Net.WebUtility.HtmlDecode(row.InnerText);
+            var tokens = Regex
+                .Matches(text, @"\b(?:TRAC_\w+|PERMISSION_\w+|TICKET_\w+|MILESTONE_\w+|WIKI_\w+)\b")
+                .Select(m => m.Value)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (tokens.Count == 0)
+                continue;
+
+            if (tokens.Any(t => t.Equals("TRAC_ADMIN", StringComparison.OrdinalIgnoreCase)))
+            {
+                profile.IsMaintainer = true;
+                profile.IsDeveloper = true;
+                roleIndicators.Add("TRAC_ADMIN");
+            }
+
+            if (
+                tokens.Any(t =>
+                    t.Equals("PERMISSION_ADMIN", StringComparison.OrdinalIgnoreCase)
+                    || t.Equals("PERMISSION_GRANT", StringComparison.OrdinalIgnoreCase)
+                    || t.Equals("PERMISSION_REVOKE", StringComparison.OrdinalIgnoreCase)
+                )
+            )
+            {
+                profile.IsTriageOwner = true;
+                profile.IsDeveloper = true;
+                roleIndicators.Add("Permission Admin");
+            }
+
+            if (
+                tokens.Any(t =>
+                    t.StartsWith("TICKET_", StringComparison.OrdinalIgnoreCase)
+                    || t.StartsWith("MILESTONE_", StringComparison.OrdinalIgnoreCase)
+                    || t.StartsWith("WIKI_", StringComparison.OrdinalIgnoreCase)
+                )
+            )
+            {
+                profile.IsDeveloper = true;
+                roleIndicators.Add("Developer Permissions");
+            }
+        }
     }
 }
 

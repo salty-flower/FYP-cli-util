@@ -4,6 +4,7 @@ using System.Text.Json;
 using DataCollection.Core.Models.IssueTracker;
 using DataCollection.Infrastructure.Models;
 using DataCollection.Infrastructure.Utilities;
+using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
 
 namespace DataCollection.Infrastructure.Clients.IssueTrackers;
@@ -203,7 +204,7 @@ public class JiraClient : BaseIssueTrackerClient
             var metaTags = HtmlParsingUtilities.ExtractMetaTags(content);
             var fields = HtmlParsingUtilities.ExtractIssueFields(content);
 
-            return new Issue
+            var issue = new Issue
             {
                 Id = issueId,
                 Title = fields.GetValueOrDefault("summary-val", ""),
@@ -241,6 +242,18 @@ public class JiraClient : BaseIssueTrackerClient
                     StoryPoints = null, // Would need to be extracted from custom field
                 },
             };
+
+            var reporter = issue.Author;
+            if (!string.IsNullOrWhiteSpace(reporter))
+                UpdateCachedProfileFromHtml(reporter, content);
+
+            foreach (var a in issue.Assignees)
+            {
+                if (!string.IsNullOrWhiteSpace(a))
+                    UpdateCachedProfileFromHtml(a, content);
+            }
+
+            return issue;
         }
         catch (JiraAccessDeniedException)
         {
@@ -508,7 +521,59 @@ public class JiraClient : BaseIssueTrackerClient
             ActivityLevel = "Unknown",
         };
 
-        // Only extract admin role if this is the current user's profile
+        if (!string.IsNullOrEmpty(html) && !string.IsNullOrEmpty(username))
+        {
+            var doc = new HtmlDocument();
+            doc.LoadHtml(html);
+
+            var userNodes =
+                doc.DocumentNode.SelectNodes(
+                        "//*[contains(@class,'user') or contains(@class,'people') or contains(@class,'aui-avatar')]"
+                    )
+                    ?.AsEnumerable()
+                ?? Enumerable.Empty<HtmlNode>();
+
+            foreach (var node in userNodes)
+            {
+                if (!node.InnerText.Contains(username, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var container = node;
+                for (int i = 0; i < 3 && container.ParentNode != null; i++)
+                    container = container.ParentNode;
+
+                var badges = container
+                    .Descendants()
+                    .Where(n =>
+                        n.GetAttributeValue("class", "")
+                            .Contains("badge", StringComparison.OrdinalIgnoreCase)
+                        || n.GetAttributeValue("class", "")
+                            .Contains("role", StringComparison.OrdinalIgnoreCase)
+                    );
+
+                foreach (var badge in badges)
+                {
+                    var text = (badge.InnerText ?? string.Empty).Trim();
+                    if (string.IsNullOrEmpty(text))
+                        continue;
+
+                    if (text.Contains("Administrator", StringComparison.OrdinalIgnoreCase))
+                    {
+                        profile.IsTriageOwner = true;
+                        profile.IsDeveloper = true;
+                        profile.RoleIndicators = "Jira Administrator";
+                    }
+                    else if (text.Contains("Developer", StringComparison.OrdinalIgnoreCase))
+                    {
+                        profile.IsDeveloper = true;
+                        profile.RoleIndicators = string.IsNullOrEmpty(profile.RoleIndicators)
+                            ? "Jira Developer"
+                            : profile.RoleIndicators + "; Jira Developer";
+                    }
+                }
+            }
+        }
+
         if (currentUser == username || string.IsNullOrEmpty(currentUser))
         {
             var isAdmin = HtmlParsingUtilities.IsUserAdmin(metaTags);
@@ -516,7 +581,9 @@ public class JiraClient : BaseIssueTrackerClient
             {
                 profile.IsTriageOwner = true;
                 profile.IsDeveloper = true;
-                profile.RoleIndicators = "Jira Administrator";
+                profile.RoleIndicators = string.IsNullOrEmpty(profile.RoleIndicators)
+                    ? "Jira Administrator"
+                    : profile.RoleIndicators + "; Jira Administrator";
             }
         }
 
@@ -540,6 +607,46 @@ public class JiraClient : BaseIssueTrackerClient
             .Select(l => l.Trim())
             .Where(l => !string.IsNullOrEmpty(l))
             .ToList();
+    }
+
+    private void UpdateCachedProfileFromHtml(string username, string html)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+            return;
+
+        var extracted = ExtractRoleInformationFromPage(html, username);
+        if (extracted == null)
+            return;
+
+        if (!_userProfileCache.TryGetValue(username, out var existing))
+        {
+            _userProfileCache[username] = extracted;
+            return;
+        }
+
+        existing.IsMaintainer =
+            existing.IsMaintainer == true || extracted.IsMaintainer == true
+                ? true
+                : existing.IsMaintainer;
+        existing.IsCommitter =
+            existing.IsCommitter == true || extracted.IsCommitter == true
+                ? true
+                : existing.IsCommitter;
+        existing.IsTriageOwner =
+            existing.IsTriageOwner == true || extracted.IsTriageOwner == true
+                ? true
+                : existing.IsTriageOwner;
+        existing.IsDeveloper =
+            existing.IsDeveloper == true || extracted.IsDeveloper == true
+                ? true
+                : existing.IsDeveloper;
+
+        if (!string.IsNullOrEmpty(extracted.RoleIndicators))
+        {
+            existing.RoleIndicators = string.IsNullOrEmpty(existing.RoleIndicators)
+                ? extracted.RoleIndicators
+                : existing.RoleIndicators + "; " + extracted.RoleIndicators;
+        }
     }
 
     private static string ExtractDateFromHtml(string html, string dateLabel)
