@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using DataCollection.Core.Models.IssueTracker;
 using DataCollection.Infrastructure.Models;
@@ -248,40 +249,92 @@ public class TracClient : BaseIssueTrackerClient
 
             var comments = new List<Comment>();
 
-            // Extract comments from change history
-            var changePattern =
-                @"<h3\s+class=""change""\s+id=""comment:(\d+)""[^>]*>.*?by\s+<span\s+class=""trac-author"">([^<]+)</span>.*?<a\s+class=""timeline""[^>]+title=""[^""]*?(\d{4}-\d{2}-\d{2}[^""]*?)""[^>]*>.*?<div\s+class=""comment\s+searchable""[^>]*>(.*?)(?=<h3\s+class=""change""|<div\s+class=""trac-help""|$)";
-            var changeMatches = Regex.Matches(
+            // Extract comments from JavaScript 'changes' array (Django Trac format)
+            var changesMatch = Regex.Match(
                 content,
-                changePattern,
-                RegexOptions.Singleline | RegexOptions.IgnoreCase
+                @"var\s+changes\s*=\s*(\[.*?\]);\s",
+                RegexOptions.Singleline
             );
-
-            foreach (Match match in changeMatches)
+            if (changesMatch.Success)
             {
-                var commentId = match.Groups[1].Value;
-                var author = match.Groups[2].Value.Trim();
-                var dateStr = match.Groups[3].Value.Trim();
-                var commentHtml = match.Groups[4].Value;
+                try
+                {
+                    var changesJson = changesMatch.Groups[1].Value;
+                    var changes = JsonSerializer.Deserialize<TracChange[]>(changesJson);
 
-                // Extract text content from HTML
-                var commentText = ExtractTextFromHtml(commentHtml);
-                if (string.IsNullOrWhiteSpace(commentText))
-                    continue;
-
-                // Parse date
-                var createdAt = TryParseTracDate(dateStr);
-
-                comments.Add(
-                    new Comment
+                    foreach (var change in changes)
                     {
-                        Id = commentId,
-                        Author = author,
-                        Content = commentText.Trim(),
-                        CreatedAt = createdAt,
-                        Provider = BugTrackingProvider.Trac,
+                        if (!string.IsNullOrEmpty(change.Comment))
+                        {
+                            // Convert Unix timestamp to DateTimeOffset
+                            var createdAt = DateTimeOffset.FromUnixTimeMilliseconds(
+                                (long)(change.Date / 1000)
+                            );
+
+                            comments.Add(
+                                new Comment
+                                {
+                                    Id = change.Cnum.ToString(),
+                                    Author = change.Author,
+                                    Content = CleanTracComment(change.Comment),
+                                    CreatedAt = createdAt,
+                                    ProviderSpecificData = new TracCommentData
+                                    {
+                                        ChangeNumber = change.Cnum,
+                                        IsPermanent = change.Permanent == 1,
+                                    },
+                                }
+                            );
+                        }
                     }
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Failed to parse Trac changes JSON, falling back to HTML parsing"
+                    );
+                    // Fall back to HTML parsing for non-Django Trac instances
+                }
+            }
+
+            // Fallback: Extract comments from HTML (for older Trac versions)
+            if (comments.Count == 0)
+            {
+                var changePattern =
+                    @"<h3\s+class=""change""\s+id=""comment:(\d+)""[^>]*>.*?by\s+<span\s+class=""trac-author"">([^<]+)</span>.*?<a\s+class=""timeline""[^>]+title=""[^""]*?(\d{4}-\d{2}-\d{2}[^""]*?)""[^>]*>.*?<div\s+class=""comment\s+searchable""[^>]*>(.*?)(?=<h3\s+class=""change""|<div\s+class=""trac-help""|$)";
+                var changeMatches = Regex.Matches(
+                    content,
+                    changePattern,
+                    RegexOptions.Singleline | RegexOptions.IgnoreCase
                 );
+
+                foreach (Match match in changeMatches)
+                {
+                    var commentId = match.Groups[1].Value;
+                    var author = match.Groups[2].Value.Trim();
+                    var dateStr = match.Groups[3].Value.Trim();
+                    var commentHtml = match.Groups[4].Value;
+
+                    // Extract text content from HTML
+                    var commentText = ExtractTextFromHtml(commentHtml);
+                    if (string.IsNullOrWhiteSpace(commentText))
+                        continue;
+
+                    // Parse date
+                    var createdAt = TryParseTracDate(dateStr);
+
+                    comments.Add(
+                        new Comment
+                        {
+                            Id = commentId,
+                            Author = author,
+                            Content = commentText.Trim(),
+                            CreatedAt = createdAt,
+                            Provider = BugTrackingProvider.Trac,
+                        }
+                    );
+                }
             }
 
             _logger.LogDebug(
@@ -316,38 +369,34 @@ public class TracClient : BaseIssueTrackerClient
         }
     }
 
-    public override Task<UniversalUserProfile?> GetUserProfileAsync(string username)
+    public override async Task<UniversalUserProfile?> GetUserProfileAsync(string username)
     {
         if (string.IsNullOrWhiteSpace(username) || username == "nobody")
         {
             _logger.LogDebug("Skipping user profile creation for empty/nobody username");
-            return Task.FromResult<UniversalUserProfile?>(null);
+            return null;
         }
 
         if (_userProfileCache.TryGetValue(username, out var cachedProfile))
-            return Task.FromResult<UniversalUserProfile?>(cachedProfile);
+            return cachedProfile;
 
         try
         {
-            // Create basic profile - Trac doesn't typically have detailed user pages
-            var profile = new UniversalUserProfile
-            {
-                Username = username,
-                Provider = BugTrackingProvider.Trac,
-                TotalIssuesOpened = 0,
-                TotalIssuesAssigned = 0,
-                TotalCommentsPosted = 0,
-                ActivityScore = 0.0,
-            };
+            // Try to get user information with role detection
+            var profile = await CreateTracUserProfileAsync(username);
 
             _userProfileCache[username] = profile;
-            _logger.LogDebug("Created basic user profile for Trac user {Username}", username);
-            return Task.FromResult<UniversalUserProfile?>(profile);
+            _logger.LogDebug(
+                "Created Trac user profile for {Username} with roles: {Roles}",
+                username,
+                profile.RoleIndicators ?? "none"
+            );
+            return profile;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get Trac user profile for {Username}", username);
-            return Task.FromResult<UniversalUserProfile?>(null);
+            return null;
         }
     }
 
@@ -422,6 +471,19 @@ public class TracClient : BaseIssueTrackerClient
         return text.Trim();
     }
 
+    private static string CleanTracComment(string comment)
+    {
+        if (string.IsNullOrWhiteSpace(comment))
+            return "";
+
+        // Decode HTML entities and clean up formatting
+        var cleaned = System.Net.WebUtility.HtmlDecode(comment);
+        cleaned = Regex.Replace(cleaned, @"\r\n", "\n");
+        cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
+
+        return cleaned;
+    }
+
     private static List<string> ParseKeywords(string? keywords)
     {
         if (string.IsNullOrWhiteSpace(keywords))
@@ -463,6 +525,165 @@ public class TracClient : BaseIssueTrackerClient
 
         return DateTimeOffset.MinValue;
     }
+
+    /// <summary>
+    /// Create a comprehensive Trac user profile with role detection
+    /// </summary>
+    private async Task<UniversalUserProfile> CreateTracUserProfileAsync(string username)
+    {
+        var profile = new UniversalUserProfile
+        {
+            Username = username,
+            Provider = BugTrackingProvider.Trac,
+            ActivitySummary = "Metrics not yet implemented", // Would need queries to populate
+            ContributionMetrics = null,
+            ProjectInvolvement = null,
+            ActivityLevel = "Unknown",
+        };
+
+        try
+        {
+            // Attempt to fetch user-specific page for role information
+            await ExtractTracUserRolesAsync(profile, username);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(
+                ex,
+                "Could not extract roles for Trac user {Username}, using basic profile",
+                username
+            );
+        }
+
+        return profile;
+    }
+
+    /// <summary>
+    /// Extract role and authority information for Trac user
+    /// </summary>
+    private async Task ExtractTracUserRolesAsync(UniversalUserProfile profile, string username)
+    {
+        var roleIndicators = new List<string>();
+
+        // Try to get admin page or user information (if accessible)
+        try
+        {
+            // Skip admin page checking for now - would need base URL context
+            // In a real implementation, this would extract base URL from repository context
+            // var adminUrl = $"{baseUrl}/admin/general/perm";
+            // var response = await _httpClient.GetAsync(adminUrl);
+
+            var response = (HttpResponseMessage?)null;
+
+            if (response?.IsSuccessStatusCode == true)
+            {
+                var html = await response.Content.ReadAsStringAsync();
+                var userRoles = ExtractUserRolesFromPermissionPage(html, username);
+
+                if (userRoles.Contains("TRAC_ADMIN"))
+                {
+                    profile.IsMaintainer = true;
+                    profile.IsDeveloper = true;
+                    roleIndicators.Add("TRAC_ADMIN");
+                }
+
+                if (
+                    userRoles.Any(r =>
+                        r.Contains("PERMISSION_ADMIN")
+                        || r.Contains("PERMISSION_GRANT")
+                        || r.Contains("PERMISSION_REVOKE")
+                    )
+                )
+                {
+                    profile.IsTriageOwner = true;
+                    profile.IsDeveloper = true;
+                    roleIndicators.Add("Permission Admin");
+                }
+
+                if (
+                    userRoles.Any(r =>
+                        r.Contains("TICKET_") || r.Contains("MILESTONE_") || r.Contains("WIKI_")
+                    )
+                )
+                {
+                    profile.IsDeveloper = true;
+                    roleIndicators.Add("Developer Permissions");
+                }
+
+                // Check for membership in jira-administrators equivalent
+                if (userRoles.Any(r => r.Contains("administrator")))
+                {
+                    profile.IsMaintainer = true;
+                    roleIndicators.Add("Administrator Group");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(
+                ex,
+                "Could not access Trac admin permissions for {Username}",
+                username
+            );
+        }
+
+        // Note: Removed username pattern assumptions - only use explicit Trac indicators above
+
+        if (roleIndicators.Count > 0)
+        {
+            profile.RoleIndicators = string.Join("; ", roleIndicators);
+        }
+    }
+
+    /// <summary>
+    /// Extract user roles from Trac permission admin page HTML
+    /// </summary>
+    private static List<string> ExtractUserRolesFromPermissionPage(string html, string username)
+    {
+        var roles = new List<string>();
+
+        // Look for permission table rows containing the username
+        var userRowPattern = $@"<tr[^>]*>.*?{Regex.Escape(username)}.*?</tr>";
+        var matches = Regex.Matches(
+            html,
+            userRowPattern,
+            RegexOptions.IgnoreCase | RegexOptions.Singleline
+        );
+
+        foreach (Match match in matches)
+        {
+            var rowHtml = match.Value;
+
+            // Extract permission names from the row
+            var permissionMatches = Regex.Matches(
+                rowHtml,
+                @">(TRAC_\w+|PERMISSION_\w+|TICKET_\w+|MILESTONE_\w+|WIKI_\w+)<"
+            );
+            foreach (Match permMatch in permissionMatches)
+            {
+                roles.Add(permMatch.Groups[1].Value);
+            }
+        }
+
+        return roles;
+    }
+
+    /// <summary>
+    /// Extract explicit role information from Trac platform indicators only
+    /// </summary>
+    private static void ExtractExplicitTracRoles(
+        UniversalUserProfile profile,
+        string username,
+        List<string> roleIndicators,
+        string pageContent
+    )
+    {
+        // Only detect roles from explicit Trac platform indicators
+        // No assumptions based on username patterns or activity
+
+        // TODO: Research and implement actual Trac role indicators
+        // Examples to look for: admin badges, permission lists, role labels
+    }
 }
 
 // Data models for deserializing Trac JavaScript data
@@ -489,3 +710,22 @@ internal record TracTicketData(
     string? Easy,
     string? Ui_ux
 );
+
+// Model for Trac comment changes from JavaScript
+internal record TracChange
+{
+    [JsonPropertyName("author")]
+    public string Author { get; init; } = string.Empty;
+
+    [JsonPropertyName("cnum")]
+    public int Cnum { get; init; }
+
+    [JsonPropertyName("comment")]
+    public string Comment { get; init; } = string.Empty;
+
+    [JsonPropertyName("date")]
+    public double Date { get; init; }
+
+    [JsonPropertyName("permanent")]
+    public int Permanent { get; init; }
+}

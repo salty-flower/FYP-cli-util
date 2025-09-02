@@ -274,9 +274,16 @@ public class IssueCommands(
                             userProfile.RoleIndicators
                         );
                         logger.LogInformation(
-                            "      📊 Activity Score: {ActivityScore:F1}",
-                            userProfile.ActivityScore
+                            "      📊 Activity Level: {ActivityLevel}",
+                            userProfile.ActivityLevel ?? "Unknown"
                         );
+                        if (!string.IsNullOrEmpty(userProfile.ActivitySummary))
+                        {
+                            logger.LogInformation(
+                                "      📈 Activity: {ActivitySummary}",
+                                userProfile.ActivitySummary
+                            );
+                        }
                     }
                 }
                 else

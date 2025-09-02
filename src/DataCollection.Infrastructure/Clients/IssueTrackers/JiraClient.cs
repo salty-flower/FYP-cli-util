@@ -441,10 +441,10 @@ public class JiraClient : BaseIssueTrackerClient
             {
                 Username = username,
                 Provider = BugTrackingProvider.Jira,
-                TotalIssuesOpened = 0, // Would need JQL queries to populate
-                TotalIssuesAssigned = 0, // Would need JQL queries to populate
-                TotalCommentsPosted = 0, // Would need complex parsing to populate
-                ActivityScore = 0.0,
+                ActivitySummary = "Requires JQL queries for metrics",
+                ContributionMetrics = null,
+                ProjectInvolvement = null,
+                ActivityLevel = "Unknown",
             };
 
             // TODO: Future enhancement - role detection from Jira user pages or permissions
@@ -461,9 +461,7 @@ public class JiraClient : BaseIssueTrackerClient
         }
     }
 
-    public override Task<List<string>> GetRepositoryContributorsAsync(
-        string repositoryIdentifier
-    )
+    public override Task<List<string>> GetRepositoryContributorsAsync(string repositoryIdentifier)
     {
         try
         {
@@ -504,10 +502,10 @@ public class JiraClient : BaseIssueTrackerClient
         {
             Username = username,
             Provider = BugTrackingProvider.Jira,
-            TotalIssuesOpened = 0,
-            TotalIssuesAssigned = 0,
-            TotalCommentsPosted = 0,
-            ActivityScore = 0.0,
+            ActivitySummary = "Extracted from profile page",
+            ContributionMetrics = null,
+            ProjectInvolvement = null,
+            ActivityLevel = "Unknown",
         };
 
         // Only extract admin role if this is the current user's profile

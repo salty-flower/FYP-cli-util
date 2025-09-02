@@ -7,18 +7,10 @@ public record UniversalUserProfile
     public bool? IsCollaboratorOrMember { get; set; }
     public bool? IsContributor { get; set; }
 
-    // Universal metrics (available in most systems)
-    public int TotalIssuesOpened { get; init; }
-    public int TotalIssuesAssigned { get; init; }
-    public int TotalCommentsPosted { get; init; }
-
-    // GitHub-specific metrics (nullable for other providers)
-    public int? TotalPullRequests { get; init; }
-    public int? TotalMergedPullRequests { get; init; }
-
-    // Jira-specific metrics (nullable for other providers)
-    public int? TotalStoriesCompleted { get; init; }
-    public int? TotalBugsResolved { get; init; }
+    // Flexible activity metrics (populated by platform-specific clients)
+    public string? ActivitySummary { get; init; } // e.g. "15 issues, 47 comments, 8 PRs"
+    public string? ContributionMetrics { get; init; } // e.g. "12 merged PRs, 3 releases"
+    public string? ProjectInvolvement { get; init; } // e.g. "Core contributor, 2 years"
 
     // Platform-specific role detection (from analysis)
     public bool? IsMaintainer { get; set; }
@@ -28,7 +20,7 @@ public record UniversalUserProfile
 
     // Computed properties
     public bool? IsDeveloper { get; set; }
-    public double ActivityScore { get; set; } // Normalized activity across providers
+    public string? ActivityLevel { get; set; } // e.g. "High", "Moderate", "Low"
 
     // Provider-specific data
     public ProviderSpecificData? ProviderSpecificData { get; init; }
@@ -50,7 +42,7 @@ public record UniversalUserProfile
             roles.Add("triage-owner");
         if (IsDeveloper == true && roles.Count == 0)
             roles.Add("developer");
-        if (IsCollaboratorOrMember == true)
+        if (IsCollaboratorOrMember == true && Provider == BugTrackingProvider.GitHub)
             roles.Add("collaborator");
         if (IsContributor == true)
             roles.Add("contributor");
@@ -58,21 +50,19 @@ public record UniversalUserProfile
         if (roles.Count > 0)
             parts.Add($"({string.Join(", ", roles)})");
 
-        // Add activity metrics if meaningful
+        // Add flexible activity metrics if available
         var metrics = new List<string>();
-        if (TotalIssuesOpened > 0)
-            metrics.Add($"{TotalIssuesOpened} issues");
-        if (TotalIssuesAssigned > 0)
-            metrics.Add($"{TotalIssuesAssigned} assigned");
-        if (TotalCommentsPosted > 0)
-            metrics.Add($"{TotalCommentsPosted} comments");
-        if (TotalPullRequests > 0)
-            metrics.Add($"{TotalPullRequests} PRs");
-        if (TotalMergedPullRequests > 0)
-            metrics.Add($"{TotalMergedPullRequests} merged");
+        if (!string.IsNullOrEmpty(ActivitySummary))
+            metrics.Add(ActivitySummary);
+        if (!string.IsNullOrEmpty(ContributionMetrics))
+            metrics.Add(ContributionMetrics);
+        if (!string.IsNullOrEmpty(ProjectInvolvement))
+            metrics.Add(ProjectInvolvement);
+        if (!string.IsNullOrEmpty(ActivityLevel))
+            metrics.Add($"Activity: {ActivityLevel}");
 
         if (metrics.Count > 0)
-            parts.Add($"[{string.Join(", ", metrics)}]");
+            parts.Add($"[{string.Join("; ", metrics)}]");
 
         // Add raw role indicators if available and different from parsed roles
         if (!string.IsNullOrEmpty(RoleIndicators) && roles.Count == 0)

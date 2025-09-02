@@ -16,13 +16,7 @@ public class BugzillaClient : BaseIssueTrackerClient
     private readonly ConcurrentDictionary<string, UniversalUserProfile> _userProfileCache = new();
     private readonly ConcurrentDictionary<string, Repository> _repositoryCache = new();
 
-    // Role detection patterns based on analysis
-    private static readonly Regex MaintainerPattern = new(@"\[:([^\]]+)\]", RegexOptions.Compiled);
-    private static readonly Regex SpecialRolePattern = new(@"[✱★☆]", RegexOptions.Compiled);
-    private static readonly Regex GlobPattern = new(
-        @"\bglob\b",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase
-    );
+    // Note: Removed assumption-based role detection patterns - use only explicit Bugzilla indicators
 
     public BugzillaClient(
         HttpClient httpClient,
@@ -512,14 +506,13 @@ public class BugzillaClient : BaseIssueTrackerClient
             {
                 Username = username,
                 Provider = BugTrackingProvider.Bugzilla,
-                TotalIssuesOpened = 0, // Would need to search across repositories
-                TotalIssuesAssigned = 0, // Would need to search across repositories
-                TotalCommentsPosted = 0, // Would need to search across repositories
-                ActivityScore = 0.0,
+                ActivitySummary = "Requires cross-instance search", // Would need to search across repositories
+                ContributionMetrics = null,
+                ProjectInvolvement = null,
+                ActivityLevel = "Unknown",
             };
 
-            // Extract role information from username/real_name if available
-            ExtractRoleInformation(profile, username);
+            // Note: Removed assumption-based role extraction - would need explicit Bugzilla permission indicators
 
             _userProfileCache[username] = profile;
             return Task.FromResult<UniversalUserProfile?>(profile);
@@ -567,49 +560,8 @@ public class BugzillaClient : BaseIssueTrackerClient
         }
     }
 
-    private void ExtractRoleInformation(UniversalUserProfile profile, string realName)
-    {
-        // Extract role indicators based on analysis findings
-        var roleIndicators = new List<string>();
-
-        // Check for maintainer pattern like [:aryx], [:username]
-        var maintainerMatch = MaintainerPattern.Match(realName);
-        if (maintainerMatch.Success)
-        {
-            profile.IsMaintainer = true;
-            roleIndicators.Add($"Maintainer: {maintainerMatch.Groups[1].Value}");
-        }
-
-        // Check for special role symbols like ✱, ★, ☆
-        if (SpecialRolePattern.IsMatch(realName))
-        {
-            profile.IsTriageOwner = true;
-            roleIndicators.Add("Special role symbols detected");
-        }
-
-        // Check for "glob" indicator
-        if (GlobPattern.IsMatch(realName))
-        {
-            profile.IsCommitter = true;
-            roleIndicators.Add("Glob role detected");
-        }
-
-        // Store raw role indicators for later analysis
-        if (roleIndicators.Count > 0)
-        {
-            profile.RoleIndicators = string.Join("; ", roleIndicators);
-        }
-
-        // Set general developer flag if any role is detected
-        if (
-            profile.IsMaintainer == true
-            || profile.IsCommitter == true
-            || profile.IsTriageOwner == true
-        )
-        {
-            profile.IsDeveloper = true;
-        }
-    }
+    // Note: Removed assumption-based ExtractRoleInformation method
+    // Future: Implement explicit Bugzilla permission group detection (Administrator, canconfirm, editbugs, etc.)
 
     private static string GetBugzillaStatus(IssueStatus status) =>
         status switch

@@ -195,6 +195,13 @@ public sealed record TracUserData : ProviderSpecificData
     public required List<string> Roles { get; init; }
 }
 
+public sealed record TracCommentData : ProviderSpecificData
+{
+    public override BugTrackingProvider Provider => BugTrackingProvider.Trac;
+    public required int ChangeNumber { get; init; }
+    public required bool IsPermanent { get; init; }
+}
+
 // Unknown provider fallback
 public sealed record UnknownProviderData : ProviderSpecificData
 {

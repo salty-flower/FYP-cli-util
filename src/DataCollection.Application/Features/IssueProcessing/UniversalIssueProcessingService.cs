@@ -146,10 +146,10 @@ public class UniversalIssueProcessingService(
                 {
                     Username = issue.Author,
                     Provider = provider,
-                    TotalIssuesOpened = 0,
-                    TotalIssuesAssigned = 0,
-                    TotalCommentsPosted = 0,
-                    ActivityScore = 0.0,
+                    ActivitySummary = "Fallback profile - no metrics",
+                    ContributionMetrics = null,
+                    ProjectInvolvement = null,
+                    ActivityLevel = "Unknown",
                 };
             }
 
@@ -175,10 +175,10 @@ public class UniversalIssueProcessingService(
                         {
                             Username = participantName,
                             Provider = provider,
-                            TotalIssuesOpened = 0,
-                            TotalIssuesAssigned = 0,
-                            TotalCommentsPosted = 0,
-                            ActivityScore = 0.0,
+                            ActivitySummary = "Minimal participant profile",
+                            ContributionMetrics = null,
+                            ProjectInvolvement = null,
+                            ActivityLevel = "Unknown",
                         }
                     );
                 }
