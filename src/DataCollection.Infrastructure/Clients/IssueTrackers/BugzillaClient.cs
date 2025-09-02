@@ -177,7 +177,7 @@ public class BugzillaClient : BaseIssueTrackerClient
                 Author = bug.CreatorDetail?.RealName ?? bug.Creator,
                 CreatedAt = bug.CreationTime,
                 UpdatedAt = bug.LastChangeTime,
-                ClosedAt = IsClosedStatus(bug.Status) ? bug.LastChangeTime : null,
+                ClosedAt = IsClosedStatus(bug.Status ?? "") ? bug.LastChangeTime : null,
                 Labels = bug.Keywords?.ToList() ?? [],
                 Assignees = string.IsNullOrEmpty(bug.AssignedTo)
                     ? []
@@ -192,10 +192,10 @@ public class BugzillaClient : BaseIssueTrackerClient
                     Component = bug.Component,
                     Version = bug.Version,
                     TargetMilestone = "---", // Default value from Bugzilla
-                    OperatingSystem = bug.OperatingSystem,
-                    Platform = bug.Platform,
-                    Severity = bug.Severity,
-                    Classification = bug.Classification,
+                    OperatingSystem = bug.OperatingSystem ?? "",
+                    Platform = bug.Platform ?? "",
+                    Severity = bug.Severity ?? "",
+                    Classification = bug.Classification ?? "",
                 },
             };
         }
@@ -302,7 +302,7 @@ public class BugzillaClient : BaseIssueTrackerClient
                         Author = bug.CreatorDetail?.RealName ?? bug.Creator,
                         CreatedAt = bug.CreationTime,
                         UpdatedAt = bug.LastChangeTime,
-                        ClosedAt = IsClosedStatus(bug.Status) ? bug.LastChangeTime : null,
+                        ClosedAt = IsClosedStatus(bug.Status ?? "") ? bug.LastChangeTime : null,
                         Labels = bug.Keywords?.ToList() ?? [],
                         Assignees = string.IsNullOrEmpty(bug.AssignedTo)
                             ? []

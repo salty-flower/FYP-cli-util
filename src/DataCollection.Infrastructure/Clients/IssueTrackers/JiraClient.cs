@@ -422,17 +422,17 @@ public class JiraClient : BaseIssueTrackerClient
         }
     }
 
-    public override async Task<UniversalUserProfile?> GetUserProfileAsync(string username)
+    public override Task<UniversalUserProfile?> GetUserProfileAsync(string username)
     {
         // Return null for empty usernames - this will trigger fallback profile creation
         if (string.IsNullOrWhiteSpace(username))
         {
             _logger.LogDebug("Skipping user profile creation for empty username");
-            return null;
+            return Task.FromResult<UniversalUserProfile?>(null);
         }
 
         if (_userProfileCache.TryGetValue(username, out var cachedProfile))
-            return cachedProfile;
+            return Task.FromResult<UniversalUserProfile?>(cachedProfile);
 
         try
         {
@@ -452,23 +452,23 @@ public class JiraClient : BaseIssueTrackerClient
 
             _userProfileCache[username] = profile;
             _logger.LogDebug("Created basic user profile for {Username}", username);
-            return profile;
+            return Task.FromResult<UniversalUserProfile?>(profile);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get Jira user profile for {Username}", username);
-            return null;
+            return Task.FromResult<UniversalUserProfile?>(null);
         }
     }
 
-    public override async Task<List<string>> GetRepositoryContributorsAsync(
+    public override Task<List<string>> GetRepositoryContributorsAsync(
         string repositoryIdentifier
     )
     {
         try
         {
             _logger.LogWarning("Jira contributor listing not implemented yet");
-            return [];
+            return Task.FromResult(new List<string>());
         }
         catch (Exception ex)
         {
@@ -477,21 +477,21 @@ public class JiraClient : BaseIssueTrackerClient
                 "Failed to get Jira contributors for repository {RepositoryIdentifier}",
                 repositoryIdentifier
             );
-            return [];
+            return Task.FromResult(new List<string>());
         }
     }
 
-    public override async Task<List<Repository>> SearchRepositoriesAsync(string query)
+    public override Task<List<Repository>> SearchRepositoriesAsync(string query)
     {
         try
         {
             _logger.LogWarning("Jira repository search not implemented yet");
-            return [];
+            return Task.FromResult(new List<Repository>());
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to search Jira repositories with query {Query}", query);
-            return [];
+            return Task.FromResult(new List<Repository>());
         }
     }
 
