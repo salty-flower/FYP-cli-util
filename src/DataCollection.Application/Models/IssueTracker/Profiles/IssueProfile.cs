@@ -1,4 +1,5 @@
-﻿using GitHub.Models;
+﻿using DataCollection.Infrastructure.Models.GitHub;
+using GitHub.Models;
 
 namespace DataCollection.Application.Models.IssueTracker.Profiles;
 
@@ -36,7 +37,7 @@ public record OtherEventProfile
 
 public record IssueProfile
 {
-    public required Issue SdkIssue { get; init; }
+    public required GitHubIssue SdkIssue { get; init; }
     public required FullRepository SdkRepository { get; init; }
     public required UserProfile AuthorProfile { get; init; }
     public required string RepositoryFullName { get; init; }

@@ -1,14 +1,20 @@
+using System.Text.Json.Serialization;
+
 namespace DataCollection.Infrastructure.Models.GitHub;
 
 public class GitHubEvent
 {
     public long Id { get; set; }
+
     public string? NodeId { get; set; }
     public string? Url { get; set; }
     public GitHubUser? Actor { get; set; }
     public string? Event { get; set; }
+
     public string? CommitId { get; set; }
+
     public string? CommitUrl { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public GitHubLabel? Label { get; set; }
     public GitHubUser? Assignee { get; set; }

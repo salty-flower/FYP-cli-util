@@ -15,6 +15,7 @@ public interface IGitHubClient
         FullRepository repository
     );
     Task<Issue?> GetIssueAsync(string owner, string repoName, long issueNumber);
+    Task<GitHubIssue?> GetIssueWithLabelsAsync(string owner, string repoName, long issueNumber);
     Task<List<IssueComment>?> GetIssueCommentsAsync(
         string owner,
         string repoName,

@@ -45,6 +45,12 @@ public interface IGitHubApi
     );
 
     /// <summary>
+    /// Get issue with proper label deserialization
+    /// </summary>
+    [Get("/repos/{owner}/{repoName}/issues/{issueNumber}")]
+    Task<GitHubIssue?> GetIssueAsync(string owner, string repoName, long issueNumber);
+
+    /// <summary>
     /// Get issue info to check for transfers/redirects
     /// </summary>
     [Get("/repos/{owner}/{repoName}/issues/{issueNumber}")]

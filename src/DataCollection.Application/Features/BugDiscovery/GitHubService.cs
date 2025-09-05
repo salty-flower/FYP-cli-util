@@ -104,7 +104,7 @@ public class GitHubService(
     {
         var repository = await gitHubClient.GetRepositoryInfoAsync(owner, repoName);
 
-        var issue = await gitHubClient.GetIssueAsync(owner, repoName, issueNumber);
+        var issue = await gitHubClient.GetIssueWithLabelsAsync(owner, repoName, issueNumber);
         if (issue == null)
         {
             logger.LogError($"Issue {issueNumber} not found in repository {owner}/{repoName}");
@@ -136,7 +136,7 @@ public class GitHubService(
             SdkRepository = repository,
             AuthorProfile = authorProfile,
             RepositoryFullName = repository.FullName ?? $"{owner}/{repoName}",
-            IsClosed = issue.State?.ToString() == "closed",
+            IsClosed = issue.State == "closed",
             HasAssociatedPullRequest = issue.PullRequest != null,
             LabelEvents = [.. labelEvents],
             CommentEvents = [.. commentEvents],

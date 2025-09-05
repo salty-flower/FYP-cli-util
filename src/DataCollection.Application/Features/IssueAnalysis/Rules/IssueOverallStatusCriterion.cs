@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json.Serialization.Metadata;
 using DataCollection.Application.Models.IssueTracker.Profiles;
 using DataCollection.Core.Models.IssueTracker.Responses;
+using DataCollection.Infrastructure.Models.GitHub;
 using DataCollection.Infrastructure.Options;
 using DataCollection.Infrastructure.Serialization;
 using EnumsNET;
@@ -74,14 +75,14 @@ public class IssueOverallStatusCriterion(
     {
         var labelInfo = new StringBuilder();
         if (
-            profile.SdkIssue.Labels is { Count: > 0 }
-            && profile.SdkIssue.Labels.Count != profile.LabelEvents.Length
+            profile.SdkIssue.Labels is { Length: > 0 }
+            && profile.SdkIssue.Labels.Length != profile.LabelEvents.Length
         // only make sense to show labels again if count mismatch, i.e. some labels were removed
         )
         {
             labelInfo.AppendLine("Issue labels:");
             foreach (var label in profile.SdkIssue.Labels)
-                labelInfo.AppendLine($"- {label}");
+                labelInfo.AppendLine($"- {label?.Name ?? "unknown"}");
             labelInfo.AppendLine();
         }
 
@@ -132,7 +133,9 @@ public class IssueOverallStatusCriterion(
 
         var repoInfo = new StringBuilder();
         repoInfo
-            .Append($"Repository: {profile.SdkRepository.Owner}/{profile.SdkRepository.Name}. ")
+            .Append(
+                $"Repository: {profile.SdkRepository.Owner?.Login}/{profile.SdkRepository.Name}. "
+            )
             .Append($"Stars: {profile.SdkRepository.StargazersCount}. ")
             .Append($"Forks: {profile.SdkRepository.ForksCount}. ")
             .Append($"Open issues: {profile.SdkRepository.OpenIssuesCount}. ");
@@ -154,8 +157,8 @@ public class IssueOverallStatusCriterion(
             - created at: {profile.SdkIssue.CreatedAt:s}
             - status: {profile.SdkIssue.State
                 + (
-                    profile.SdkIssue.StateReason is not null
-                        ? $" ({profile.SdkIssue.StateReason.Value.GetName()})"
+                    profile.SdkIssue.StateReason is StateReasonWrapper stateReason
+                        ? $" ({stateReason.GetName()})"
                         : string.Empty
                 )}
             {

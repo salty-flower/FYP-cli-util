@@ -141,6 +141,43 @@ public class GitHubClient(
         return (totalCountTask.Result, mergedCountTask.Result);
     }
 
+    public async Task<GitHubIssue?> GetIssueWithLabelsAsync(
+        string owner,
+        string repoName,
+        long issueNumber
+    )
+    {
+        try
+        {
+            return await gitHubApi.GetIssueAsync(owner, repoName, issueNumber);
+        }
+        catch (ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            logger.LogWarning(
+                "Issue {IssueNumber} not found at {Owner}/{RepoName}: {StatusCode} {Message}",
+                issueNumber,
+                owner,
+                repoName,
+                ex.StatusCode,
+                ex.Content
+            );
+            return null;
+        }
+        catch (ApiException ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to get issue {IssueNumber} at {Owner}/{RepoName}: {StatusCode} {Message}",
+                issueNumber,
+                owner,
+                repoName,
+                ex.StatusCode,
+                ex.Content
+            );
+            return null;
+        }
+    }
+
     public async Task<Issue?> GetIssueAsync(string owner, string repoName, long issueNumber)
     {
         try
