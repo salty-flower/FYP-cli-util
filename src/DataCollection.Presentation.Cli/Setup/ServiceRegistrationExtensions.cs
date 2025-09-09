@@ -181,7 +181,7 @@ public static class ServiceRegistrationExtensions
                         {
                             QueueLimit = int.MaxValue,
                             Window = TimeSpan.FromMinutes(1),
-                            PermitLimit = 25, // Conservative: 25/30 requests per minute for GitHub search API
+                            PermitLimit = 25000, // Conservative: 25/30 requests per minute for GitHub search API
                             SegmentsPerWindow = 5, // Spread requests evenly across the minute (5 per 12-second segment)
                         }
                     )
