@@ -489,10 +489,10 @@ public class GitHubClient(
             if (issueInfo?.Url != null)
             {
                 var urlParts = issueInfo.Url.Split('/');
-                if (urlParts.Length >= 6 && urlParts[^3] == "issues")
+                if (urlParts.Length >= 8 && urlParts[^2] == "issues")
                 {
-                    var newOwner = urlParts[^5];
-                    var newRepoName = urlParts[^4];
+                    var newOwner = urlParts[^4];
+                    var newRepoName = urlParts[^3];
                     if (long.TryParse(urlParts[^1], out var newIssueNumber))
                     {
                         return (newOwner, newRepoName, newIssueNumber);
