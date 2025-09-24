@@ -55,4 +55,10 @@ public interface IGitHubApi
     /// </summary>
     [Get("/repos/{owner}/{repoName}/issues/{issueNumber}")]
     Task<string> GetIssueJsonAsync(string owner, string repoName, long issueNumber);
+
+    /// <summary>
+    /// Verify GitHub authentication status
+    /// </summary>
+    [Get("/user")]
+    Task<string> GetUserAsync();
 }
