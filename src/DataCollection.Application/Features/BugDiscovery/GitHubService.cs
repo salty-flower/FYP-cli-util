@@ -1,7 +1,8 @@
 using DataCollection.Application.Features.BugDiscovery.Caching;
 using DataCollection.Application.Features.IssueAnalysis.Rules;
 using DataCollection.Application.Models.IssueTracker.Profiles;
-using DataCollection.Infrastructure.Clients.IssueTrackers;
+using DataCollection.Core.Models.IssueTracker;
+using DataCollection.Core.Models.IssueTracker.Responses;
 using DataCollection.Infrastructure.Models.GitHub;
 using DataCollection.Infrastructure.Serialization;
 using GitHub.Models;
@@ -240,5 +241,129 @@ public class GitHubService(
                 Formatting = Formatting.None,
             }
         );
+    }
+
+    /// <summary>
+    /// Synthesize a deterministic IssueAnalysisResponse from collected issue profile data.
+    /// This simplified deterministic synthesizer only fills rule-based fields and intentionally
+    /// leaves subjective fields (IsRealBug, IsDuplicate and their rationale/confidence)
+    /// for the LLM to decide. The method purposefully omits heuristic phrase matching here;
+    /// the LLM will be asked to evaluate the subjective questions using the rich context.
+    /// </summary>
+    public async Task<IssueAnalysisResponse> SynthesizeDeterministicIssueAnalysisAsync(
+        IssueProfile profile
+    )
+    {
+        // Collect developer usernames: any user who left a comment or performed a label event
+        // and who appears to be a developer (IsDeveloper == true OR IsContributor/Collaborator/Member)
+        var devUsernames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (profile.CommentEvents?.Length > 0)
+        {
+            foreach (var c in profile.CommentEvents)
+            {
+                if (c?.By is not null)
+                {
+                    if (
+                        c.By.IsDeveloper == true
+                        || c.By.IsContributor
+                        || c.By.IsCollaboratorOrMember == true
+                    )
+                        devUsernames.Add(c.By.Login);
+                }
+            }
+        }
+
+        if (profile.LabelEvents?.Length > 0)
+        {
+            foreach (var l in profile.LabelEvents)
+            {
+                if (l?.By is not null)
+                {
+                    if (
+                        l.By.IsDeveloper == true
+                        || l.By.IsContributor
+                        || l.By.IsCollaboratorOrMember == true
+                    )
+                        devUsernames.Add(l.By.Login);
+                }
+            }
+        }
+
+        // Include author if they are a developer
+        if (
+            profile.AuthorProfile?.IsDeveloper == true
+            && !string.IsNullOrWhiteSpace(profile.AuthorProfile.Login)
+        )
+            devUsernames.Add(profile.AuthorProfile.Login);
+
+        // Determine whether any developer-provided signals exist
+        var anyDeveloperCommentsOrLabels =
+            (
+                profile.CommentEvents?.Any(c =>
+                    c?.By is not null
+                    && (
+                        c.By.IsDeveloper == true
+                        || c.By.IsContributor
+                        || c.By.IsCollaboratorOrMember == true
+                    )
+                ) ?? false
+            )
+            || (
+                profile.LabelEvents?.Any(l =>
+                    l?.By is not null
+                    && (
+                        l.By.IsDeveloper == true
+                        || l.By.IsContributor
+                        || l.By.IsCollaboratorOrMember == true
+                    )
+                ) ?? false
+            );
+
+        var hasDeveloperJudgement = anyDeveloperCommentsOrLabels;
+
+        // Deterministic IsFixed based on associated PR merged state
+        bool? isFixed = null;
+        bool? isFixedBefore = null;
+        if (
+            profile.SdkIssue.PullRequest is not null
+            && profile.SdkIssue.PullRequest.MergedAt is not null
+        )
+        {
+            isFixed = true;
+            var mergedAt = profile.SdkIssue.PullRequest.MergedAt.Value;
+            if (profile.SdkIssue.CreatedAt != null)
+                isFixedBefore = mergedAt < profile.SdkIssue.CreatedAt;
+        }
+
+        // Build minimal deterministic response. Subjective fields are deliberately left empty
+        // for the LLM to populate later (IsRealBug, IsDuplicate, associated rationales and confidences).
+        var response = new IssueAnalysisResponse
+        {
+            DeveloperUsernames = devUsernames.ToArray(),
+            HasDeveloperJudgement = hasDeveloperJudgement,
+
+            // Subjective fields: intentionally left for LLM
+            IsRealBug = null,
+            WhetherRealBugRationale = string.Empty,
+            ConfidenceInWhetherRealBug = 0.0,
+
+            IsDuplicate = null,
+            WhetherDuplicateRationale = string.Empty,
+            ConfidenceInWhetherDuplicate = 0.0,
+
+            // Deterministic fields
+            IsFixed = isFixed,
+            IsFixedBeforeIssueRaised = isFixedBefore,
+
+            IsBugButWontFix = null,
+            IsBugButWaitingForAction = null,
+
+            NuanceOrExplanation =
+                "Deterministic synthesis: developer presence and PR merged metadata captured. Subjective fields left for LLM.",
+            AdditionalNotes = null,
+        };
+
+        return await Task.FromResult(response);
     }
 }

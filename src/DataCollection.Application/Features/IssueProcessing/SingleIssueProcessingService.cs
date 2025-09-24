@@ -86,16 +86,25 @@ public class SingleIssueProcessingService(
         // Cache user profiles
         await CacheUserProfilesAsync(issueProfile);
 
-        // Analyze the issue
-        var analysisResult = await statusCriterion.EvaluateAsync(issueProfile);
+        // First compute deterministic fields from comments, labels, and PR metadata
+        var deterministicAnalysis = await gitHubService.SynthesizeDeterministicIssueAnalysisAsync(
+            issueProfile
+        );
+
+        // Then ask the LLM only for the two subjective judgments (IsRealBug and IsDuplicate),
+        // providing the deterministic context so all other fields remain rule-based.
+        var analysisResult = await statusCriterion.EvaluateRealBugAndDuplicateAsync(
+            issueProfile,
+            deterministicAnalysis
+        );
 
         logger.LogDebug("Analysis: {AnalysisResult}", analysisResult);
 
-        // Determine final status
+        // Determine final status using the merged (deterministic + LLM-subjective) analysis
         var currentStatus = DetermineIssueStatus(analysisResult, issueProfile);
 
         logger.LogInformation(
-            "Issue status decision process complete for {Owner}/{Repo}#{IssueNumber}. Concluded {StatusName} {StatusMessage}. LLM Explanation: {Explanation}",
+            "Issue status decision process complete for {Owner}/{Repo}#{IssueNumber}. Concluded {StatusName} {StatusMessage}. Final Explanation: {Explanation}",
             owner,
             repoName,
             issueNumber,
