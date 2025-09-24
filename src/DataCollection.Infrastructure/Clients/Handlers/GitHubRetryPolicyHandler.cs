@@ -11,14 +11,13 @@ namespace DataCollection.Infrastructure.Clients.Handlers;
 /// </summary>
 public static class GitHubRetryPolicyHandler
 {
-    public static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy(ILogger? logger = null)
-    {
-        return HttpPolicyExtensions
+    public static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy(ILogger? logger = null) =>
+        HttpPolicyExtensions
             .HandleTransientHttpError() // Handle HttpRequestException and 5xx responses
             .OrResult(response => IsRateLimitResponse(response))
             .WaitAndRetryAsync(
                 retryCount: 6, // Up to 6 retry attempts
-                sleepDurationProvider: (retryAttempt) => CalculateRetryDelay(retryAttempt, logger),
+                sleepDurationProvider: CalculateRetryDelay,
                 onRetry: (outcome, timespan, retryCount, context) =>
                 {
                     var response = outcome.Result;
@@ -37,16 +36,13 @@ public static class GitHubRetryPolicyHandler
                     );
                 }
             );
-    }
 
-    private static bool IsRateLimitResponse(HttpResponseMessage response)
-    {
+    private static bool IsRateLimitResponse(HttpResponseMessage response) =>
         // GitHub returns 403 for secondary rate limits and 429 for primary rate limits
-        return response.StatusCode == HttpStatusCode.Forbidden
-            || response.StatusCode == HttpStatusCode.TooManyRequests;
-    }
+        response.StatusCode == HttpStatusCode.Forbidden
+        || response.StatusCode == HttpStatusCode.TooManyRequests;
 
-    private static TimeSpan CalculateRetryDelay(int retryAttempt, ILogger? logger)
+    private static TimeSpan CalculateRetryDelay(int retryAttempt)
     {
         // Use exponential backoff with jitter since we can't access response in this simple signature
         var baseDelay = TimeSpan.FromSeconds(Math.Pow(2, retryAttempt));
@@ -57,23 +53,15 @@ public static class GitHubRetryPolicyHandler
         var maxDelay = TimeSpan.FromMinutes(5);
         var finalDelay = totalDelay > maxDelay ? maxDelay : totalDelay;
 
-        logger?.LogInformation(
-            "GitHub API retry attempt {RetryAttempt} - calculated delay: {Delay}s",
-            retryAttempt,
-            finalDelay.TotalSeconds
-        );
-
         return finalDelay;
     }
 
-    private static string? GetRateLimitRemaining(HttpResponseMessage? response)
-    {
-        return response
+    private static string? GetRateLimitRemaining(HttpResponseMessage? response) =>
+        response
             ?.Headers.FirstOrDefault(h =>
                 h.Key.Equals("X-RateLimit-Remaining", StringComparison.OrdinalIgnoreCase)
             )
             .Value?.FirstOrDefault();
-    }
 
     private static DateTime? GetRateLimitReset(HttpResponseMessage? response)
     {
@@ -83,11 +71,8 @@ public static class GitHubRetryPolicyHandler
             )
             .Value?.FirstOrDefault();
 
-        if (resetHeader != null && long.TryParse(resetHeader, out var unixTimestamp))
-        {
-            return DateTimeOffset.FromUnixTimeSeconds(unixTimestamp).UtcDateTime;
-        }
-
-        return null;
+        return resetHeader != null && long.TryParse(resetHeader, out var unixTimestamp)
+            ? DateTimeOffset.FromUnixTimeSeconds(unixTimestamp).UtcDateTime
+            : null;
     }
 }
