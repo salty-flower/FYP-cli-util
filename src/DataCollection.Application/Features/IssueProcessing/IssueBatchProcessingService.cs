@@ -3,8 +3,10 @@ using DataCollection.Application.Features.BugDiscovery;
 using DataCollection.Application.Features.IssueAnalysis.Rules;
 using DataCollection.Application.Models.IssueTracker.Profiles;
 using DataCollection.Core.Models.IssueTracker.Responses;
+using DataCollection.Infrastructure.Options;
 using EnumsNET;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DataCollection.Application.Features.IssueProcessing;
 
@@ -13,7 +15,8 @@ public class IssueBatchProcessingService(
     GitHubService gitHubService,
     IssueOverallStatusCriterion statusCriterion,
     SingleIssueProcessingService singleIssueService,
-    DatabaseIssueAnalysisStorageService storageService
+    DatabaseIssueAnalysisStorageService storageService,
+    IOptions<ParallelismOptions> parallelismOptions
 )
 {
     /// <summary>
@@ -51,12 +54,17 @@ public class IssueBatchProcessingService(
         List<(string? Url, string? Owner, string? Repo, long? Number)> issueTasks,
         bool saveResults,
         bool useCache,
-        int maxParallelTasks = 10
+        int? maxParallelTasks = null
     )
     {
-        logger.LogInformation("Using parallel processing for {Count} issues", issueTasks.Count);
+        var effectiveParallelTasks = maxParallelTasks ?? parallelismOptions.Value.IssueProcessing;
+        logger.LogInformation(
+            "Using parallel processing for {Count} issues with {MaxParallel} max parallel tasks",
+            issueTasks.Count,
+            effectiveParallelTasks
+        );
 
-        var semaphore = new SemaphoreSlim(maxParallelTasks);
+        var semaphore = new SemaphoreSlim(effectiveParallelTasks);
         var tasks = issueTasks.Select(issue =>
             ProcessSingleIssueWithSemaphore(issue, saveResults, useCache, semaphore)
         );
@@ -143,49 +151,69 @@ public class IssueBatchProcessingService(
         bool saveResults
     )
     {
-        foreach (var (customId, analysisResult) in batchResults)
+        var maxParallel = parallelismOptions.Value.BatchResultsProcessing;
+        logger.LogInformation(
+            "Processing {Count} batch results with {MaxParallel} parallel tasks",
+            batchResults.Count,
+            maxParallel
+        );
+
+        var semaphore = new SemaphoreSlim(maxParallel);
+        var processingTasks = batchResults.Select(async kvp =>
         {
-            if (!issueMetadata.TryGetValue(customId, out var metadata))
+            var (customId, analysisResult) = kvp;
+            await semaphore.WaitAsync();
+            try
             {
-                logger.LogWarning("No metadata found for custom ID: {CustomId}", customId);
-                continue;
-            }
+                if (!issueMetadata.TryGetValue(customId, out var metadata))
+                {
+                    logger.LogWarning("No metadata found for custom ID: {CustomId}", customId);
+                    return;
+                }
 
-            if (!issueProfiles.TryGetValue(customId, out var issueProfile))
-            {
-                logger.LogWarning("No issue profile found for custom ID: {CustomId}", customId);
-                continue;
-            }
+                if (!issueProfiles.TryGetValue(customId, out var issueProfile))
+                {
+                    logger.LogWarning("No issue profile found for custom ID: {CustomId}", customId);
+                    return;
+                }
 
-            var (owner, repoName, issueNumber) = metadata;
+                var (owner, repoName, issueNumber) = metadata;
 
-            // Determine status using the same logic as the regular method
-            var currentStatus = SingleIssueProcessingService.DetermineIssueStatus(
-                analysisResult,
-                issueProfile
-            );
+                // Determine status using the same logic as the regular method
+                var currentStatus = SingleIssueProcessingService.DetermineIssueStatus(
+                    analysisResult,
+                    issueProfile
+                );
 
-            logger.LogInformation(
-                "Issue status decision complete for {Owner}/{Repo}#{IssueNumber}. Concluded {StatusName} {StatusMessage}. LLM Explanation: {Explanation}",
-                owner,
-                repoName,
-                issueNumber,
-                currentStatus.GetName(),
-                currentStatus.AsString(EnumFormat.Description),
-                analysisResult.NuanceOrExplanation
-            );
-
-            if (saveResults)
-            {
-                await storageService.SaveAnalysisResultAsync(
+                logger.LogInformation(
+                    "Issue status decision complete for {Owner}/{Repo}#{IssueNumber}. Concluded {StatusName} {StatusMessage}. LLM Explanation: {Explanation}",
                     owner,
                     repoName,
                     issueNumber,
-                    currentStatus,
-                    analysisResult
+                    currentStatus.GetName(),
+                    currentStatus.AsString(EnumFormat.Description),
+                    analysisResult.NuanceOrExplanation
                 );
+
+                if (saveResults)
+                {
+                    await storageService.SaveAnalysisResultAsync(
+                        owner,
+                        repoName,
+                        issueNumber,
+                        currentStatus,
+                        analysisResult
+                    );
+                }
             }
-        }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        await Task.WhenAll(processingTasks);
+        logger.LogInformation("Completed processing all batch results");
     }
 
     private async Task<(
@@ -198,44 +226,78 @@ public class IssueBatchProcessingService(
     {
         var issueProfiles = new Dictionary<string, IssueProfile>();
         var issueMetadata = new Dictionary<string, (string Owner, string Repo, long Number)>();
+        var profileLock = new object();
+        var metadataLock = new object();
 
-        foreach (var issue in issueTasks)
+        var maxParallel = parallelismOptions.Value.IssueDataPreparation;
+        logger.LogInformation(
+            "Preparing issue data with {MaxParallel} parallel tasks",
+            maxParallel
+        );
+
+        var semaphore = new SemaphoreSlim(maxParallel);
+        var preparationTasks = issueTasks.Select(async issue =>
         {
-            var (owner, repoName, issueNumber) = ParseIssueDetails(issue);
-            if (owner == null || repoName == null || !issueNumber.HasValue)
-                continue;
-
-            // Check cache first if enabled
-            if (useCache && await IsIssueCached(owner, repoName, issueNumber.Value))
-                continue;
-
-            // Build issue profile
-            var issueProfile = await gitHubService.BuildComprehensiveIssueProfileAsync(
-                owner,
-                repoName,
-                issueNumber.Value
-            );
-            if (issueProfile == null)
+            await semaphore.WaitAsync();
+            try
             {
-                logger.LogWarning(
-                    "No issue profile found for {Owner}/{Repo}#{IssueNumber}",
+                var (owner, repoName, issueNumber) = ParseIssueDetails(issue);
+                if (owner == null || repoName == null || !issueNumber.HasValue)
+                    return;
+
+                // Check cache first if enabled
+                if (useCache && await IsIssueCached(owner, repoName, issueNumber.Value))
+                    return;
+
+                // Build issue profile
+                var issueProfile = await gitHubService.BuildComprehensiveIssueProfileAsync(
                     owner,
                     repoName,
                     issueNumber.Value
                 );
-                continue;
+                if (issueProfile == null)
+                {
+                    logger.LogWarning(
+                        "No issue profile found for {Owner}/{Repo}#{IssueNumber}",
+                        owner,
+                        repoName,
+                        issueNumber.Value
+                    );
+                    return;
+                }
+
+                var customId = $"{owner}/{repoName}#{issueNumber.Value}";
+
+                lock (profileLock)
+                {
+                    issueProfiles[customId] = issueProfile;
+                }
+
+                lock (metadataLock)
+                {
+                    issueMetadata[customId] = (owner, repoName, issueNumber.Value);
+                }
+
+                logger.LogDebug("Prepared issue profile for {CustomId}", customId);
             }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
 
-            var customId = $"{owner}/{repoName}#{issueNumber.Value}";
-            issueProfiles[customId] = issueProfile;
-            issueMetadata[customId] = (owner, repoName, issueNumber.Value);
-
-            logger.LogDebug("Prepared issue profile for {CustomId}", customId);
-        }
+        await Task.WhenAll(preparationTasks);
 
         if (issueProfiles.Count == 0)
         {
             logger.LogWarning("No issue profiles to process");
+        }
+        else
+        {
+            logger.LogInformation(
+                "Successfully prepared {Count} issue profiles",
+                issueProfiles.Count
+            );
         }
 
         return (issueMetadata, issueProfiles);
