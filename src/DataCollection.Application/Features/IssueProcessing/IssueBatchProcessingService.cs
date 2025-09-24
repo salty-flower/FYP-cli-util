@@ -53,11 +53,10 @@ public class IssueBatchProcessingService(
     public async Task ProcessBatchWithParallelismAsync(
         List<(string? Url, string? Owner, string? Repo, long? Number)> issueTasks,
         bool saveResults,
-        bool useCache,
-        int? maxParallelTasks = null
+        bool useCache
     )
     {
-        var effectiveParallelTasks = maxParallelTasks ?? parallelismOptions.Value.IssueProcessing;
+        var effectiveParallelTasks = parallelismOptions.Value.IssueProcessing;
         logger.LogInformation(
             "Using parallel processing for {Count} issues with {MaxParallel} max parallel tasks",
             issueTasks.Count,
