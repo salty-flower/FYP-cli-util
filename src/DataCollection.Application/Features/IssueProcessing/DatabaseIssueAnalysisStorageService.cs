@@ -11,7 +11,7 @@ namespace DataCollection.Application.Features.IssueProcessing;
 
 public class DatabaseIssueAnalysisStorageService(
     ILogger<DatabaseIssueAnalysisStorageService> logger,
-    DataCollectionDbContext dbContext
+    IDbContextFactory<DataCollectionDbContext> dbContextFactory
 )
 {
     public async Task SaveAnalysisResultAsync(
@@ -22,6 +22,7 @@ public class DatabaseIssueAnalysisStorageService(
         IssueAnalysisResponse analysisResult
     )
     {
+        await using var dbContext = await dbContextFactory.CreateDbContextAsync();
         try
         {
             var existingEntity = await dbContext.IssueAnalyses.FirstOrDefaultAsync(ia =>
@@ -92,6 +93,7 @@ public class DatabaseIssueAnalysisStorageService(
         long issueNumber
     )
     {
+        await using var dbContext = await dbContextFactory.CreateDbContextAsync();
         try
         {
             var entity = await dbContext.IssueAnalyses.FirstOrDefaultAsync(ia =>
@@ -136,6 +138,7 @@ public class DatabaseIssueAnalysisStorageService(
         string repoName
     )
     {
+        await using var dbContext = await dbContextFactory.CreateDbContextAsync();
         try
         {
             var entities = await dbContext
@@ -162,6 +165,7 @@ public class DatabaseIssueAnalysisStorageService(
         IssueStatus status
     )
     {
+        await using var dbContext = await dbContextFactory.CreateDbContextAsync();
         try
         {
             var entities = await dbContext
@@ -188,6 +192,7 @@ public class DatabaseIssueAnalysisStorageService(
     [RequiresDynamicCode("EF Core's EnsureCreatedAsync is not compatible with AOT.")]
     public async Task EnsureDatabaseCreatedAsync()
     {
+        await using var dbContext = await dbContextFactory.CreateDbContextAsync();
         await dbContext.Database.EnsureCreatedAsync();
         logger.LogInformation("Database ensured for issue analysis storage");
     }

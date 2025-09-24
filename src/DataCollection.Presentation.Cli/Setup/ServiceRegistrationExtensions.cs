@@ -306,11 +306,19 @@ public static class ServiceRegistrationExtensions
         IConfiguration config
     )
     {
+        services.AddDbContextFactory<DataCollectionDbContext>(options =>
+            options.UseSqlite(
+                $"Data Source={Path.Combine(services.BuildServiceProvider().GetOptions<PathsOptions>().BaseDir, "data-collection.db")}"
+            )
+        );
+
+        // Keep AddDbContext for non-parallel scenarios that still need scoped injection
         services.AddDbContext<DataCollectionDbContext>(options =>
             options.UseSqlite(
                 $"Data Source={Path.Combine(services.BuildServiceProvider().GetOptions<PathsOptions>().BaseDir, "data-collection.db")}"
             )
         );
+
         return services;
     }
 }
