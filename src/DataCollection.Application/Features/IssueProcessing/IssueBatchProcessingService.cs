@@ -192,7 +192,7 @@ public class IssueBatchProcessingService(
                     issueNumber,
                     currentStatus.GetName(),
                     currentStatus.AsString(EnumFormat.Description),
-                    analysisResult.NuanceOrExplanation
+                    analysisResult.Deterministic?.NuanceOrExplanation
                 );
 
                 if (saveResults)

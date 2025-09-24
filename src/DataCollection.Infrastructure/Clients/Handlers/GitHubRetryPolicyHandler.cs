@@ -2,7 +2,6 @@ using System.Net;
 using Microsoft.Extensions.Logging;
 using Polly;
 using Polly.Extensions.Http;
-using Polly.Timeout;
 
 namespace DataCollection.Infrastructure.Clients.Handlers;
 

@@ -2,7 +2,6 @@ using System.Text.Json;
 using DataCollection.Core.Models;
 using DataCollection.Core.Models.Database;
 using DataCollection.Core.Models.IssueTracker;
-using DataCollection.Core.Models.IssueTracker.Responses;
 using DataCollection.Infrastructure.Options;
 using DataCollection.Infrastructure.Serialization;
 

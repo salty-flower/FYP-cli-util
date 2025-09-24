@@ -5,10 +5,7 @@ using DataCollection.Core.Models;
 using DataCollection.Infrastructure.Clients.IssueTrackers;
 using DataCollection.Infrastructure.Models.BugList;
 using DataCollection.Infrastructure.Models.GitHub;
-using DataCollection.Infrastructure.Options;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using OpenAI;
 
 namespace DataCollection.Application.Features.BugDiscovery;
 

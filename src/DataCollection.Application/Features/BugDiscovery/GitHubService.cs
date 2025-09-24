@@ -3,6 +3,7 @@ using DataCollection.Application.Features.IssueAnalysis.Rules;
 using DataCollection.Application.Models.IssueTracker.Profiles;
 using DataCollection.Core.Models.IssueTracker;
 using DataCollection.Core.Models.IssueTracker.Responses;
+using DataCollection.Infrastructure.Clients.IssueTrackers;
 using DataCollection.Infrastructure.Models.GitHub;
 using DataCollection.Infrastructure.Serialization;
 using GitHub.Models;
@@ -332,18 +333,26 @@ public class GitHubService(
         {
             isFixed = true;
             var mergedAt = profile.SdkIssue.PullRequest.MergedAt.Value;
-            if (profile.SdkIssue.CreatedAt != null)
-                isFixedBefore = mergedAt < profile.SdkIssue.CreatedAt;
+            isFixedBefore = mergedAt < profile.SdkIssue.CreatedAt;
         }
 
         // Build minimal deterministic response. Subjective fields are deliberately left empty
         // for the LLM to populate later (IsRealBug, IsDuplicate, associated rationales and confidences).
-        var response = new IssueAnalysisResponse
+        var deterministic = new DeterministicIssueAnalysis
         {
             DeveloperUsernames = devUsernames.ToArray(),
             HasDeveloperJudgement = hasDeveloperJudgement,
+            IsFixed = isFixed,
+            IsFixedBeforeIssueRaised = isFixedBefore,
+            IsBugButWontFix = null,
+            IsBugButWaitingForAction = null,
+            NuanceOrExplanation =
+                "Deterministic synthesis: developer presence and PR merged metadata captured. Subjective fields left for LLM.",
+            AdditionalNotes = null,
+        };
 
-            // Subjective fields: intentionally left for LLM
+        var subjective = new SubjectiveIssueAnalysis
+        {
             IsRealBug = null,
             WhetherRealBugRationale = string.Empty,
             ConfidenceInWhetherRealBug = 0.0,
@@ -351,17 +360,12 @@ public class GitHubService(
             IsDuplicate = null,
             WhetherDuplicateRationale = string.Empty,
             ConfidenceInWhetherDuplicate = 0.0,
+        };
 
-            // Deterministic fields
-            IsFixed = isFixed,
-            IsFixedBeforeIssueRaised = isFixedBefore,
-
-            IsBugButWontFix = null,
-            IsBugButWaitingForAction = null,
-
-            NuanceOrExplanation =
-                "Deterministic synthesis: developer presence and PR merged metadata captured. Subjective fields left for LLM.",
-            AdditionalNotes = null,
+        var response = new IssueAnalysisResponse
+        {
+            Deterministic = deterministic,
+            Subjective = subjective,
         };
 
         return await Task.FromResult(response);

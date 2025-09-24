@@ -58,47 +58,51 @@ public abstract class BaseIssueTrackerClient : IIssueTrackerClient
             BugTrackingProvider.Jira => MapJiraStatus(providerStatus),
             BugTrackingProvider.Bugzilla => MapBugzillaStatus(providerStatus),
             BugTrackingProvider.GitLab => MapGitLabStatus(providerStatus),
-            _ => IssueStatus.Unknown,
+            // Default to Inconclusive when provider status cannot be mapped into the decision-tree leaves.
+            _ => IssueStatus.Inconclusive,
         };
 
     private static IssueStatus MapGitHubStatus(string status) =>
         status.ToLowerInvariant() switch
         {
-            "open" => IssueStatus.Open,
-            "closed" => IssueStatus.Closed,
-            _ => IssueStatus.Unknown,
+            // Provider-level 'open' generally means we don't yet have developer confirmation
+            // so treat it as Inconclusive in the decision-tree semantics.
+            "open" => IssueStatus.Inconclusive,
+            // 'closed' often indicates some resolution; map to Confirmed by default.
+            "closed" => IssueStatus.Confirmed,
+            _ => IssueStatus.Inconclusive,
         };
 
     private static IssueStatus MapJiraStatus(string status) =>
         status.ToLowerInvariant() switch
         {
-            "open" or "to do" or "new" => IssueStatus.Open,
-            "in progress" or "in review" => IssueStatus.InProgress,
-            "done" or "resolved" => IssueStatus.Resolved,
-            "closed" => IssueStatus.Closed,
-            "won't do" or "won't fix" => IssueStatus.Wontfix,
+            "open" or "to do" or "new" => IssueStatus.Inconclusive,
+            "in progress" or "in review" => IssueStatus.Confirmed,
+            "done" or "resolved" => IssueStatus.Fixed,
+            "closed" => IssueStatus.Confirmed,
+            "won't do" or "won't fix" => IssueStatus.Confirmed,
             "duplicate" => IssueStatus.Duplicate,
-            "invalid" => IssueStatus.Invalid,
-            _ => IssueStatus.Unknown,
+            "invalid" => IssueStatus.NotABug,
+            _ => IssueStatus.Inconclusive,
         };
 
     private static IssueStatus MapBugzillaStatus(string status) =>
         status.ToLowerInvariant() switch
         {
-            "new" or "unconfirmed" or "assigned" => IssueStatus.Open,
-            "resolved" => IssueStatus.Resolved,
-            "verified" or "closed" => IssueStatus.Closed,
+            "new" or "unconfirmed" or "assigned" => IssueStatus.Inconclusive,
+            "resolved" => IssueStatus.Fixed,
+            "verified" or "closed" => IssueStatus.Confirmed,
             "duplicate" => IssueStatus.Duplicate,
-            "invalid" => IssueStatus.Invalid,
-            "wontfix" => IssueStatus.Wontfix,
-            _ => IssueStatus.Unknown,
+            "invalid" => IssueStatus.NotABug,
+            "wontfix" => IssueStatus.Confirmed,
+            _ => IssueStatus.Inconclusive,
         };
 
     private static IssueStatus MapGitLabStatus(string status) =>
         status.ToLowerInvariant() switch
         {
-            "opened" => IssueStatus.Open,
-            "closed" => IssueStatus.Closed,
-            _ => IssueStatus.Unknown,
+            "opened" => IssueStatus.Inconclusive,
+            "closed" => IssueStatus.Confirmed,
+            _ => IssueStatus.Inconclusive,
         };
 }

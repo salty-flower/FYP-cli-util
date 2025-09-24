@@ -3,49 +3,28 @@ using System.Text.Json.Serialization;
 
 namespace DataCollection.Core.Models.IssueTracker;
 
+/// <summary>
+/// Canonical issue status values aligned with the decision-tree used for analysis.
+/// This enum contains only the statuses that appear as leaves in the decision tree:
+/// Inconclusive, NotABug, Fixed, Duplicate, Confirmed.
+/// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<IssueStatus>))]
 public enum IssueStatus
 {
-    [Description("Issue is open and needs attention.")]
-    Open,
+    [Description("Developer comments are inconclusive for classification.")]
+    Inconclusive,
 
-    [Description("Issue is closed or completed.")]
-    Closed,
+    [Description("The issue is explicitly not a bug (developer indicates not a bug).")]
+    NotABug,
 
-    [Description("Issue is currently being worked on.")]
-    InProgress,
+    [Description("The issue has been fixed (evidence: associated merged PR).")]
+    Fixed,
 
-    [Description("Issue has been resolved or fixed.")]
-    Resolved,
-
-    [Description("Issue will not be fixed.")]
-    Wontfix,
-
-    [Description("Issue is a duplicate of another issue.")]
+    [Description("The issue is a duplicate of another issue/report.")]
     Duplicate,
 
-    [Description("Issue is invalid or not a real issue.")]
-    Invalid,
-
-    [Description("Issue status is unknown or unmapped.")]
-    Unknown,
-
-    // Legacy statuses for backward compatibility
-    [Description("Issue is pending review or analysis.")]
-    Pending,
-
-    [Description("Issue is confirmed and has been fixed.")]
-    ConfirmedFixed,
-
-    [Description("Issue is confirmed and waiting for action.")]
-    ConfirmedWaitingForAction,
-
-    [Description("Issue is confirmed but will not be fixed.")]
-    ConfirmedWontFix,
-
-    [Description("Issue was already fixed before being reported.")]
-    FixedBeforeReport,
-
-    [Description("Issue is not actually a bug.")]
-    NotABug,
+    [Description(
+        "The issue is confirmed (developer acknowledges the bug or there is sufficient evidence)."
+    )]
+    Confirmed,
 }

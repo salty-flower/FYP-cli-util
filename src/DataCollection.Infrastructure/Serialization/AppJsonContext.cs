@@ -9,6 +9,7 @@ namespace DataCollection.Infrastructure.Serialization;
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(MatchObject[][]))]
 [JsonSerializable(typeof(IssueAnalysisResponse))]
+[JsonSerializable(typeof(SubjectiveIssueAnalysis))]
 [JsonSerializable(typeof(BugListDiscoveryAnalysis))]
 [JsonSerializable(typeof(JsonElement[]))]
 [JsonSourceGenerationOptions(

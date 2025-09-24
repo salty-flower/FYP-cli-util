@@ -27,6 +27,8 @@ public abstract class LargeLanguageModelCriterion<TProfile, TOutcome>(
     protected virtual string OutcomeSchema =>
         new DefaultSchemaGenerator().Generate<TOutcome>(new JsonSchemaOptions()).ToJson();
 
+    public string Model => model;
+
     protected abstract JsonTypeInfo<TOutcome> OutcomeJsonTypeInfo { get; }
 
     protected virtual TOutcome ParseOutcome(string llmResponse)
