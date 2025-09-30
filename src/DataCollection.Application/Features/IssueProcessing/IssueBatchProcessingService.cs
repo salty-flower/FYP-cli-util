@@ -169,8 +169,15 @@ public class IssueBatchProcessingService(
                 subjectiveResults.Count
             );
 
+            // Parse customIds from batch results to get the actual issue list
+            var batchIssueTasks = ParseCustomIdsToIssueTasks(subjectiveResults.Keys);
+            logger.LogInformation(
+                "Using {Count} issues from batch results as source of truth (ignoring input file if provided)",
+                batchIssueTasks.Count
+            );
+
             var (issueMetadata, issueProfiles) = await PrepareIssueData(
-                issueTasks,
+                batchIssueTasks,
                 useCache,
                 cancellationToken
             );
@@ -475,5 +482,53 @@ public class IssueBatchProcessingService(
         }
 
         return (issue.Owner, issue.Repo, issue.Number);
+    }
+
+    /// <summary>
+    /// Parses customId strings into issueTasks format
+    /// </summary>
+    /// <param name="customIds">Collection of customIds in format "owner/repo#number"</param>
+    private List<(string? Url, string? Owner, string? Repo, long? Number)> ParseCustomIdsToIssueTasks(
+        IEnumerable<string> customIds
+    )
+    {
+        var issueTasks = new List<(string? Url, string? Owner, string? Repo, long? Number)>();
+
+        foreach (var customId in customIds)
+        {
+            // Expected format: "owner/repo#number"
+            var hashIndex = customId.IndexOf('#');
+            if (hashIndex == -1)
+            {
+                logger.LogWarning("Invalid customId format (missing #): {CustomId}", customId);
+                continue;
+            }
+
+            var ownerRepo = customId[..hashIndex];
+            var numberStr = customId[(hashIndex + 1)..];
+
+            var slashIndex = ownerRepo.IndexOf('/');
+            if (slashIndex == -1)
+            {
+                logger.LogWarning("Invalid customId format (missing /): {CustomId}", customId);
+                continue;
+            }
+
+            var owner = ownerRepo[..slashIndex];
+            var repo = ownerRepo[(slashIndex + 1)..];
+
+            if (!long.TryParse(numberStr, out var number))
+            {
+                logger.LogWarning(
+                    "Invalid customId format (invalid number): {CustomId}",
+                    customId
+                );
+                continue;
+            }
+
+            issueTasks.Add((null, owner, repo, number));
+        }
+
+        return issueTasks;
     }
 }
