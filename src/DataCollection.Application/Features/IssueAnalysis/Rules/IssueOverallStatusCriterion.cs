@@ -33,13 +33,10 @@ public class IssueOverallStatusCriterion(
         batchJobPoller
     )
 {
-    private readonly OpenAIClient client = client;
     public bool FilterOutNonDeveloperComments { get; set; } = false;
 
     protected override JsonTypeInfo<IssueAnalysisResponse> OutcomeJsonTypeInfo =>
         AppJsonContext.Default.IssueAnalysisResponse;
-
-    private const string SystemPrompt = TwoFieldSystemPrompt;
 
     private const string TwoFieldSystemPrompt = """
         You are an experienced software engineer helping researchers. For the provided issue,
@@ -79,7 +76,7 @@ public class IssueOverallStatusCriterion(
                 ),
             };
 
-            var chatClient = client.GetChatClient(Model);
+            var chatClient = Client.GetChatClient(Model);
             var response = await chatClient.CompleteChatAsync(messages, options);
 
             if (response.Value.Content.Count == 0)

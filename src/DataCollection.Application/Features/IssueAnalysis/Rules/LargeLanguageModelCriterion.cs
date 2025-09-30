@@ -29,6 +29,8 @@ public abstract class LargeLanguageModelCriterion<TProfile, TOutcome>(
 
     public string Model => model;
 
+    protected OpenAIClient Client => client;
+
     protected abstract JsonTypeInfo<TOutcome> OutcomeJsonTypeInfo { get; }
 
     protected virtual TOutcome ParseOutcome(string llmResponse)
