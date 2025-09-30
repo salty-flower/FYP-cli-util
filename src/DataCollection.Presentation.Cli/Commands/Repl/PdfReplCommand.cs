@@ -342,7 +342,7 @@ public class PdfReplCommand(
             }
 
             // Count occurrences of keywords
-            var counts = CountKeywords(pdfData, keywords.ToArray());
+            var counts = CountKeywords(pdfData, [.. keywords]);
 
             // Parse the expression
             var expressionFunc = KeywordExpressionParser.ParseExpression(expression);
@@ -553,7 +553,7 @@ public class PdfReplCommand(
 
             foreach (var pdf in allPdfData)
             {
-                var counts = CountKeywords(pdf, keywords.ToArray());
+                var counts = CountKeywords(pdf, [.. keywords]);
                 if (expressionFunc(counts))
                 {
                     matchingPdfs.Add((pdf, counts));
@@ -566,14 +566,15 @@ public class PdfReplCommand(
                 Expression = expression,
                 TotalMatches = matchingPdfs.Count,
                 Timestamp = DateTime.Now,
-                MatchingPdfs = matchingPdfs
-                    .Select(item => new PdfEvaluationItem
+                MatchingPdfs =
+                [
+                    .. matchingPdfs.Select(item => new PdfEvaluationItem
                     {
                         PdfName = pdfDescriptionService.GetItemDescription(item.Pdf),
                         Filename = item.Pdf.FileName,
                         KeywordCounts = item.Counts,
-                    })
-                    .ToList(),
+                    }),
+                ],
             };
 
             LastSearchResults = evalResult;
@@ -702,7 +703,7 @@ public class PdfReplCommand(
         }
 
         // Sort by count (descending)
-        allCounts = allCounts.OrderByDescending(c => c.Count).ToList();
+        allCounts = [.. allCounts.OrderByDescending(c => c.Count)];
 
         // Display results
         AnsiConsole.Write(
@@ -905,23 +906,26 @@ public class PdfReplCommand(
                 Pattern = pattern,
                 TotalMatches = totalMatches,
                 Timestamp = DateTime.Now,
-                Results = allResults
-                    .Select(result => new PdfSearchItem
+                Results =
+                [
+                    .. allResults.Select(result => new PdfSearchItem
                     {
                         PdfName = (string)result.PDF,
                         Filename = (string)result.FileName,
                         MatchCount = (int)result.ResultCount,
-                        Context = ((System.Collections.IEnumerable)result.Results)
-                            .Cast<dynamic>()
-                            .Select(r => new PdfMatchContext
-                            {
-                                Page = (int)r.Page,
-                                Match = (string)r.Match,
-                                Context = (string)r.Context,
-                            })
-                            .ToList(),
-                    })
-                    .ToList(),
+                        Context =
+                        [
+                            .. ((System.Collections.IEnumerable)result.Results)
+                                .Cast<dynamic>()
+                                .Select(r => new PdfMatchContext
+                                {
+                                    Page = (int)r.Page,
+                                    Match = (string)r.Match,
+                                    Context = (string)r.Context,
+                                }),
+                        ],
+                    }),
+                ],
             };
 
             // Export if path is provided or log the results
@@ -1030,7 +1034,7 @@ public class PdfReplCommand(
 
             foreach (var pdf in pdfDataList)
             {
-                var counts = CountKeywords(pdf, keywords.ToArray());
+                var counts = CountKeywords(pdf, [.. keywords]);
                 if (expressionFunc(counts))
                 {
                     matchingPdfs.Add((pdf, counts));
@@ -1043,14 +1047,15 @@ public class PdfReplCommand(
                 Expression = expression,
                 TotalMatches = matchingPdfs.Count,
                 Timestamp = DateTime.Now,
-                MatchingPdfs = matchingPdfs
-                    .Select(item => new PdfEvaluationItem
+                MatchingPdfs =
+                [
+                    .. matchingPdfs.Select(item => new PdfEvaluationItem
                     {
                         PdfName = pdfDescriptionService.GetItemDescription(item.Pdf),
                         Filename = item.Pdf.FileName,
                         KeywordCounts = item.Counts,
-                    })
-                    .ToList(),
+                    }),
+                ],
             };
 
             // Export if path is provided or log the results

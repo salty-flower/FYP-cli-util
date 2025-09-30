@@ -143,8 +143,8 @@ public class DumpCommands(
             var result = new PdfData
             {
                 FileName = pdfFile.Name,
-                Texts = proc.Select(p => p.Text).ToArray(),
-                TextLines = proc.Select(p => p.TextLines).ToArray(),
+                Texts = [.. proc.Select(p => p.Text)],
+                TextLines = [.. proc.Select(p => p.TextLines)],
             };
 
             logger.LogInformation("Extracted {FileName}", pdfFile.Name);

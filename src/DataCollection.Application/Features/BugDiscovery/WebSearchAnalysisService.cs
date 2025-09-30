@@ -165,7 +165,7 @@ public class WebSearchAnalysisService(
 
         AddPaperBasedQueries(queries, paper);
 
-        return queries.Distinct().Take(BugDiscoveryConstants.MaxSearchAttempts).ToList();
+        return [.. queries.Distinct().Take(BugDiscoveryConstants.MaxSearchAttempts)];
     }
 
     private void AddPaperBasedQueries(List<string> queries, Paper paper)
@@ -194,11 +194,12 @@ public class WebSearchAnalysisService(
     private static List<string> ExtractSignificantTitleWords(string title) =>
         string.IsNullOrEmpty(title)
             ? []
-            : title
-                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                .Where(word => word.Length > 3 && !StopWords.Contains(word))
-                //.Take(5)
-                .ToList();
+            :
+            [
+                .. title
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Where(word => word.Length > 3 && !StopWords.Contains(word)),
+            ];
 
     private async Task ProcessSingleSearchResult(
         string url,

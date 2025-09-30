@@ -56,7 +56,7 @@ public class BugListDiscoveryService(
             {
                 Doi = paper.Doi,
                 Title = paper.Title,
-                ArtifactRepositories = combinedRepositories.ToList(),
+                ArtifactRepositories = [.. combinedRepositories],
             }, // Pass current repos for decision logic
             cancellationToken
         );

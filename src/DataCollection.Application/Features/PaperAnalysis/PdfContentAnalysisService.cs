@@ -280,7 +280,7 @@ public partial class PdfContentAnalysisService(
             );
         }
 
-        return tables.GroupBy(t => t.Position / 1000).Select(g => g.First()).ToList();
+        return [.. tables.GroupBy(t => t.Position / 1000).Select(g => g.First())];
     }
 
     private string ExtractTableContext(string text, int matchIndex)
@@ -307,7 +307,7 @@ public partial class PdfContentAnalysisService(
             }
         }
 
-        return issueNumbers.Distinct().ToList();
+        return [.. issueNumbers.Distinct()];
     }
 
     private bool IsValidIssueNumber(string issueNumber)

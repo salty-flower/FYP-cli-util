@@ -7,12 +7,13 @@ namespace DataCollection.Presentation.Cli.Commands.Repl.Helpers;
 public static class ReplHelpers
 {
     public static List<string> ExtractKeywords(string expression) =>
-        Regex
-            .Matches(expression, @"\b\w+\b")
-            .Cast<Match>()
-            .Select(m => m.Value.ToLower())
-            .Distinct()
-            .ToList();
+        [
+            .. Regex
+                .Matches(expression, @"\b\w+\b")
+                .Cast<Match>()
+                .Select(m => m.Value.ToLower())
+                .Distinct(),
+        ];
 
     public static async Task ExportResults<T>(T data, string filePath)
     {

@@ -213,12 +213,14 @@ public partial class DuckDuckGoSearchService(
     ) =>
         searchResults == null
             ? []
-            : searchResults
-                .Take(maxResults)
-                .Select(CreateWebSearchResult)
-                .Where(r => r != null)
-                .Cast<WebSearchResult>()
-                .ToList();
+            :
+            [
+                .. searchResults
+                    .Take(maxResults)
+                    .Select(CreateWebSearchResult)
+                    .Where(r => r != null)
+                    .Cast<WebSearchResult>(),
+            ];
 
     private static bool TryExtractResultProperties(
         JsonElement result,

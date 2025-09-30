@@ -465,7 +465,7 @@ public class MetadataReplCommand(
                 return;
             }
 
-            var counts = CountKeywords(paper, keywords.ToArray());
+            var counts = CountKeywords(paper, [.. keywords]);
 
             // Parse and evaluate the expression
             var expressionFunc = KeywordExpressionParser.ParseExpression(expression);
@@ -593,8 +593,9 @@ public class MetadataReplCommand(
                 Pattern = pattern,
                 TotalMatches = searchResults.Count,
                 Timestamp = DateTime.Now,
-                Results = searchResults
-                    .Select(r => new MetadataSearchItem
+                Results =
+                [
+                    .. searchResults.Select(r => new MetadataSearchItem
                     {
                         Paper = new PaperReference
                         {
@@ -604,8 +605,8 @@ public class MetadataReplCommand(
                         },
                         Match = r.Match,
                         Context = r.Context,
-                    })
-                    .ToList(),
+                    }),
+                ],
             };
 
             // Store the data for potential later use
@@ -715,7 +716,7 @@ public class MetadataReplCommand(
 
             foreach (var paper in papers)
             {
-                var counts = CountKeywords(paper, keywords.ToArray());
+                var counts = CountKeywords(paper, [.. keywords]);
                 if (expressionFunc(counts))
                 {
                     matchingPapers.Add((paper, counts));
@@ -728,8 +729,9 @@ public class MetadataReplCommand(
                 Expression = expression,
                 TotalMatches = matchingPapers.Count,
                 Timestamp = DateTime.Now,
-                MatchingPapers = matchingPapers
-                    .Select(p => new MetadataEvaluationItem
+                MatchingPapers =
+                [
+                    .. matchingPapers.Select(p => new MetadataEvaluationItem
                     {
                         Paper = new PaperReference
                         {
@@ -738,8 +740,8 @@ public class MetadataReplCommand(
                             Authors = p.Paper.Authors?.ToArray() ?? Array.Empty<string>(),
                         },
                         KeywordCounts = p.Counts,
-                    })
-                    .ToList(),
+                    }),
+                ],
             };
 
             // Store the data for potential later use
@@ -803,7 +805,7 @@ public class MetadataReplCommand(
 
             foreach (var paper in papers)
             {
-                var counts = CountKeywords(paper, keywords.ToArray());
+                var counts = CountKeywords(paper, [.. keywords]);
                 if (expressionFunc(counts))
                 {
                     matchingPapers.Add((paper, counts));
@@ -979,7 +981,7 @@ public class MetadataReplCommand(
         }
 
         // Sort by count (descending)
-        allCounts = allCounts.OrderByDescending(c => c.Count).ToList();
+        allCounts = [.. allCounts.OrderByDescending(c => c.Count)];
 
         // Display results
         AnsiConsole.Write(

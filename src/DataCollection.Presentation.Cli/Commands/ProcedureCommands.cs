@@ -113,7 +113,7 @@ public class ProcedureCommands(
                 {
                     Title = item.Pdf,
                     TableCount = item.ResultCount,
-                    Tables = item.Results.Select(r => r.Text).ToList(),
+                    Tables = [.. item.Results.Select(r => r.Text)],
                 };
             }
 
