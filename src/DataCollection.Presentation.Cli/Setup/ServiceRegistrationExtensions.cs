@@ -137,7 +137,7 @@ public static class ServiceRegistrationExtensions
                     client.DefaultRequestHeaders.Accept.Add(
                         new MediaTypeWithQualityHeaderValue("application/vnd.github+json")
                     );
-                    client.DefaultRequestHeaders.Add("User-Agent", "BugMiner/1.0");
+                    client.DefaultRequestHeaders.Add("User-Agent", "Octokit-New/1.0");
                     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
                         "Bearer",
                         credentialOptions.GitHubToken
@@ -153,6 +153,7 @@ public static class ServiceRegistrationExtensions
             );
 
         services.AddTransient<GitHubDebugLoggingHandler>();
+        services.AddTransient<GitHubRedirectHandler>();
 
         services
             .AddRefitClient<IGitHubApi>()
@@ -167,7 +168,11 @@ public static class ServiceRegistrationExtensions
                         nameof(IGitHubApi)
                     );
                     client.BaseAddress = new Uri("https://api.github.com/");
-                    client.DefaultRequestHeaders.Add("User-Agent", "BugMiner/1.0");
+                    client.DefaultRequestHeaders.Accept.Add(
+                        new MediaTypeWithQualityHeaderValue("application/vnd.github+json")
+                    );
+                    client.DefaultRequestHeaders.Add("User-Agent", "Refit-IGitHubApi/1.0");
+                    client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
                     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
                         "Bearer",
                         credentialOptions.GitHubToken
@@ -187,6 +192,7 @@ public static class ServiceRegistrationExtensions
                     )
                 )
             )
+            .AddHttpMessageHandler<GitHubRedirectHandler>()
             .AddPolicyHandler(
                 (sp, _) =>
                     GitHubRetryPolicyHandler.GetRetryPolicy(sp.GetService<ILogger<IGitHubApi>>())

@@ -5,7 +5,12 @@ using System.Threading.RateLimiting;
 namespace DataCollection.Infrastructure.Clients.Handlers;
 
 public class ClientSideRateLimitedHandler(RateLimiter limiter)
-    : DelegatingHandler(new HttpClientHandler())
+    : DelegatingHandler(
+        new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false, // Prevent auth header stripping on redirects
+        }
+    )
 {
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
