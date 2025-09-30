@@ -22,7 +22,7 @@ public class IssueBatchProcessingService(
     /// <summary>
     /// Processes a batch of issues using OpenAI Batch API
     /// </summary>
-    public async Task ProcessBatchWithOpenAIAsync(
+    public async Task<List<IssueAnalysisResult>> ProcessBatchWithOpenAIAsync(
         List<(string? Url, string? Owner, string? Repo, long? Number)> issueTasks,
         bool saveResults,
         bool useCache,
@@ -37,14 +37,13 @@ public class IssueBatchProcessingService(
 
         if (!string.IsNullOrEmpty(batchJobId))
         {
-            await ProcessExistingBatchJobAsync(
+            return await ProcessExistingBatchJobAsync(
                 batchJobId,
                 issueTasks,
                 saveResults,
                 useCache,
                 cancellationToken
             );
-            return;
         }
 
         var (issueMetadata, issueProfiles) = await PrepareIssueData(
@@ -53,7 +52,7 @@ public class IssueBatchProcessingService(
             cancellationToken
         );
         var batchResults = await ExecuteBatchProcessing(issueProfiles, cancellationToken);
-        await ProcessBatchResultsAsync(
+        var results = await ProcessBatchResultsAsync(
             batchResults,
             issueMetadata,
             issueProfiles,
@@ -62,12 +61,13 @@ public class IssueBatchProcessingService(
         );
 
         logger.LogInformation("Completed batch processing of {Count} issues", issueProfiles.Count);
+        return results;
     }
 
     /// <summary>
     /// Processes a batch of issues using parallel processing
     /// </summary>
-    public async Task ProcessBatchWithParallelismAsync(
+    public async Task<List<IssueAnalysisResult>> ProcessBatchWithParallelismAsync(
         List<(string? Url, string? Owner, string? Repo, long? Number)> issueTasks,
         bool saveResults,
         bool useCache,
@@ -91,15 +91,17 @@ public class IssueBatchProcessingService(
                 cancellationToken
             )
         );
-        await Task.WhenAll(tasks);
+        var results = await Task.WhenAll(tasks);
 
         logger.LogInformation(
             "Completed parallel batch processing of {Count} issues",
             issueTasks.Count
         );
+
+        return results.OfType<IssueAnalysisResult>().ToList();
     }
 
-    private async Task ProcessSingleIssueWithSemaphore(
+    private async Task<IssueAnalysisResult?> ProcessSingleIssueWithSemaphore(
         (string? Url, string? Owner, string? Repo, long? Number) issue,
         bool saveResults,
         bool useCache,
@@ -114,14 +116,28 @@ public class IssueBatchProcessingService(
 
             if (owner != null && repoName != null && issueNumber.HasValue)
             {
-                await singleIssueService.ProcessIssueAsync(
+                var result = await singleIssueService.ProcessIssueAsync(
                     owner,
                     repoName,
                     issueNumber.Value,
                     useCache: useCache,
                     saveResults: saveResults
                 );
+
+                if (result.HasValue)
+                {
+                    return new IssueAnalysisResult
+                    {
+                        Owner = owner,
+                        Repo = repoName,
+                        IssueNumber = issueNumber.Value,
+                        Url = $"https://github.com/{owner}/{repoName}/issues/{issueNumber.Value}",
+                        Analysis = result.Value.Analysis,
+                    };
+                }
             }
+
+            return null;
         }
         finally
         {
@@ -132,7 +148,7 @@ public class IssueBatchProcessingService(
     /// <summary>
     /// Processes an existing batch job
     /// </summary>
-    private async Task ProcessExistingBatchJobAsync(
+    private async Task<List<IssueAnalysisResult>> ProcessExistingBatchJobAsync(
         string batchJobId,
         List<(string? Url, string? Owner, string? Repo, long? Number)> issueTasks,
         bool saveResults,
@@ -161,30 +177,32 @@ public class IssueBatchProcessingService(
 
             var mergedResults = MergeSubjectiveWithDeterministic(subjectiveResults, issueProfiles);
 
-            await ProcessBatchResultsAsync(
+            var results = await ProcessBatchResultsAsync(
                 mergedResults,
                 issueMetadata,
                 issueProfiles,
                 saveResults,
                 cancellationToken
             );
+
+            logger.LogInformation(
+                "Completed processing of existing batch job {BatchJobId}",
+                batchJobId
+            );
+
+            return results;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to process existing batch job {BatchJobId}", batchJobId);
             throw;
         }
-
-        logger.LogInformation(
-            "Completed processing of existing batch job {BatchJobId}",
-            batchJobId
-        );
     }
 
     /// <summary>
     /// Processes batch results and saves them if requested
     /// </summary>
-    private async Task ProcessBatchResultsAsync(
+    private async Task<List<IssueAnalysisResult>> ProcessBatchResultsAsync(
         Dictionary<string, IssueAnalysisResponse> batchResults,
         Dictionary<string, (string Owner, string Repo, long Number)> issueMetadata,
         Dictionary<string, IssueProfile> issueProfiles,
@@ -199,6 +217,8 @@ public class IssueBatchProcessingService(
             maxParallel
         );
 
+        var results = new List<IssueAnalysisResult>();
+        var resultsLock = new object();
         var semaphore = new SemaphoreSlim(maxParallel);
         var processingTasks = batchResults.Select(async kvp =>
         {
@@ -247,6 +267,21 @@ public class IssueBatchProcessingService(
                         cancellationToken
                     );
                 }
+
+                // Collect result for export
+                var result = new IssueAnalysisResult
+                {
+                    Owner = owner,
+                    Repo = repoName,
+                    IssueNumber = issueNumber,
+                    Url = $"https://github.com/{owner}/{repoName}/issues/{issueNumber}",
+                    Analysis = analysisResult,
+                };
+
+                lock (resultsLock)
+                {
+                    results.Add(result);
+                }
             }
             finally
             {
@@ -256,6 +291,7 @@ public class IssueBatchProcessingService(
 
         await Task.WhenAll(processingTasks);
         logger.LogInformation("Completed processing all batch results");
+        return results;
     }
 
     private async Task<(

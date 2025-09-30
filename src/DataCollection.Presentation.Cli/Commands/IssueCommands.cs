@@ -1,5 +1,6 @@
 using ConsoleAppFramework;
 using DataCollection.Application.Features.IssueProcessing;
+using DataCollection.Core.Models.IssueTracker.Responses;
 using DataCollection.Presentation.Cli.Filters;
 using Microsoft.Extensions.Logging;
 
@@ -97,12 +98,14 @@ public class IssueCommands(
     /// <param name="useCache">Whether to use cached results if available</param>
     /// <param name="useBatchApi">Whether to use OpenAI Batch API for processing (default true for cost savings)</param>
     /// <param name="batchJobId">Optional existing OpenAI batch job ID to resume/check status instead of creating new batch</param>
+    /// <param name="outputPath">Optional path to export results as JSONL (one IssueAnalysisResponse per line)</param>
     public async Task ProcessBatch(
         string inputFile,
         bool saveResults = true,
         bool useCache = true,
         bool useBatchApi = true,
         string? batchJobId = null,
+        string? outputPath = null,
         CancellationToken cancellation = default
     )
     {
@@ -132,8 +135,9 @@ public class IssueCommands(
         issueTasks = [.. issueTasks.Distinct()];
 
         // Delegate to appropriate batch processing service
+        List<IssueAnalysisResult> results;
         if (useBatchApi)
-            await batchProcessingService.ProcessBatchWithOpenAIAsync(
+            results = await batchProcessingService.ProcessBatchWithOpenAIAsync(
                 issueTasks,
                 saveResults,
                 useCache,
@@ -147,11 +151,22 @@ public class IssueCommands(
                     "Batch job ID provided but useBatchApi is false. Ignoring batch job ID and using parallel processing."
                 );
 
-            await batchProcessingService.ProcessBatchWithParallelismAsync(
+            results = await batchProcessingService.ProcessBatchWithParallelismAsync(
                 issueTasks,
                 saveResults,
                 useCache,
                 cancellation
+            );
+        }
+
+        // Export results to JSONL if output path is provided
+        if (!string.IsNullOrEmpty(outputPath))
+        {
+            await ExportResultsToJsonl(results, outputPath);
+            logger.LogInformation(
+                "Exported {Count} results to {OutputPath}",
+                results.Count,
+                outputPath
             );
         }
     }
@@ -220,5 +235,24 @@ public class IssueCommands(
         }
 
         return issueTasks;
+    }
+
+    /// <summary>
+    /// Exports analysis results to a JSONL file
+    /// </summary>
+    private static async Task ExportResultsToJsonl(
+        List<IssueAnalysisResult> results,
+        string outputPath
+    )
+    {
+        using var writer = new StreamWriter(outputPath);
+        foreach (var result in results)
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(
+                result,
+                IssueExportJsonContext.Default.IssueAnalysisResult
+            );
+            await writer.WriteLineAsync(json);
+        }
     }
 }
