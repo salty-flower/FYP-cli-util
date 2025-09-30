@@ -182,16 +182,27 @@ public class GitHubClient(
     {
         try
         {
-            return await gitHubClient.Repos[owner][repoName].Issues[(int)issueNumber].GetAsync();
+            // Get repository info to get the repository ID for the API call
+            var repository = await GetRepositoryInfoAsync(owner, repoName);
+            var repositoryId = repository.Id.GetValueOrDefault();
+
+            if (repositoryId == 0)
+            {
+                logger.LogWarning("Repository {Owner}/{RepoName} has invalid ID", owner, repoName);
+                return null;
+            }
+
+            // Use our working Refit client instead of the failing GitHub SDK
+            return await gitHubApi.GetIssueByRepositoryIdAsync(repositoryId, issueNumber);
         }
-        catch (BasicError ex)
+        catch (Exception ex)
         {
             logger.LogWarning(
-                "Issue {IssueNumber} not found at {Owner}/{RepoName}: {StatusCode} {Message}",
+                ex,
+                "Issue {IssueNumber} not found at {Owner}/{RepoName}: {Message}",
                 issueNumber,
                 owner,
                 repoName,
-                ex.Status,
                 ex.Message
             );
             return null;

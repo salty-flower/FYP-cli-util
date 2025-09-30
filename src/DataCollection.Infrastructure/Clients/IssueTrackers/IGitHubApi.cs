@@ -61,4 +61,10 @@ public interface IGitHubApi
     /// </summary>
     [Get("/user")]
     Task<string> GetUserAsync();
+
+    /// <summary>
+    /// Get issue by repository ID (alternative to owner/repo format) - strongly typed
+    /// </summary>
+    [Get("/repositories/{repositoryId}/issues/{issueNumber}")]
+    Task<Issue?> GetIssueByRepositoryIdAsync(long repositoryId, long issueNumber);
 }
