@@ -94,106 +94,31 @@ public class DatabaseIssueAnalysisStorageService(
     )
     {
         await using var dbContext = await dbContextFactory.CreateDbContextAsync();
-        try
+
+        var entity = await dbContext.IssueAnalyses.FirstOrDefaultAsync(ia =>
+            ia.Owner == owner && ia.Repository == repoName && ia.IssueNumber == issueNumber
+        );
+
+        if (entity == null)
         {
-            var entity = await dbContext.IssueAnalyses.FirstOrDefaultAsync(ia =>
-                ia.Owner == owner && ia.Repository == repoName && ia.IssueNumber == issueNumber
-            );
-
-            if (entity == null)
-            {
-                logger.LogDebug(
-                    "No cached analysis found for {Owner}/{Repo}#{IssueNumber}",
-                    owner,
-                    repoName,
-                    issueNumber
-                );
-                return null;
-            }
-
-            var result = entity.ToCachedAnalysisResult();
             logger.LogDebug(
-                "Retrieved cached analysis for {Owner}/{Repo}#{IssueNumber}",
-                owner,
-                repoName,
-                issueNumber
-            );
-            return result;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(
-                ex,
-                "Failed to retrieve cached analysis for {Owner}/{Repo}#{IssueNumber}",
+                "No cached analysis found for {Owner}/{Repo}#{IssueNumber}",
                 owner,
                 repoName,
                 issueNumber
             );
             return null;
         }
-    }
 
-    public async Task<List<CachedAnalysisResult>> GetAnalysisResultsByRepositoryAsync(
-        string owner,
-        string repoName
-    )
-    {
-        await using var dbContext = await dbContextFactory.CreateDbContextAsync();
-        try
-        {
-            var entities = await dbContext
-                .IssueAnalyses.Where(ia => ia.Owner == owner && ia.Repository == repoName)
-                .OrderBy(ia => ia.IssueNumber)
-                .ToListAsync();
-
-            return entities.Select(e => e.ToCachedAnalysisResult()).ToList();
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(
-                ex,
-                "Error retrieving analysis results for {Owner}/{Repo}: {Error}",
+        var result = entity.ToCachedAnalysisResult();
+        if (result == null)
+            logger.LogWarning(
+                "Failed to deserialize cached analysis for {Owner}/{Repo}#{IssueNumber}",
                 owner,
                 repoName,
-                ex.Message
+                issueNumber
             );
-            throw;
-        }
-    }
 
-    public async Task<List<CachedAnalysisResult>> GetAnalysisResultsByStatusAsync(
-        IssueStatus status
-    )
-    {
-        await using var dbContext = await dbContextFactory.CreateDbContextAsync();
-        try
-        {
-            var entities = await dbContext
-                .IssueAnalyses.Where(ia => ia.Status == status)
-                .OrderBy(ia => ia.Owner)
-                .ThenBy(ia => ia.Repository)
-                .ThenBy(ia => ia.IssueNumber)
-                .ToListAsync();
-
-            return entities.Select(e => e.ToCachedAnalysisResult()).ToList();
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(
-                ex,
-                "Error retrieving analysis results by status {Status}: {Error}",
-                status,
-                ex.Message
-            );
-            throw;
-        }
-    }
-
-    [RequiresDynamicCode("EF Core's EnsureCreatedAsync is not compatible with AOT.")]
-    public async Task EnsureDatabaseCreatedAsync()
-    {
-        await using var dbContext = await dbContextFactory.CreateDbContextAsync();
-        await dbContext.Database.EnsureCreatedAsync();
-        logger.LogInformation("Database ensured for issue analysis storage");
+        return result;
     }
 }

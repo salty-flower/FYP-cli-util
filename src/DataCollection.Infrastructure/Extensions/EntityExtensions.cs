@@ -4,6 +4,8 @@ using DataCollection.Core.Models.Database;
 using DataCollection.Core.Models.IssueTracker;
 using DataCollection.Infrastructure.Options;
 using DataCollection.Infrastructure.Serialization;
+using Microsoft.Build.Utilities;
+using Serilog;
 
 namespace DataCollection.Infrastructure.Extensions;
 
@@ -64,22 +66,30 @@ public static class EntityExtensions
             PaperId = paperId,
         };
 
-    public static CachedAnalysisResult ToCachedAnalysisResult(this IssueAnalysisEntity entity) =>
-        new()
+    public static CachedAnalysisResult? ToCachedAnalysisResult(this IssueAnalysisEntity entity)
+    {
+        // check if we can deserialize IssueAnalysisResponse, because the schema might have changed.
+        // if cannot, we give a warning and set null.
+
+        try
         {
-            Owner = entity.Owner,
-            Repository = entity.Repository,
-            IssueNumber = entity.IssueNumber,
-            Status = entity.Status,
-            Analysis =
-                JsonSerializer.Deserialize(
+            return new()
+            {
+                Owner = entity.Owner,
+                Repository = entity.Repository,
+                IssueNumber = entity.IssueNumber,
+                Status = entity.Status,
+                Analysis = JsonSerializer.Deserialize(
                     entity.AnalysisJson,
                     AppJsonContext.Default.IssueAnalysisResponse
-                )
-                ?? throw new InvalidOperationException(
-                    $"Failed to deserialize analysis for issue {entity.Owner}/{entity.Repository}#{entity.IssueNumber}"
-                ),
-        };
+                )!,
+            };
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     public static IssueAnalysisEntity ToEntity(this CachedAnalysisResult result) =>
         new()
