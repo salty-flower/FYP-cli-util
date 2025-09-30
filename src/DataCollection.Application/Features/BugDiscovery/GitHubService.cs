@@ -342,29 +342,18 @@ public class GitHubService(
             devUsernames.Add(profile.AuthorProfile.Login);
 
         // Determine whether any developer-provided signals exist
-        var anyDeveloperCommentsOrLabels =
-            (
-                profile.CommentEvents?.Any(c =>
-                    c?.By is not null
-                    && (
-                        c.By.IsDeveloper == true
-                        || c.By.IsContributor
-                        || c.By.IsCollaboratorOrMember == true
-                    )
-                ) ?? false
-            )
-            || (
-                profile.LabelEvents?.Any(l =>
-                    l?.By is not null
-                    && (
-                        l.By.IsDeveloper == true
-                        || l.By.IsContributor
-                        || l.By.IsCollaboratorOrMember == true
-                    )
-                ) ?? false
-            );
+        var anyDeveloperComments = (
+            profile.CommentEvents?.Any(c =>
+                c?.By is not null
+                && (
+                    c.By.IsDeveloper == true
+                    || c.By.IsContributor
+                    || c.By.IsCollaboratorOrMember == true
+                )
+            ) ?? false
+        );
 
-        var hasDeveloperJudgement = anyDeveloperCommentsOrLabels;
+        var hasDeveloperJudgement = anyDeveloperComments;
 
         // Deterministic IsFixed based on associated PR merged state
         bool? isFixed = null;
