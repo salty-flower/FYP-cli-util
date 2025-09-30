@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using DataCollection.Application.Models.IssueTracker.Profiles;
 using DataCollection.Core.Models.IssueTracker.Responses;
@@ -11,20 +10,18 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
-using OpenAi.JsonSchema.Generator;
-using OpenAi.JsonSchema.Serialization;
 
 namespace DataCollection.Application.Features.IssueAnalysis.Rules;
 
-public class IssueOverallStatusCriterion(
+public class IssueSubjectiveStatusCriterion(
     IOptionsSnapshot<LLMOptions> llmOptions,
-    ILogger<IssueOverallStatusCriterion> logger,
+    ILogger<IssueSubjectiveStatusCriterion> logger,
     OpenAIClient client,
     IHttpClientFactory httpClientFactory,
     BatchFileHandler batchFileHandler,
     BatchJobPoller batchJobPoller
 )
-    : LargeLanguageModelCriterion<IssueProfile, IssueAnalysisResponse>(
+    : LargeLanguageModelCriterion<IssueProfile, SubjectiveIssueAnalysis>(
         llmOptions.Value.IssueOverallStatusModel,
         logger,
         client,
@@ -35,8 +32,8 @@ public class IssueOverallStatusCriterion(
 {
     public bool FilterOutNonDeveloperComments { get; set; } = false;
 
-    protected override JsonTypeInfo<IssueAnalysisResponse> OutcomeJsonTypeInfo =>
-        AppJsonContext.Default.IssueAnalysisResponse;
+    protected override JsonTypeInfo<SubjectiveIssueAnalysis> OutcomeJsonTypeInfo =>
+        AppJsonContext.Default.SubjectiveIssueAnalysis;
 
     private const string TwoFieldSystemPrompt = """
         You are an experienced software engineer helping researchers. For the provided issue,
@@ -51,69 +48,6 @@ public class IssueOverallStatusCriterion(
         - Use only the developer-associated comments, label history, and PR metadata provided.
         - Rationales should be concise and cite explicit developer evidence (username and timestamp when present).
         """;
-
-    /// <summary>
-    /// Evaluate only the two subjective fields (IsRealBug, IsDuplicate) using the LLM.
-    /// Returns a SubjectiveIssueAnalysis containing the LLM's evaluation and rationales.
-    /// </summary>
-    public async Task<SubjectiveIssueAnalysis> EvaluateRealBugAndDuplicateAsync(
-        IssueProfile profile
-    )
-    {
-        try
-        {
-            var messages = BuildMessages(profile).ToList();
-
-            var schema = new DefaultSchemaGenerator()
-                .Generate<SubjectiveIssueAnalysis>(new JsonSchemaOptions())
-                .ToJson();
-            var options = new ChatCompletionOptions
-            {
-                ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
-                    jsonSchemaFormatName: "SubjectiveIssueAnalysis-schema",
-                    jsonSchema: BinaryData.FromString(schema),
-                    jsonSchemaIsStrict: true
-                ),
-            };
-
-            var chatClient = Client.GetChatClient(Model);
-            var response = await chatClient.CompleteChatAsync(messages, options);
-
-            if (response.Value.Content.Count == 0)
-                throw new InvalidOperationException("No choices returned from LLM.");
-
-            var resultText = response.Value.Content[0].Text;
-            if (string.IsNullOrEmpty(resultText))
-                throw new InvalidOperationException("Empty result from LLM.");
-
-            return JsonSerializer.Deserialize(
-                    resultText,
-                    AppJsonContext.Default.SubjectiveIssueAnalysis
-                )
-                ?? new SubjectiveIssueAnalysis
-                {
-                    IsRealBug = null,
-                    WhetherRealBugRationale = string.Empty,
-                    ConfidenceInWhetherRealBug = 0.0,
-                    IsDuplicate = null,
-                    WhetherDuplicateRationale = string.Empty,
-                    ConfidenceInWhetherDuplicate = 0.0,
-                };
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "LLM evaluation failed; returning empty subjective analysis.");
-            return new SubjectiveIssueAnalysis
-            {
-                IsRealBug = null,
-                WhetherRealBugRationale = "LLM evaluation failed",
-                ConfidenceInWhetherRealBug = 0.0,
-                IsDuplicate = null,
-                WhetherDuplicateRationale = "LLM evaluation failed",
-                ConfidenceInWhetherDuplicate = 0.0,
-            };
-        }
-    }
 
     protected override IEnumerable<ChatMessage> BuildMessages(IssueProfile profile)
     {

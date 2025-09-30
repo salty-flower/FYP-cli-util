@@ -16,7 +16,7 @@ public class SingleIssueProcessingService(
     ILogger<SingleIssueProcessingService> logger,
     GitHubService gitHubService,
     IGitHubClient gitHubClient,
-    IssueOverallStatusCriterion statusCriterion,
+    IssueSubjectiveStatusCriterion statusCriterion,
     DatabaseIssueAnalysisStorageService storageService,
     IOptions<PathsOptions> pathsOptions
 )
@@ -87,11 +87,11 @@ public class SingleIssueProcessingService(
         await CacheUserProfilesAsync(profile, cancellationToken);
 
         // Deterministic synthesis + LLM subjective evaluation
-        var deterministic = await gitHubService.SynthesizeDeterministicIssueAnalysisAsync(profile);
-        var subjective = await statusCriterion.EvaluateRealBugAndDuplicateAsync(profile);
+        var deterministic = gitHubService.SynthesizeDeterministicIssueAnalysis(profile);
+        var subjective = await statusCriterion.EvaluateAsync(profile);
         var analysisResult = new IssueAnalysisResponse
         {
-            Deterministic = deterministic.Deterministic,
+            Deterministic = deterministic,
             Subjective = subjective,
         };
 

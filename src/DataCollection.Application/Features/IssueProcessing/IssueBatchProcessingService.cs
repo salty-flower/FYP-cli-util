@@ -13,7 +13,7 @@ namespace DataCollection.Application.Features.IssueProcessing;
 public class IssueBatchProcessingService(
     ILogger<IssueBatchProcessingService> logger,
     GitHubService gitHubService,
-    IssueOverallStatusCriterion statusCriterion,
+    IssueSubjectiveStatusCriterion statusCriterion,
     SingleIssueProcessingService singleIssueService,
     DatabaseIssueAnalysisStorageService storageService,
     IOptions<ParallelismOptions> parallelismOptions
@@ -144,13 +144,13 @@ public class IssueBatchProcessingService(
 
         try
         {
-            var batchResults = await statusCriterion.ResumeBatchAsync(
+            var subjectiveResults = await statusCriterion.ResumeBatchAsync(
                 batchJobId,
                 cancellationToken
             );
             logger.LogInformation(
-                "Received {Count} results from existing batch job",
-                batchResults.Count
+                "Received {Count} subjective results from existing batch job",
+                subjectiveResults.Count
             );
 
             var (issueMetadata, issueProfiles) = await PrepareIssueData(
@@ -159,8 +159,10 @@ public class IssueBatchProcessingService(
                 cancellationToken
             );
 
+            var mergedResults = MergeSubjectiveWithDeterministic(subjectiveResults, issueProfiles);
+
             await ProcessBatchResultsAsync(
-                batchResults,
+                mergedResults,
                 issueMetadata,
                 issueProfiles,
                 saveResults,
@@ -385,14 +387,43 @@ public class IssueBatchProcessingService(
     {
         logger.LogInformation("Submitting {Count} issues to OpenAI Batch API", issueProfiles.Count);
 
-        var batchResults = await statusCriterion.EvaluateBatchAsync(
+        var subjectiveResults = await statusCriterion.EvaluateBatchAsync(
             issueProfiles,
             cancellationToken
         );
 
-        logger.LogInformation("Received {Count} results from batch processing", batchResults.Count);
+        logger.LogInformation(
+            "Received {Count} subjective results from batch processing",
+            subjectiveResults.Count
+        );
 
-        return batchResults;
+        return MergeSubjectiveWithDeterministic(subjectiveResults, issueProfiles);
+    }
+
+    private Dictionary<string, IssueAnalysisResponse> MergeSubjectiveWithDeterministic(
+        Dictionary<string, SubjectiveIssueAnalysis> subjectiveResults,
+        Dictionary<string, IssueProfile> issueProfiles
+    )
+    {
+        var mergedResults = new Dictionary<string, IssueAnalysisResponse>();
+        foreach (var (customId, subjective) in subjectiveResults)
+        {
+            if (!issueProfiles.TryGetValue(customId, out var profile))
+            {
+                logger.LogWarning("No profile found for custom ID: {CustomId}", customId);
+                continue;
+            }
+
+            var deterministic = gitHubService.SynthesizeDeterministicIssueAnalysis(profile);
+            mergedResults[customId] = new IssueAnalysisResponse
+            {
+                Deterministic = deterministic,
+                Subjective = subjective,
+            };
+        }
+
+        logger.LogInformation("Merged {Count} analysis results", mergedResults.Count);
+        return mergedResults;
     }
 
     /// <summary>

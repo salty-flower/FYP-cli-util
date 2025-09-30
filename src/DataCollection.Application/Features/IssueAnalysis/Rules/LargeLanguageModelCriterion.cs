@@ -30,6 +30,9 @@ public abstract class LargeLanguageModelCriterion<TProfile, TOutcome>(
     public string Model => model;
 
     protected OpenAIClient Client => client;
+    protected IHttpClientFactory HttpClientFactory => httpClientFactory;
+    protected BatchFileHandler BatchFileHandler => batchFileHandler;
+    protected BatchJobPoller BatchJobPoller => batchJobPoller;
 
     protected abstract JsonTypeInfo<TOutcome> OutcomeJsonTypeInfo { get; }
 
@@ -151,27 +154,31 @@ public abstract class LargeLanguageModelCriterion<TProfile, TOutcome>(
     }
 
     private List<BatchRequest> CreateBatchRequests(Dictionary<string, TProfile> profiles) =>
-        profiles
-            .Select(p => new BatchRequest
+        [
+            .. profiles.Select(p => new BatchRequest
             {
                 CustomId = p.Key,
                 Method = "POST",
                 Url = "/v1/chat/completions",
                 Body = new ChatCompletionRequest(
                     Model: model,
-                    Messages: BuildMessages(p.Value)
-                        .Select(m => new ChatMessageModel(
-                            Role: m.GetType().Name.Replace("ChatMessage", "").ToLowerInvariant(),
-                            Content: m switch
-                            {
-                                SystemChatMessage sys => sys.Content[0].Text,
-                                UserChatMessage user => user.Content[0].Text,
-                                _ => throw new InvalidOperationException(
-                                    $"Unsupported message type: {m.GetType()}"
-                                ),
-                            }
-                        ))
-                        .ToArray(),
+                    Messages:
+                    [
+                        .. BuildMessages(p.Value)
+                            .Select(m => new ChatMessageModel(
+                                Role: m.GetType()
+                                    .Name.Replace("ChatMessage", "")
+                                    .ToLowerInvariant(),
+                                Content: m switch
+                                {
+                                    SystemChatMessage sys => sys.Content[0].Text,
+                                    UserChatMessage user => user.Content[0].Text,
+                                    _ => throw new InvalidOperationException(
+                                        $"Unsupported message type: {m.GetType()}"
+                                    ),
+                                }
+                            )),
+                    ],
                     ResponseFormat: new ResponseFormatModel(
                         Type: "json_schema",
                         JsonSchema: new JsonSchemaModel(
@@ -183,8 +190,8 @@ public abstract class LargeLanguageModelCriterion<TProfile, TOutcome>(
                         )
                     )
                 ),
-            })
-            .ToList();
+            }),
+        ];
 
     private async Task<string> CreateBatchJobAsync(
         string inputFileId,

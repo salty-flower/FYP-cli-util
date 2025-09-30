@@ -288,15 +288,13 @@ public class GitHubService(
     }
 
     /// <summary>
-    /// Synthesize a deterministic IssueAnalysisResponse from collected issue profile data.
+    /// Synthesize a deterministic analysis from collected issue profile data.
     /// This simplified deterministic synthesizer only fills rule-based fields and intentionally
     /// leaves subjective fields (IsRealBug, IsDuplicate and their rationale/confidence)
     /// for the LLM to decide. The method purposefully omits heuristic phrase matching here;
     /// the LLM will be asked to evaluate the subjective questions using the rich context.
     /// </summary>
-    public async Task<IssueAnalysisResponse> SynthesizeDeterministicIssueAnalysisAsync(
-        IssueProfile profile
-    )
+    public DeterministicIssueAnalysis SynthesizeDeterministicIssueAnalysis(IssueProfile profile)
     {
         // Collect developer usernames: any user who left a comment or performed a label event
         // and who appears to be a developer (IsDeveloper == true OR IsContributor/Collaborator/Member)
@@ -370,9 +368,9 @@ public class GitHubService(
 
         // Build minimal deterministic response. Subjective fields are deliberately left empty
         // for the LLM to populate later (IsRealBug, IsDuplicate, associated rationales and confidences).
-        var deterministic = new DeterministicIssueAnalysis
+        return new DeterministicIssueAnalysis
         {
-            DeveloperUsernames = devUsernames.ToArray(),
+            DeveloperUsernames = [.. devUsernames],
             HasDeveloperJudgement = hasDeveloperJudgement,
             IsFixed = isFixed,
             IsFixedBeforeIssueRaised = isFixedBefore,
@@ -382,24 +380,5 @@ public class GitHubService(
                 "Deterministic synthesis: developer presence and PR merged metadata captured. Subjective fields left for LLM.",
             AdditionalNotes = null,
         };
-
-        var subjective = new SubjectiveIssueAnalysis
-        {
-            IsRealBug = null,
-            WhetherRealBugRationale = string.Empty,
-            ConfidenceInWhetherRealBug = 0.0,
-
-            IsDuplicate = null,
-            WhetherDuplicateRationale = string.Empty,
-            ConfidenceInWhetherDuplicate = 0.0,
-        };
-
-        var response = new IssueAnalysisResponse
-        {
-            Deterministic = deterministic,
-            Subjective = subjective,
-        };
-
-        return await Task.FromResult(response);
     }
 }
