@@ -34,7 +34,11 @@ public class GitHubClient(
             .Cast<string>()
             .ToList() ?? [];
 
-    public async Task<FullRepository> GetRepositoryInfoAsync(string owner, string repoName)
+    public async Task<FullRepository> GetRepositoryInfoAsync(
+        string owner,
+        string repoName,
+        CancellationToken cancellationToken = default
+    )
     {
         var cachedRepo = await repositoryCache.TryGetAsync(owner, repoName);
         if (cachedRepo != null)
@@ -43,7 +47,7 @@ public class GitHubClient(
         }
 
         var repository =
-            await gitHubClient.Repos[owner][repoName].GetAsync()
+            await gitHubClient.Repos[owner][repoName].GetAsync(cancellationToken: cancellationToken)
             ?? throw new InvalidOperationException($"Repository {owner}/{repoName} not found");
 
         await repositoryCache.SetAsync(owner, repoName, repository);
@@ -144,12 +148,13 @@ public class GitHubClient(
     public async Task<GitHubIssue?> GetIssueWithLabelsAsync(
         string owner,
         string repoName,
-        long issueNumber
+        long issueNumber,
+        CancellationToken cancellationToken = default
     )
     {
         try
         {
-            return await gitHubApi.GetIssueAsync(owner, repoName, issueNumber);
+            return await gitHubApi.GetIssueAsync(owner, repoName, issueNumber, cancellationToken);
         }
         catch (ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
@@ -183,7 +188,11 @@ public class GitHubClient(
         try
         {
             // Get repository info to get the repository ID for the API call
-            var repository = await GetRepositoryInfoAsync(owner, repoName);
+            var repository = await GetRepositoryInfoAsync(
+                owner,
+                repoName,
+                cancellationToken: default
+            );
             var repositoryId = repository.Id.GetValueOrDefault();
 
             if (repositoryId == 0)
@@ -212,7 +221,8 @@ public class GitHubClient(
     public async Task<List<IssueComment>?> GetIssueCommentsAsync(
         string owner,
         string repoName,
-        long issueNumber
+        long issueNumber,
+        CancellationToken cancellationToken = default
     )
     {
         var cachedComments = await issueCommentsCache.TryGetAsync(owner, repoName, issueNumber);
@@ -223,7 +233,12 @@ public class GitHubClient(
 
         try
         {
-            var comments = await gitHubApi.GetIssueCommentsAsync(owner, repoName, issueNumber);
+            var comments = await gitHubApi.GetIssueCommentsAsync(
+                owner,
+                repoName,
+                issueNumber,
+                cancellationToken
+            );
             await issueCommentsCache.SetAsync(owner, repoName, issueNumber, comments);
             return comments;
         }
@@ -256,7 +271,8 @@ public class GitHubClient(
                     var comments = await gitHubApi.GetIssueCommentsAsync(
                         newOwner,
                         newRepoName,
-                        newIssueNumber
+                        newIssueNumber,
+                        cancellationToken
                     );
                     await issueCommentsCache.SetAsync(owner, repoName, issueNumber, comments);
                     return comments;
@@ -306,7 +322,8 @@ public class GitHubClient(
     public async Task<List<GitHubEvent>?> GetIssueEventsAsync(
         string owner,
         string repoName,
-        long issueNumber
+        long issueNumber,
+        CancellationToken cancellationToken = default
     )
     {
         var cachedEvents = await issueEventsCache.TryGetAsync(owner, repoName, issueNumber);
@@ -317,7 +334,12 @@ public class GitHubClient(
 
         try
         {
-            var events = await gitHubApi.GetIssueEventsAsync(owner, repoName, issueNumber);
+            var events = await gitHubApi.GetIssueEventsAsync(
+                owner,
+                repoName,
+                issueNumber,
+                cancellationToken
+            );
             await issueEventsCache.SetAsync(owner, repoName, issueNumber, events);
             return events;
         }
@@ -350,7 +372,8 @@ public class GitHubClient(
                     var events = await gitHubApi.GetIssueEventsAsync(
                         newOwner,
                         newRepoName,
-                        newIssueNumber
+                        newIssueNumber,
+                        cancellationToken
                     );
                     await issueEventsCache.SetAsync(owner, repoName, issueNumber, events);
                     return events;
@@ -417,7 +440,7 @@ public class GitHubClient(
     {
         try
         {
-            var repo = await GetRepositoryInfoAsync(owner, repoName);
+            var repo = await GetRepositoryInfoAsync(owner, repoName, cancellationToken: default);
             var defaultBranch = repo.DefaultBranch ?? "main";
 
             var json = await gitHubApi.GetGitTreeAsync(

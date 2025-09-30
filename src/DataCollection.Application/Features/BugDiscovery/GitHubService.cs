@@ -20,7 +20,11 @@ public class GitHubService(
     IUserProfileCache userProfileCache
 )
 {
-    public async Task<UserProfile> GetUserProfileAsync(string login, FullRepository repository)
+    public async Task<UserProfile> GetUserProfileAsync(
+        string login,
+        FullRepository repository,
+        CancellationToken cancellationToken = default
+    )
     {
         ArgumentNullException.ThrowIfNull(repository);
         var repoId = repository.Id.GetValueOrDefault();
@@ -35,7 +39,7 @@ public class GitHubService(
         if (user == null)
             throw new InvalidOperationException($"User {login} not found");
 
-        var userProfile = await CreateUserProfileAsync(login, user, repository);
+        var userProfile = await CreateUserProfileAsync(login, user, repository, cancellationToken);
 
         await userProfileCache.SetAsync(login, repoId, userProfile);
 
@@ -48,11 +52,13 @@ public class GitHubService(
     /// <param name="userLogin">User login</param>
     /// <param name="sdkUser">User information from SDK</param>
     /// <param name="repository">Repository context</param>
+    /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>User profile with repository-specific metrics</returns>
     public async Task<UserProfile> GetUserProfileAsync(
         string userLogin,
         object sdkUser,
-        FullRepository repository
+        FullRepository repository,
+        CancellationToken cancellationToken = default
     )
     {
         var repoId = repository.Id.GetValueOrDefault();
@@ -62,7 +68,12 @@ public class GitHubService(
             return cachedProfile;
         }
 
-        var userProfile = await CreateUserProfileAsync(userLogin, sdkUser, repository);
+        var userProfile = await CreateUserProfileAsync(
+            userLogin,
+            sdkUser,
+            repository,
+            cancellationToken
+        );
         await userProfileCache.SetAsync(userLogin, repoId, userProfile);
         return userProfile;
     }
@@ -70,7 +81,8 @@ public class GitHubService(
     private async Task<UserProfile> CreateUserProfileAsync(
         string userLogin,
         object sdkUser,
-        FullRepository repository
+        FullRepository repository,
+        CancellationToken cancellationToken = default
     )
     {
         var isContributorTask = gitHubClient.IsUserContributorAsync(userLogin, repository);
@@ -101,12 +113,22 @@ public class GitHubService(
     public async Task<IssueProfile?> BuildComprehensiveIssueProfileAsync(
         string owner,
         string repoName,
-        long issueNumber
+        long issueNumber,
+        CancellationToken cancellationToken = default
     )
     {
-        var repository = await gitHubClient.GetRepositoryInfoAsync(owner, repoName);
+        var repository = await gitHubClient.GetRepositoryInfoAsync(
+            owner,
+            repoName,
+            cancellationToken
+        );
 
-        var issue = await gitHubClient.GetIssueWithLabelsAsync(owner, repoName, issueNumber);
+        var issue = await gitHubClient.GetIssueWithLabelsAsync(
+            owner,
+            repoName,
+            issueNumber,
+            cancellationToken
+        );
         if (issue == null)
         {
             logger.LogError($"Issue {issueNumber} not found in repository {owner}/{repoName}");
@@ -115,22 +137,31 @@ public class GitHubService(
 
         // Use Refit API client to avoid SDK integer overflow bug
         var issueEvents =
-            await gitHubClient.GetIssueEventsAsync(owner, repoName, issueNumber) ?? [];
-        var comments = await gitHubClient.GetIssueCommentsAsync(owner, repoName, issueNumber) ?? [];
+            await gitHubClient.GetIssueEventsAsync(owner, repoName, issueNumber, cancellationToken)
+            ?? [];
+        var comments =
+            await gitHubClient.GetIssueCommentsAsync(
+                owner,
+                repoName,
+                issueNumber,
+                cancellationToken
+            ) ?? [];
 
         // Try to use cached user profile for author first
         var authorProfile = await GetUserProfileAsync(
             issue.User?.Login ?? throw new InvalidOperationException("Issue user is null"),
             issue.User,
-            repository
+            repository,
+            cancellationToken
         );
 
         var (labelEvents, otherEvents) = await ProcessEventsAsync(
             issueEvents,
             authorProfile,
-            repository
+            repository,
+            cancellationToken
         );
-        var commentEvents = await ProcessCommentsAsync(comments, repository);
+        var commentEvents = await ProcessCommentsAsync(comments, repository, cancellationToken);
 
         return new IssueProfile
         {
@@ -152,7 +183,8 @@ public class GitHubService(
     )> ProcessEventsAsync(
         IEnumerable<GitHubEvent> issueEvents,
         UserProfile authorProfile,
-        FullRepository repository
+        FullRepository repository,
+        CancellationToken cancellationToken = default
     )
     {
         var labelEvents = new List<LabelEventProfile>();
@@ -165,7 +197,12 @@ public class GitHubService(
 
             var userProfile =
                 evt.Actor?.Login != null
-                    ? await GetUserProfileAsync(evt.Actor.Login, evt.Actor, repository)
+                    ? await GetUserProfileAsync(
+                        evt.Actor.Login,
+                        evt.Actor,
+                        repository,
+                        cancellationToken
+                    )
                     : authorProfile;
 
             if (evt.Event?.ToLowerInvariant() is "labeled" or "unlabeled" && evt.Label != null)
@@ -205,7 +242,8 @@ public class GitHubService(
 
     private async Task<List<CommentEventProfile>> ProcessCommentsAsync(
         IEnumerable<IssueComment> comments,
-        FullRepository repository
+        FullRepository repository,
+        CancellationToken cancellationToken = default
     )
     {
         var commentEvents = new List<CommentEventProfile>();
@@ -214,7 +252,12 @@ public class GitHubService(
             if (comment?.User?.Login == null)
                 continue;
 
-            var profile = await GetUserProfileAsync(comment.User.Login, comment.User, repository);
+            var profile = await GetUserProfileAsync(
+                comment.User.Login,
+                comment.User,
+                repository,
+                cancellationToken
+            );
             commentEvents.Add(new CommentEventProfile { SdkComment = comment, By = profile });
         }
         return commentEvents;

@@ -12,7 +12,10 @@ public class BatchJobPoller(
     OpenAIClient client
 )
 {
-    public async Task<BatchJobResponse> PollBatchCompletionAsync(string batchId)
+    public async Task<BatchJobResponse> PollBatchCompletionAsync(
+        string batchId,
+        CancellationToken cancellationToken = default
+    )
     {
         logger.LogInformation("Polling batch job {BatchId} for completion", batchId);
 
@@ -25,11 +28,12 @@ public class BatchJobPoller(
         while (DateTime.UtcNow - startTime < maxWaitTime)
         {
             var response = await httpClient.GetAsync(
-                $"https://api.openai.com/v1/batches/{batchId}"
+                $"https://api.openai.com/v1/batches/{batchId}",
+                cancellationToken
             );
             response.EnsureSuccessStatusCode();
 
-            var responseContent = await response.Content.ReadAsStringAsync();
+            var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
             var batchJobResponse = JsonSerializer.Deserialize(
                 responseContent,
                 OpenAIBatchRequestJsonContext.Default.BatchJobResponse
@@ -63,12 +67,12 @@ public class BatchJobPoller(
                 case "finalizing":
                 case "validating":
                     // Continue polling
-                    await Task.Delay(pollInterval);
+                    await Task.Delay(pollInterval, cancellationToken);
                     break;
 
                 default:
                     logger.LogWarning("Unknown batch status: {Status}", batchJobResponse?.Status);
-                    await Task.Delay(pollInterval);
+                    await Task.Delay(pollInterval, cancellationToken);
                     break;
             }
         }
@@ -80,7 +84,8 @@ public class BatchJobPoller(
 
     public async Task<Dictionary<string, string>> DownloadAndParseResultsAsync(
         BatchJobResponse completedBatch,
-        IEnumerable<string> expectedCustomIds
+        IEnumerable<string> expectedCustomIds,
+        CancellationToken cancellationToken = default
     )
     {
         if (string.IsNullOrEmpty(completedBatch.OutputFileId))
@@ -97,7 +102,7 @@ public class BatchJobPoller(
                 {
                     var errorContent = await client
                         .GetOpenAIFileClient()
-                        .DownloadFileAsync(completedBatch.ErrorFileId);
+                        .DownloadFileAsync(completedBatch.ErrorFileId, cancellationToken);
                     logger.LogError(
                         "Batch error file content: {ErrorContent}",
                         errorContent.Value.ToString()
@@ -125,14 +130,14 @@ public class BatchJobPoller(
 
         var fileContent = await client
             .GetOpenAIFileClient()
-            .DownloadFileAsync(completedBatch.OutputFileId);
+            .DownloadFileAsync(completedBatch.OutputFileId, cancellationToken);
 
         var results = new Dictionary<string, string>();
         var expectedIds = new HashSet<string>(expectedCustomIds);
 
         using var reader = new StringReader(fileContent.Value.ToString());
         string? line;
-        while ((line = await reader.ReadLineAsync()) != null)
+        while ((line = await reader.ReadLineAsync(cancellationToken)) != null)
         {
             if (string.IsNullOrWhiteSpace(line))
                 continue;

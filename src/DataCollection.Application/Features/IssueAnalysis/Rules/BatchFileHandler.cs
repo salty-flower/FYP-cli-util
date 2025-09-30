@@ -10,7 +10,10 @@ namespace DataCollection.Application.Features.IssueAnalysis.Rules;
 
 public class BatchFileHandler(ILogger<BatchFileHandler> logger, OpenAIClient client)
 {
-    public async Task<string> UploadBatchFileAsync(List<BatchRequest> requests)
+    public async Task<string> UploadBatchFileAsync(
+        List<BatchRequest> requests,
+        CancellationToken cancellationToken = default
+    )
     {
         logger.LogInformation("Uploading batch file with {Count} requests", requests.Count);
 
@@ -31,7 +34,8 @@ public class BatchFileHandler(ILogger<BatchFileHandler> logger, OpenAIClient cli
                             OpenAIBatchRequestJsonContext.Default.BatchRequestModel
                         )
                     )
-            )
+            ),
+            cancellationToken
         );
         logger.LogDebug("Wrote batch requests to temporary file: {FilePath}", tempFilePath);
 
@@ -43,7 +47,8 @@ public class BatchFileHandler(ILogger<BatchFileHandler> logger, OpenAIClient cli
                 .UploadFileAsync(
                     fileStream,
                     Path.GetFileName(tempFilePath),
-                    FileUploadPurpose.Batch
+                    FileUploadPurpose.Batch,
+                    cancellationToken
                 );
 
             logger.LogInformation("Batch file uploaded with ID: {FileId}", uploadedFile.Value.Id);

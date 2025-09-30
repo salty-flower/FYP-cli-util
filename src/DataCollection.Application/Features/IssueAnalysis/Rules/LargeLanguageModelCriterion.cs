@@ -92,7 +92,8 @@ public abstract class LargeLanguageModelCriterion<TProfile, TOutcome>(
     }
 
     public async Task<Dictionary<string, TOutcome>> EvaluateBatchAsync(
-        Dictionary<string, TProfile> profiles
+        Dictionary<string, TProfile> profiles,
+        CancellationToken cancellationToken = default
     )
     {
         if (profiles.Count == 0)
@@ -104,24 +105,41 @@ public abstract class LargeLanguageModelCriterion<TProfile, TOutcome>(
         Logger.LogInformation("Starting batch evaluation for {Count} profiles", profiles.Count);
 
         var batchRequests = CreateBatchRequests(profiles);
-        var batchFileId = await batchFileHandler.UploadBatchFileAsync(batchRequests);
-        var batchJobId = await CreateBatchJobAsync(batchFileId);
-        var completedBatch = await batchJobPoller.PollBatchCompletionAsync(batchJobId);
+        var batchFileId = await batchFileHandler.UploadBatchFileAsync(
+            batchRequests,
+            cancellationToken
+        );
+        var batchJobId = await CreateBatchJobAsync(batchFileId, cancellationToken);
+        var completedBatch = await batchJobPoller.PollBatchCompletionAsync(
+            batchJobId,
+            cancellationToken
+        );
         var results = await batchJobPoller.DownloadAndParseResultsAsync(
             completedBatch,
-            profiles.Keys
+            profiles.Keys,
+            cancellationToken
         );
 
         Logger.LogInformation("Batch evaluation completed for {Count} profiles", results.Count);
         return results.ToDictionary(kvp => kvp.Key, kvp => ParseOutcome(kvp.Value));
     }
 
-    public async Task<Dictionary<string, TOutcome>> ResumeBatchAsync(string batchJobId)
+    public async Task<Dictionary<string, TOutcome>> ResumeBatchAsync(
+        string batchJobId,
+        CancellationToken cancellationToken = default
+    )
     {
         Logger.LogInformation("Resuming batch job: {BatchJobId}", batchJobId);
 
-        var completedBatch = await batchJobPoller.PollBatchCompletionAsync(batchJobId);
-        var results = await batchJobPoller.DownloadAndParseResultsAsync(completedBatch, []);
+        var completedBatch = await batchJobPoller.PollBatchCompletionAsync(
+            batchJobId,
+            cancellationToken
+        );
+        var results = await batchJobPoller.DownloadAndParseResultsAsync(
+            completedBatch,
+            [],
+            cancellationToken
+        );
 
         Logger.LogInformation(
             "Resume batch evaluation completed for {Count} profiles",
@@ -166,7 +184,10 @@ public abstract class LargeLanguageModelCriterion<TProfile, TOutcome>(
             })
             .ToList();
 
-    private async Task<string> CreateBatchJobAsync(string inputFileId)
+    private async Task<string> CreateBatchJobAsync(
+        string inputFileId,
+        CancellationToken cancellationToken = default
+    )
     {
         Logger.LogInformation("Creating batch job with input file: {FileId}", inputFileId);
 
@@ -188,10 +209,14 @@ public abstract class LargeLanguageModelCriterion<TProfile, TOutcome>(
             System.Net.Mime.MediaTypeNames.Application.Json
         );
 
-        var response = await httpClient.PostAsync("https://api.openai.com/v1/batches", content);
+        var response = await httpClient.PostAsync(
+            "https://api.openai.com/v1/batches",
+            content,
+            cancellationToken
+        );
         response.EnsureSuccessStatusCode();
 
-        var responseContent = await response.Content.ReadAsStringAsync();
+        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
         var batchResponse = JsonSerializer.Deserialize(
             responseContent,
             OpenAIBatchRequestJsonContext.Default.BatchJobResponse

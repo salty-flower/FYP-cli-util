@@ -19,14 +19,17 @@ public class DatabaseIssueAnalysisStorageService(
         string repoName,
         long issueNumber,
         IssueStatus status,
-        IssueAnalysisResponse analysisResult
+        IssueAnalysisResponse analysisResult,
+        CancellationToken cancellationToken = default
     )
     {
-        await using var dbContext = await dbContextFactory.CreateDbContextAsync();
+        await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
         try
         {
-            var existingEntity = await dbContext.IssueAnalyses.FirstOrDefaultAsync(ia =>
-                ia.Owner == owner && ia.Repository == repoName && ia.IssueNumber == issueNumber
+            var existingEntity = await dbContext.IssueAnalyses.FirstOrDefaultAsync(
+                ia =>
+                    ia.Owner == owner && ia.Repository == repoName && ia.IssueNumber == issueNumber,
+                cancellationToken
             );
 
             if (existingEntity != null)
@@ -65,7 +68,7 @@ public class DatabaseIssueAnalysisStorageService(
                 );
             }
 
-            await dbContext.SaveChangesAsync();
+            await dbContext.SaveChangesAsync(cancellationToken);
             logger.LogInformation(
                 "Saved analysis result for {Owner}/{Repo}#{IssueNumber}",
                 owner,
@@ -90,13 +93,15 @@ public class DatabaseIssueAnalysisStorageService(
     public async Task<CachedAnalysisResult?> TryGetCachedAnalysisResultAsync(
         string owner,
         string repoName,
-        long issueNumber
+        long issueNumber,
+        CancellationToken cancellationToken = default
     )
     {
-        await using var dbContext = await dbContextFactory.CreateDbContextAsync();
+        await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var entity = await dbContext.IssueAnalyses.FirstOrDefaultAsync(ia =>
-            ia.Owner == owner && ia.Repository == repoName && ia.IssueNumber == issueNumber
+        var entity = await dbContext.IssueAnalyses.FirstOrDefaultAsync(
+            ia => ia.Owner == owner && ia.Repository == repoName && ia.IssueNumber == issueNumber,
+            cancellationToken
         );
 
         if (entity == null)

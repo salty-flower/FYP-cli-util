@@ -102,7 +102,8 @@ public class IssueCommands(
         bool saveResults = true,
         bool useCache = true,
         bool useBatchApi = true,
-        string? batchJobId = null
+        string? batchJobId = null,
+        CancellationToken cancellation = default
     )
     {
         if (!File.Exists(inputFile))
@@ -136,7 +137,8 @@ public class IssueCommands(
                 issueTasks,
                 saveResults,
                 useCache,
-                batchJobId
+                batchJobId,
+                cancellation
             );
         else
         {
@@ -148,7 +150,8 @@ public class IssueCommands(
             await batchProcessingService.ProcessBatchWithParallelismAsync(
                 issueTasks,
                 saveResults,
-                useCache
+                useCache,
+                cancellation
             );
         }
     }

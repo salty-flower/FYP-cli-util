@@ -26,7 +26,8 @@ public class IssueBatchProcessingService(
         List<(string? Url, string? Owner, string? Repo, long? Number)> issueTasks,
         bool saveResults,
         bool useCache,
-        string? batchJobId = null
+        string? batchJobId = null,
+        CancellationToken cancellationToken = default
     )
     {
         logger.LogInformation(
@@ -36,13 +37,29 @@ public class IssueBatchProcessingService(
 
         if (!string.IsNullOrEmpty(batchJobId))
         {
-            await ProcessExistingBatchJobAsync(batchJobId, issueTasks, saveResults, useCache);
+            await ProcessExistingBatchJobAsync(
+                batchJobId,
+                issueTasks,
+                saveResults,
+                useCache,
+                cancellationToken
+            );
             return;
         }
 
-        var (issueMetadata, issueProfiles) = await PrepareIssueData(issueTasks, useCache);
-        var batchResults = await ExecuteBatchProcessing(issueProfiles);
-        await ProcessBatchResultsAsync(batchResults, issueMetadata, issueProfiles, saveResults);
+        var (issueMetadata, issueProfiles) = await PrepareIssueData(
+            issueTasks,
+            useCache,
+            cancellationToken
+        );
+        var batchResults = await ExecuteBatchProcessing(issueProfiles, cancellationToken);
+        await ProcessBatchResultsAsync(
+            batchResults,
+            issueMetadata,
+            issueProfiles,
+            saveResults,
+            cancellationToken
+        );
 
         logger.LogInformation("Completed batch processing of {Count} issues", issueProfiles.Count);
     }
@@ -53,7 +70,8 @@ public class IssueBatchProcessingService(
     public async Task ProcessBatchWithParallelismAsync(
         List<(string? Url, string? Owner, string? Repo, long? Number)> issueTasks,
         bool saveResults,
-        bool useCache
+        bool useCache,
+        CancellationToken cancellationToken = default
     )
     {
         var effectiveParallelTasks = parallelismOptions.Value.IssueProcessing;
@@ -65,7 +83,13 @@ public class IssueBatchProcessingService(
 
         var semaphore = new SemaphoreSlim(effectiveParallelTasks);
         var tasks = issueTasks.Select(issue =>
-            ProcessSingleIssueWithSemaphore(issue, saveResults, useCache, semaphore)
+            ProcessSingleIssueWithSemaphore(
+                issue,
+                saveResults,
+                useCache,
+                semaphore,
+                cancellationToken
+            )
         );
         await Task.WhenAll(tasks);
 
@@ -79,10 +103,11 @@ public class IssueBatchProcessingService(
         (string? Url, string? Owner, string? Repo, long? Number) issue,
         bool saveResults,
         bool useCache,
-        SemaphoreSlim semaphore
+        SemaphoreSlim semaphore,
+        CancellationToken cancellationToken
     )
     {
-        await semaphore.WaitAsync();
+        await semaphore.WaitAsync(cancellationToken);
         try
         {
             var (owner, repoName, issueNumber) = ParseIssueDetails(issue);
@@ -111,22 +136,36 @@ public class IssueBatchProcessingService(
         string batchJobId,
         List<(string? Url, string? Owner, string? Repo, long? Number)> issueTasks,
         bool saveResults,
-        bool useCache
+        bool useCache,
+        CancellationToken cancellationToken
     )
     {
         logger.LogInformation("Processing existing batch job: {BatchJobId}", batchJobId);
 
         try
         {
-            var batchResults = await statusCriterion.ResumeBatchAsync(batchJobId);
+            var batchResults = await statusCriterion.ResumeBatchAsync(
+                batchJobId,
+                cancellationToken
+            );
             logger.LogInformation(
                 "Received {Count} results from existing batch job",
                 batchResults.Count
             );
 
-            var (issueMetadata, issueProfiles) = await PrepareIssueData(issueTasks, useCache);
+            var (issueMetadata, issueProfiles) = await PrepareIssueData(
+                issueTasks,
+                useCache,
+                cancellationToken
+            );
 
-            await ProcessBatchResultsAsync(batchResults, issueMetadata, issueProfiles, saveResults);
+            await ProcessBatchResultsAsync(
+                batchResults,
+                issueMetadata,
+                issueProfiles,
+                saveResults,
+                cancellationToken
+            );
         }
         catch (Exception ex)
         {
@@ -147,7 +186,8 @@ public class IssueBatchProcessingService(
         Dictionary<string, IssueAnalysisResponse> batchResults,
         Dictionary<string, (string Owner, string Repo, long Number)> issueMetadata,
         Dictionary<string, IssueProfile> issueProfiles,
-        bool saveResults
+        bool saveResults,
+        CancellationToken cancellationToken
     )
     {
         var maxParallel = parallelismOptions.Value.BatchResultsProcessing;
@@ -161,7 +201,7 @@ public class IssueBatchProcessingService(
         var processingTasks = batchResults.Select(async kvp =>
         {
             var (customId, analysisResult) = kvp;
-            await semaphore.WaitAsync();
+            await semaphore.WaitAsync(cancellationToken);
             try
             {
                 if (!issueMetadata.TryGetValue(customId, out var metadata))
@@ -201,7 +241,8 @@ public class IssueBatchProcessingService(
                         repoName,
                         issueNumber,
                         currentStatus,
-                        analysisResult
+                        analysisResult,
+                        cancellationToken
                     );
                 }
             }
@@ -220,7 +261,8 @@ public class IssueBatchProcessingService(
         Dictionary<string, IssueProfile>
     )> PrepareIssueData(
         List<(string? Url, string? Owner, string? Repo, long? Number)> issueTasks,
-        bool useCache
+        bool useCache,
+        CancellationToken cancellationToken
     )
     {
         var issueProfiles = new Dictionary<string, IssueProfile>();
@@ -237,7 +279,7 @@ public class IssueBatchProcessingService(
         var semaphore = new SemaphoreSlim(maxParallel);
         var preparationTasks = issueTasks.Select(async issue =>
         {
-            await semaphore.WaitAsync();
+            await semaphore.WaitAsync(cancellationToken);
             try
             {
                 var (owner, repoName, issueNumber) = ParseIssueDetails(issue);
@@ -245,14 +287,18 @@ public class IssueBatchProcessingService(
                     return;
 
                 // Check cache first if enabled
-                if (useCache && await IsIssueCached(owner, repoName, issueNumber.Value))
+                if (
+                    useCache
+                    && await IsIssueCached(owner, repoName, issueNumber.Value, cancellationToken)
+                )
                     return;
 
                 // Build issue profile
                 var issueProfile = await gitHubService.BuildComprehensiveIssueProfileAsync(
                     owner,
                     repoName,
-                    issueNumber.Value
+                    issueNumber.Value,
+                    cancellationToken
                 );
                 if (issueProfile == null)
                 {
@@ -302,12 +348,18 @@ public class IssueBatchProcessingService(
         return (issueMetadata, issueProfiles);
     }
 
-    private async Task<bool> IsIssueCached(string owner, string repoName, long issueNumber)
+    private async Task<bool> IsIssueCached(
+        string owner,
+        string repoName,
+        long issueNumber,
+        CancellationToken cancellationToken
+    )
     {
         var cachedResult = await storageService.TryGetCachedAnalysisResultAsync(
             owner,
             repoName,
-            issueNumber
+            issueNumber,
+            cancellationToken
         );
 
         if (cachedResult != null)
@@ -327,12 +379,16 @@ public class IssueBatchProcessingService(
     }
 
     private async Task<Dictionary<string, IssueAnalysisResponse>> ExecuteBatchProcessing(
-        Dictionary<string, IssueProfile> issueProfiles
+        Dictionary<string, IssueProfile> issueProfiles,
+        CancellationToken cancellationToken
     )
     {
         logger.LogInformation("Submitting {Count} issues to OpenAI Batch API", issueProfiles.Count);
 
-        var batchResults = await statusCriterion.EvaluateBatchAsync(issueProfiles);
+        var batchResults = await statusCriterion.EvaluateBatchAsync(
+            issueProfiles,
+            cancellationToken
+        );
 
         logger.LogInformation("Received {Count} results from batch processing", batchResults.Count);
 

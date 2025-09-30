@@ -14,7 +14,12 @@ public interface IGitHubApi
     /// https://github.com/octokit/dotnet-sdk/issues/117
     /// </summary>
     [Get("/repos/{owner}/{repoName}/issues/{issueNumber}/events")]
-    Task<List<GitHubEvent>?> GetIssueEventsAsync(string owner, string repoName, long issueNumber);
+    Task<List<GitHubEvent>?> GetIssueEventsAsync(
+        string owner,
+        string repoName,
+        long issueNumber,
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>
     /// Fetch issue comments to avoid SDK integer overflow bug
@@ -23,7 +28,8 @@ public interface IGitHubApi
     Task<List<IssueComment>?> GetIssueCommentsAsync(
         string owner,
         string repoName,
-        long issueNumber
+        long issueNumber,
+        CancellationToken cancellationToken = default
     );
 
     [Get("/repos/{owner}/{repoName}/contents/{filePath}")]
@@ -48,7 +54,12 @@ public interface IGitHubApi
     /// Get issue with proper label deserialization
     /// </summary>
     [Get("/repos/{owner}/{repoName}/issues/{issueNumber}")]
-    Task<GitHubIssue?> GetIssueAsync(string owner, string repoName, long issueNumber);
+    Task<GitHubIssue?> GetIssueAsync(
+        string owner,
+        string repoName,
+        long issueNumber,
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>
     /// Get issue info to check for transfers/redirects
