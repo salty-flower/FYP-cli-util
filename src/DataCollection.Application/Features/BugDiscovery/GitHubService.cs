@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using DataCollection.Application.Features.BugDiscovery.Caching;
 using DataCollection.Application.Features.IssueAnalysis.Rules;
 using DataCollection.Application.Models.IssueTracker.Profiles;
@@ -163,6 +167,20 @@ public class GitHubService(
         );
         var commentEvents = await ProcessCommentsAsync(comments, repository, cancellationToken);
 
+        var commitBriefings = await BuildCommitBriefingsAsync(
+            owner,
+            repoName,
+            otherEvents,
+            cancellationToken
+        );
+
+        var pullRequestBriefing = await BuildPullRequestBriefingAsync(
+            owner,
+            repoName,
+            issue,
+            cancellationToken
+        );
+
         return new IssueProfile
         {
             SdkIssue = issue,
@@ -174,6 +192,8 @@ public class GitHubService(
             LabelEvents = [.. labelEvents],
             CommentEvents = [.. commentEvents],
             OtherEvents = [.. otherEvents],
+            AssociatedCommitBriefings = [.. commitBriefings],
+            AssociatedPullRequest = pullRequestBriefing,
         };
     }
 
@@ -232,6 +252,8 @@ public class GitHubService(
                             evt.ExtractDetails(),
                             GitHubAPIJsonContext.Default.GitHubEventDetails
                         ),
+                        CommitId = string.IsNullOrWhiteSpace(evt.CommitId) ? null : evt.CommitId,
+                        CommitUrl = string.IsNullOrWhiteSpace(evt.CommitUrl) ? null : evt.CommitUrl,
                     }
                 );
             }
@@ -353,9 +375,10 @@ public class GitHubService(
 
         var hasDeveloperJudgement = anyDeveloperComments;
 
-        // Deterministic IsFixed based on associated PR merged state
+        // Deterministic IsFixed based on associated PR merged state or commits referencing the issue
         bool? isFixed = null;
         bool? isFixedBefore = null;
+        var closedAt = profile.SdkIssue.ClosedAt;
         if (
             profile.SdkIssue.PullRequest is not null
             && profile.SdkIssue.PullRequest.MergedAt is not null
@@ -364,6 +387,41 @@ public class GitHubService(
             isFixed = true;
             var mergedAt = profile.SdkIssue.PullRequest.MergedAt.Value;
             isFixedBefore = mergedAt < profile.SdkIssue.CreatedAt;
+        }
+        else if (profile.IsClosed)
+        {
+            var fixReferenceEvents =
+                profile.OtherEvents?.Where(IsLikelyFixingCommitEvent)
+                ?? Enumerable.Empty<OtherEventProfile>();
+
+            fixReferenceEvents = fixReferenceEvents.Where(evt =>
+                evt.OccurredAt >= profile.SdkIssue.CreatedAt.AddMinutes(-5)
+            );
+
+            if (closedAt.HasValue)
+            {
+                var latestRelevant = closedAt.Value.AddDays(30);
+                fixReferenceEvents = fixReferenceEvents.Where(evt =>
+                    evt.OccurredAt <= latestRelevant
+                );
+            }
+
+            var relevantFixEvent = fixReferenceEvents
+                .OrderByDescending(e => e.OccurredAt)
+                .FirstOrDefault();
+
+            if (relevantFixEvent != null)
+            {
+                isFixed = true;
+                if (closedAt.HasValue)
+                {
+                    isFixedBefore = relevantFixEvent.OccurredAt < profile.SdkIssue.CreatedAt;
+                }
+                else
+                {
+                    isFixedBefore = null;
+                }
+            }
         }
 
         // Build minimal deterministic response. Subjective fields are deliberately left empty
@@ -380,5 +438,260 @@ public class GitHubService(
                 "Deterministic synthesis: developer presence and PR merged metadata captured. Subjective fields left for LLM.",
             AdditionalNotes = null,
         };
+    }
+
+    private static bool IsLikelyFixingCommitEvent(OtherEventProfile evt)
+    {
+        if (string.IsNullOrWhiteSpace(evt.CommitId))
+        {
+            return false;
+        }
+
+        if (evt.EventType is null)
+        {
+            return false;
+        }
+
+        static bool IsCommitEventType(string eventType) =>
+            eventType.Equals("referenced", StringComparison.OrdinalIgnoreCase)
+            || eventType.Equals("merged", StringComparison.OrdinalIgnoreCase)
+            || eventType.Equals("closed", StringComparison.OrdinalIgnoreCase);
+
+        if (!IsCommitEventType(evt.EventType))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private async Task<IReadOnlyList<CommitBriefing>> BuildCommitBriefingsAsync(
+        string owner,
+        string repoName,
+        IReadOnlyCollection<OtherEventProfile> otherEvents,
+        CancellationToken cancellationToken
+    )
+    {
+        if (otherEvents.Count == 0)
+        {
+            return Array.Empty<CommitBriefing>();
+        }
+
+        var commitIds = otherEvents
+            .Where(evt => !string.IsNullOrWhiteSpace(evt.CommitId))
+            .Select(evt => evt.CommitId!.Trim())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (commitIds.Length == 0)
+        {
+            return Array.Empty<CommitBriefing>();
+        }
+
+        var fetchTasks = commitIds
+            .Select(async sha =>
+                (
+                    Sha: sha,
+                    Commit: await gitHubClient.GetCommitAsync(
+                        owner,
+                        repoName,
+                        sha,
+                        cancellationToken
+                    )
+                )
+            )
+            .ToArray();
+
+        await Task.WhenAll(fetchTasks);
+
+        var results = new List<CommitBriefing>(fetchTasks.Length);
+        foreach (var task in fetchTasks)
+        {
+            var (sha, commit) = task.Result;
+            if (commit == null)
+            {
+                continue;
+            }
+
+            results.Add(CreateCommitBriefing(owner, repoName, sha, commit));
+        }
+
+        return results
+            .OrderByDescending(briefing => briefing.AuthoredDate ?? DateTimeOffset.MinValue)
+            .ToArray();
+    }
+
+    private static CommitBriefing CreateCommitBriefing(
+        string owner,
+        string repoName,
+        string sha,
+        GitHubCommit commit
+    )
+    {
+        var (headline, body) = SplitCommitMessage(commit.Commit?.Message);
+        var htmlUrl = !string.IsNullOrWhiteSpace(commit.HtmlUrl)
+            ? commit.HtmlUrl
+            : $"https://github.com/{owner}/{repoName}/commit/{sha}";
+
+        CommitAuthorBriefing? author = null;
+        var commitAuthor = commit.Commit?.Author;
+        if (commitAuthor != null || commit.Author != null || commit.Committer != null)
+        {
+            author = new CommitAuthorBriefing
+            {
+                Login = commit.Author?.Login ?? commit.Committer?.Login,
+                Name = commitAuthor?.Name ?? commit.Author?.Login ?? commit.Committer?.Login,
+                Email = commitAuthor?.Email,
+                Date = commitAuthor?.Date,
+                HtmlUrl = commit.Author?.HtmlUrl ?? commit.Committer?.HtmlUrl,
+            };
+        }
+
+        var stats =
+            commit.Stats != null
+                ? new CommitDiffStatBriefing
+                {
+                    Additions = commit.Stats.Additions,
+                    Deletions = commit.Stats.Deletions,
+                    TotalChanges = commit.Stats.Total,
+                }
+                : null;
+
+        var files =
+            commit
+                .Files?.Where(f => !string.IsNullOrWhiteSpace(f.Filename))
+                .Select(f => new CommitFileBriefing
+                {
+                    FileName = f.Filename!,
+                    Status = f.Status,
+                    Additions = f.Additions,
+                    Deletions = f.Deletions,
+                    Changes = f.Changes,
+                })
+                .ToArray() ?? Array.Empty<CommitFileBriefing>();
+
+        return new CommitBriefing
+        {
+            Sha = sha,
+            HtmlUrl = htmlUrl,
+            MessageHeadline = headline,
+            MessageBody = body,
+            Author = author,
+            Stats = stats,
+            Files = files,
+        };
+    }
+
+    private async Task<PullRequestBriefing?> BuildPullRequestBriefingAsync(
+        string owner,
+        string repoName,
+        GitHubIssue issue,
+        CancellationToken cancellationToken
+    )
+    {
+        if (issue.PullRequest?.HtmlUrl is null)
+        {
+            return null;
+        }
+
+        if (!TryExtractPullRequestNumber(issue.PullRequest.HtmlUrl, out var pullNumber))
+        {
+            return null;
+        }
+
+        var pullRequest = await gitHubClient.GetPullRequestAsync(
+            owner,
+            repoName,
+            pullNumber,
+            cancellationToken
+        );
+
+        if (pullRequest == null)
+        {
+            return null;
+        }
+
+        var pullRequestFiles = await gitHubClient.GetPullRequestFilesAsync(
+            owner,
+            repoName,
+            pullNumber,
+            cancellationToken
+        );
+
+        var fileBriefings =
+            pullRequestFiles
+                ?.Where(f => !string.IsNullOrWhiteSpace(f.Filename))
+                .Select(f => new PullRequestFileBriefing
+                {
+                    FileName = f.Filename!,
+                    Status = f.Status,
+                    Additions = f.Additions,
+                    Deletions = f.Deletions,
+                    Changes = f.Changes,
+                })
+                .ToArray() ?? Array.Empty<PullRequestFileBriefing>();
+
+        return new PullRequestBriefing
+        {
+            Number = pullRequest.Number,
+            Title = pullRequest.Title,
+            Body = pullRequest.Body,
+            State = pullRequest.State,
+            HtmlUrl = pullRequest.HtmlUrl ?? issue.PullRequest.HtmlUrl,
+            AuthorLogin = pullRequest.User?.Login,
+            AuthorName = pullRequest.User?.Login,
+            CreatedAt = pullRequest.CreatedAt,
+            MergedAt = pullRequest.MergedAt ?? issue.PullRequest.MergedAt,
+            ClosedAt = pullRequest.ClosedAt,
+            Additions = pullRequest.Additions,
+            Deletions = pullRequest.Deletions,
+            ChangedFiles = pullRequest.ChangedFiles ?? fileBriefings.Length,
+            Files = fileBriefings,
+        };
+    }
+
+    private static bool TryExtractPullRequestNumber(string htmlUrl, out int pullNumber)
+    {
+        pullNumber = 0;
+
+        if (!Uri.TryCreate(htmlUrl, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var pullIndex = Array.IndexOf(segments, "pull");
+        if (pullIndex >= 0 && pullIndex + 1 < segments.Length)
+        {
+            return int.TryParse(segments[pullIndex + 1], out pullNumber);
+        }
+
+        return false;
+    }
+
+    private static (string? Headline, string? Body) SplitCommitMessage(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return (null, null);
+        }
+
+        var normalized = message.Replace("\r\n", "\n", StringComparison.Ordinal);
+        var parts = normalized.Split('\n', 2, StringSplitOptions.TrimEntries);
+        var headline = parts.Length > 0 ? parts[0] : null;
+        var body = parts.Length > 1 ? parts[1]?.Trim() : null;
+
+        if (string.IsNullOrWhiteSpace(headline))
+        {
+            headline = null;
+        }
+
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            body = null;
+        }
+
+        return (headline, body);
     }
 }

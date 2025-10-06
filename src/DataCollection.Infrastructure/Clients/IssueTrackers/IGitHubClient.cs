@@ -44,4 +44,22 @@ public interface IGitHubClient
         string repoName,
         bool recursive = true
     );
+    Task<GitHubCommit?> GetCommitAsync(
+        string owner,
+        string repoName,
+        string commitSha,
+        CancellationToken cancellationToken = default
+    );
+    Task<GitHubPullRequestDetails?> GetPullRequestAsync(
+        string owner,
+        string repoName,
+        int pullNumber,
+        CancellationToken cancellationToken = default
+    );
+    Task<IReadOnlyList<GitHubPullRequestFile>?> GetPullRequestFilesAsync(
+        string owner,
+        string repoName,
+        int pullNumber,
+        CancellationToken cancellationToken = default
+    );
 }
