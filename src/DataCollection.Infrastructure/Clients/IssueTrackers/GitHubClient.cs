@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Net;
 using DataCollection.Infrastructure.Models.GitHub;
 using DataCollection.Infrastructure.Serialization;
@@ -458,6 +459,128 @@ public class GitHubClient(
             logger.LogWarning(
                 ex,
                 "Could not get repository tree for {Owner}/{RepoName}",
+                owner,
+                repoName
+            );
+            return null;
+        }
+    }
+
+    public async Task<GitHubCommit?> GetCommitAsync(
+        string owner,
+        string repoName,
+        string commitSha,
+        CancellationToken cancellationToken = default
+    )
+    {
+        try
+        {
+            return await gitHubApi.GetCommitAsync(owner, repoName, commitSha, cancellationToken);
+        }
+        catch (ApiException ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to fetch commit {CommitSha} for {Owner}/{RepoName}: {StatusCode} {Message}",
+                commitSha,
+                owner,
+                repoName,
+                ex.StatusCode,
+                ex.Content
+            );
+            return null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Unexpected error fetching commit {CommitSha} for {Owner}/{RepoName}",
+                commitSha,
+                owner,
+                repoName
+            );
+            return null;
+        }
+    }
+
+    public async Task<GitHubPullRequestDetails?> GetPullRequestAsync(
+        string owner,
+        string repoName,
+        int pullNumber,
+        CancellationToken cancellationToken = default
+    )
+    {
+        try
+        {
+            return await gitHubApi.GetPullRequestAsync(
+                owner,
+                repoName,
+                pullNumber,
+                cancellationToken
+            );
+        }
+        catch (ApiException ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to fetch pull request #{PullNumber} for {Owner}/{RepoName}: {StatusCode} {Message}",
+                pullNumber,
+                owner,
+                repoName,
+                ex.StatusCode,
+                ex.Content
+            );
+            return null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Unexpected error fetching pull request #{PullNumber} for {Owner}/{RepoName}",
+                pullNumber,
+                owner,
+                repoName
+            );
+            return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<GitHubPullRequestFile>?> GetPullRequestFilesAsync(
+        string owner,
+        string repoName,
+        int pullNumber,
+        CancellationToken cancellationToken = default
+    )
+    {
+        try
+        {
+            var files = await gitHubApi.GetPullRequestFilesAsync(
+                owner,
+                repoName,
+                pullNumber,
+                cancellationToken
+            );
+            return files?.AsReadOnly();
+        }
+        catch (ApiException ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to fetch files for pull request #{PullNumber} in {Owner}/{RepoName}: {StatusCode} {Message}",
+                pullNumber,
+                owner,
+                repoName,
+                ex.StatusCode,
+                ex.Content
+            );
+            return null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Unexpected error fetching files for pull request #{PullNumber} in {Owner}/{RepoName}",
+                pullNumber,
                 owner,
                 repoName
             );

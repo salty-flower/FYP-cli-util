@@ -78,4 +78,28 @@ public interface IGitHubApi
     /// </summary>
     [Get("/repositories/{repositoryId}/issues/{issueNumber}")]
     Task<Issue?> GetIssueByRepositoryIdAsync(long repositoryId, long issueNumber);
+
+    [Get("/repos/{owner}/{repoName}/commits/{commitSha}")]
+    Task<GitHubCommit?> GetCommitAsync(
+        string owner,
+        string repoName,
+        string commitSha,
+        CancellationToken cancellationToken = default
+    );
+
+    [Get("/repos/{owner}/{repoName}/pulls/{pullNumber}")]
+    Task<GitHubPullRequestDetails?> GetPullRequestAsync(
+        string owner,
+        string repoName,
+        int pullNumber,
+        CancellationToken cancellationToken = default
+    );
+
+    [Get("/repos/{owner}/{repoName}/pulls/{pullNumber}/files")]
+    Task<List<GitHubPullRequestFile>?> GetPullRequestFilesAsync(
+        string owner,
+        string repoName,
+        int pullNumber,
+        CancellationToken cancellationToken = default
+    );
 }

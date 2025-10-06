@@ -488,9 +488,12 @@ public class IssueBatchProcessingService(
     /// Parses customId strings into issueTasks format
     /// </summary>
     /// <param name="customIds">Collection of customIds in format "owner/repo#number"</param>
-    private List<(string? Url, string? Owner, string? Repo, long? Number)> ParseCustomIdsToIssueTasks(
-        IEnumerable<string> customIds
-    )
+    private List<(
+        string? Url,
+        string? Owner,
+        string? Repo,
+        long? Number
+    )> ParseCustomIdsToIssueTasks(IEnumerable<string> customIds)
     {
         var issueTasks = new List<(string? Url, string? Owner, string? Repo, long? Number)>();
 
@@ -519,10 +522,7 @@ public class IssueBatchProcessingService(
 
             if (!long.TryParse(numberStr, out var number))
             {
-                logger.LogWarning(
-                    "Invalid customId format (invalid number): {CustomId}",
-                    customId
-                );
+                logger.LogWarning("Invalid customId format (invalid number): {CustomId}", customId);
                 continue;
             }
 

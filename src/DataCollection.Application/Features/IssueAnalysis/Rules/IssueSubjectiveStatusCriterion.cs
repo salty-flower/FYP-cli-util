@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text;
 using System.Text.Json.Serialization.Metadata;
 using DataCollection.Application.Models.IssueTracker.Profiles;
@@ -102,6 +103,8 @@ public class IssueSubjectiveStatusCriterion(
                 );
         }
 
+        var fixContext = BuildFixContext(profile);
+
         var users = new HashSet<string>([profile.AuthorProfile.ToString()]);
         foreach (var commentEvent in profile.CommentEvents)
             users.Add(commentEvent.By.ToString());
@@ -147,6 +150,10 @@ public class IssueSubjectiveStatusCriterion(
             - associated PR: {prInfo}
             </issue_metadata>
 
+            <fix_context>
+            {fixContext}
+            </fix_context>
+
             <issue_reactions>
             {labelInfo}
             {commentsInfo}
@@ -169,5 +176,156 @@ public class IssueSubjectiveStatusCriterion(
 
         // Use the two-field system prompt to get subjective judgments (IsRealBug and IsDuplicate)
         return [new SystemChatMessage(TwoFieldSystemPrompt), new UserChatMessage(prompt)];
+    }
+
+    private static string BuildFixContext(IssueProfile profile)
+    {
+        var sb = new StringBuilder();
+
+        if (profile.AssociatedPullRequest is { } pr)
+        {
+            sb.AppendLine("Associated pull request briefing:");
+            var authorDisplay = !string.IsNullOrWhiteSpace(pr.AuthorLogin)
+                ? $"@{pr.AuthorLogin}"
+                : pr.AuthorName ?? "unknown";
+
+            var timelineParts = new List<string>();
+            if (pr.CreatedAt.HasValue)
+            {
+                timelineParts.Add($"created {pr.CreatedAt:s}");
+            }
+
+            if (pr.MergedAt.HasValue)
+            {
+                timelineParts.Add($"merged {pr.MergedAt:s}");
+            }
+            else if (pr.ClosedAt.HasValue)
+            {
+                timelineParts.Add($"closed {pr.ClosedAt:s}");
+            }
+
+            var timeline =
+                timelineParts.Count > 0 ? $" ({string.Join(", ", timelineParts)})" : string.Empty;
+
+            sb.AppendLine(
+                $"- PR #{pr.Number} by {authorDisplay}{timeline}: {pr.Title ?? "(no title)"}"
+            );
+
+            if (!string.IsNullOrWhiteSpace(pr.Body))
+            {
+                sb.AppendLine($"  Body: {pr.Body}");
+            }
+
+            var prStats = new List<string>();
+            if (pr.Additions.HasValue)
+            {
+                prStats.Add($"+{pr.Additions}");
+            }
+
+            if (pr.Deletions.HasValue)
+            {
+                prStats.Add($"-{pr.Deletions}");
+            }
+
+            if (pr.ChangedFiles.HasValue)
+            {
+                prStats.Add($"{pr.ChangedFiles} files");
+            }
+
+            if (prStats.Count > 0)
+            {
+                sb.AppendLine($"  Stats: {string.Join(", ", prStats)}");
+            }
+
+            if (pr.Files.Length > 0)
+            {
+                sb.AppendLine("  Files changed:");
+                foreach (var file in pr.Files)
+                {
+                    sb.AppendLine(
+                        $"    • {file.FileName}{FormatChangeSummary(file.Additions, file.Deletions, file.Changes)}"
+                    );
+                }
+            }
+        }
+
+        if (profile.AssociatedCommitBriefings.Length > 0)
+        {
+            if (sb.Length > 0)
+            {
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("Commits referencing this issue:");
+            foreach (var commit in profile.AssociatedCommitBriefings)
+            {
+                var sha = commit.Sha.Length > 7 ? commit.Sha[..7] : commit.Sha;
+                var authorLogin = commit.Author?.Login;
+                var authorDisplay = !string.IsNullOrWhiteSpace(authorLogin)
+                    ? $"@{authorLogin}"
+                    : commit.Author?.Name ?? "unknown";
+                var timestamp = commit.AuthoredDate.HasValue
+                    ? commit.AuthoredDate.Value.ToString("s")
+                    : "unknown time";
+                var headline = commit.MessageHeadline ?? "(no message)";
+
+                sb.AppendLine($"- {sha} by {authorDisplay} at {timestamp}: {headline}");
+
+                if (!string.IsNullOrWhiteSpace(commit.MessageBody))
+                {
+                    sb.AppendLine($"  Body: {commit.MessageBody}");
+                }
+
+                if (commit.Stats is { } stats)
+                {
+                    sb.AppendLine(
+                        $"  Stats: {FormatChangeSummary(stats.Additions, stats.Deletions, stats.TotalChanges, includeTotalLabel: true)}"
+                    );
+                }
+
+                if (commit.Files.Length > 0)
+                {
+                    sb.AppendLine("  Files changed:");
+                    foreach (var file in commit.Files)
+                    {
+                        sb.AppendLine(
+                            $"    • {file.FileName}{FormatChangeSummary(file.Additions, file.Deletions, file.Changes)}"
+                        );
+                    }
+                }
+            }
+        }
+
+        return sb.Length == 0
+            ? "No associated commits or pull requests recorded."
+            : sb.ToString().TrimEnd();
+    }
+
+    private static string FormatChangeSummary(
+        int? additions,
+        int? deletions,
+        int? total,
+        bool includeTotalLabel = false
+    )
+    {
+        var parts = new List<string>();
+        if (additions.HasValue)
+        {
+            parts.Add($"+{additions.Value}");
+        }
+
+        if (deletions.HasValue)
+        {
+            parts.Add($"-{deletions.Value}");
+        }
+
+        if (total.HasValue)
+        {
+            parts.Add(
+                includeTotalLabel ? $"{total.Value} total changes" : $"{total.Value} changes"
+            );
+        }
+
+        return parts.Count > 0 ? $" ({string.Join(", ", parts)})" : string.Empty;
     }
 }
