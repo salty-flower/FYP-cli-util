@@ -42,9 +42,37 @@ public static class GitHubRetryPolicyHandler
         response.StatusCode == HttpStatusCode.Forbidden
         || response.StatusCode == HttpStatusCode.TooManyRequests;
 
-    private static TimeSpan CalculateRetryDelay(int retryAttempt)
+    private static TimeSpan CalculateRetryDelay(
+        int retryAttempt,
+        DelegateResult<HttpResponseMessage> outcome,
+        Context context
+    )
     {
-        // Use exponential backoff with jitter since we can't access response in this simple signature
+        var response = outcome.Result;
+
+        if (response is not null)
+        {
+            var rateLimitReset = GetRateLimitReset(response);
+
+            if (rateLimitReset is DateTime resetUtc)
+            {
+                var now = DateTime.UtcNow;
+                var delayUntilReset = resetUtc - now;
+
+                if (delayUntilReset > TimeSpan.Zero)
+                {
+                    // Add a small buffer to ensure we're beyond the reset window
+                    return delayUntilReset.Add(TimeSpan.FromSeconds(1));
+                }
+            }
+        }
+
+        return CalculateFallbackDelay(retryAttempt);
+    }
+
+    private static TimeSpan CalculateFallbackDelay(int retryAttempt)
+    {
+        // Use exponential backoff with jitter as a fallback when reset information isn't available
         var baseDelay = TimeSpan.FromSeconds(Math.Pow(2, retryAttempt));
         var jitter = TimeSpan.FromMilliseconds(Random.Shared.Next(0, 1000));
         var totalDelay = baseDelay.Add(jitter);
