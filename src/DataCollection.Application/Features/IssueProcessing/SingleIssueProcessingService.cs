@@ -9,6 +9,7 @@ using EnumsNET;
 using GitHub.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Serilog;
 
 namespace DataCollection.Application.Features.IssueProcessing;
 
@@ -355,11 +356,14 @@ public class SingleIssueProcessingService(
             return IssueStatus.NotABug;
 
         // Deterministic evidence that the issue has been fixed (including fixed before report).
-        if (
-            analysisResult.Deterministic?.IsFixed == true
-            || analysisResult.Deterministic?.IsFixedBeforeIssueRaised == true
-        )
-            return IssueStatus.Fixed;
+        if (analysisResult.Deterministic?.IsFixed == true)
+            if (analysisResult.Subjective?.IsRealBug == true)
+                return IssueStatus.Fixed;
+            else
+                Log.Warning(
+                    "Issue {IssueNumber} has been fixed, but is not a real bug",
+                    issueProfile.SdkIssue.Number
+                );
 
         // Duplicate as indicated by subjective judgement (LLM/developer).
         if (analysisResult.Subjective?.IsDuplicate == true)

@@ -504,9 +504,6 @@ public class GitHubService(
             DeveloperUsernames = [.. devUsernames],
             HasDeveloperJudgement = hasDeveloperJudgement,
             IsFixed = isFixed,
-            IsFixedBeforeIssueRaised = isFixedBefore,
-            IsBugButWontFix = null,
-            IsBugButWaitingForAction = null,
             NuanceOrExplanation =
                 "Deterministic synthesis: developer presence and PR merged metadata captured. Subjective fields left for LLM.",
             AdditionalNotes = null,
