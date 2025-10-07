@@ -12,10 +12,6 @@ public record DeterministicIssueAnalysis
 
     // Deterministic fields (rule-based)
     public required bool? IsFixed { get; set; }
-    public required bool? IsFixedBeforeIssueRaised { get; set; }
-
-    public required bool? IsBugButWontFix { get; set; }
-    public required bool? IsBugButWaitingForAction { get; set; }
 
     // Additional deterministic explanation
     public required string NuanceOrExplanation { get; set; }
