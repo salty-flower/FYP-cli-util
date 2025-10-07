@@ -37,6 +37,12 @@ public interface IGitHubClient
         long issueNumber,
         CancellationToken cancellationToken = default
     );
+    Task<List<GitHubTimelineEvent>?> GetIssueTimelineAsync(
+        string owner,
+        string repoName,
+        long issueNumber,
+        CancellationToken cancellationToken = default
+    );
     Task<string?> GetRepositoryReadmeAsync(string owner, string repoName);
     Task<string?> GetFileContentAsync(string owner, string repoName, string filePath);
     Task<RepositoryTree?> GetRepositoryTreeAsync(
