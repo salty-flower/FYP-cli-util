@@ -3,6 +3,7 @@ using DataCollection.Application.Features.BugDiscovery;
 using DataCollection.Application.Features.IssueAnalysis.Rules;
 using DataCollection.Application.Models.IssueTracker.Profiles;
 using DataCollection.Core.Models.IssueTracker.Responses;
+using DataCollection.Infrastructure.Models.OpenAI;
 using DataCollection.Infrastructure.Options;
 using EnumsNET;
 using Microsoft.Extensions.Logging;
@@ -62,6 +63,83 @@ public class IssueBatchProcessingService(
 
         logger.LogInformation("Completed batch processing of {Count} issues", issueProfiles.Count);
         return results;
+    }
+
+    /// <summary>
+    /// Prepares the batch request payloads without submitting them to OpenAI.
+    /// </summary>
+    public async Task<List<IssueBatchPreparationRecord>> PrepareBatchRequestsAsync(
+        List<(string? Url, string? Owner, string? Repo, long? Number)> issueTasks,
+        bool useCache,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var (issueMetadata, issueProfiles) = await PrepareIssueData(
+            issueTasks,
+            useCache,
+            cancellationToken
+        );
+
+        if (issueProfiles.Count == 0)
+        {
+            logger.LogWarning("No issue profiles prepared for batch request export");
+            return [];
+        }
+
+        var batchRequests = statusCriterion.BuildBatchRequests(issueProfiles);
+        var requestLookup = batchRequests.ToDictionary(request => request.CustomId);
+
+        var records = new List<IssueBatchPreparationRecord>();
+        foreach (var (customId, profile) in issueProfiles)
+        {
+            if (!issueMetadata.TryGetValue(customId, out var metadata))
+            {
+                logger.LogWarning(
+                    "Missing metadata for custom ID {CustomId} while exporting batch requests",
+                    customId
+                );
+                continue;
+            }
+
+            if (!requestLookup.TryGetValue(customId, out var request))
+            {
+                logger.LogWarning(
+                    "Missing batch request for custom ID {CustomId} while exporting batch requests",
+                    customId
+                );
+                continue;
+            }
+
+            if (request.Body is not ChatCompletionRequest chatRequest)
+            {
+                logger.LogWarning(
+                    "Unexpected batch request body type {BodyType} for {CustomId}",
+                    request.Body.GetType().Name,
+                    customId
+                );
+                continue;
+            }
+
+            var deterministic = gitHubService.SynthesizeDeterministicIssueAnalysis(profile);
+
+            records.Add(
+                new IssueBatchPreparationRecord(
+                    customId,
+                    metadata.Owner,
+                    metadata.Repo,
+                    metadata.Number,
+                    deterministic,
+                    chatRequest
+                )
+            );
+        }
+
+        logger.LogInformation(
+            "Prepared {Count} batch request records without submitting to OpenAI",
+            records.Count
+        );
+
+        return records;
     }
 
     /// <summary>

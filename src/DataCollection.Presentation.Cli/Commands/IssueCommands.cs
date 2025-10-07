@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ConsoleAppFramework;
 using DataCollection.Application.Features.IssueProcessing;
 using DataCollection.Core.Models.IssueTracker.Responses;
@@ -168,6 +169,91 @@ public class IssueCommands(
                 results.Count,
                 outputPath
             );
+        }
+    }
+
+    /// <summary>
+    /// Prepares batch request payloads without calling the OpenAI Batch API.
+    /// </summary>
+    /// <param name="inputFile">Path to a file containing issue URLs or owner/repo/issue combinations.</param>
+    /// <param name="outputPath">Destination JSONL file to store the batch request payloads.</param>
+    /// <param name="useCache">Whether to skip issues that already have cached objective data.</param>
+    public async Task PrepareBatchRequests(
+        string inputFile,
+        string outputPath,
+        bool useCache = false,
+        CancellationToken cancellation = default
+    )
+    {
+        if (!File.Exists(inputFile))
+        {
+            logger.LogError("Input file not found: {InputFile}", inputFile);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(outputPath))
+        {
+            logger.LogError("Output path must be provided.");
+            return;
+        }
+
+        var lines = await File.ReadAllLinesAsync(inputFile, cancellation);
+        logger.LogInformation(
+            "Preparing batch requests for {Count} entries from {InputFile}",
+            lines.Length,
+            inputFile
+        );
+
+        var issueTasks = ParseIssueLines(lines);
+        issueTasks = [.. issueTasks.Distinct()];
+
+        if (issueTasks.Count == 0)
+        {
+            logger.LogWarning("No valid issues were found in {InputFile}", inputFile);
+            return;
+        }
+
+        try
+        {
+            var records = await batchProcessingService.PrepareBatchRequestsAsync(
+                issueTasks,
+                useCache,
+                cancellation
+            );
+
+            if (records.Count == 0)
+            {
+                logger.LogWarning(
+                    "No batch request payloads were produced. Check caching settings or input data."
+                );
+                return;
+            }
+
+            var directory = Path.GetDirectoryName(Path.GetFullPath(outputPath));
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            await using var writer = new StreamWriter(outputPath);
+            foreach (var record in records)
+            {
+                var json = JsonSerializer.Serialize(
+                    record,
+                    IssueBatchPreparationExportJsonContext.Default.IssueBatchPreparationRecord
+                );
+                await writer.WriteLineAsync(json);
+            }
+
+            logger.LogInformation(
+                "Wrote {Count} batch request payloads to {OutputPath}",
+                records.Count,
+                outputPath
+            );
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to prepare batch requests from {InputFile}", inputFile);
         }
     }
 
