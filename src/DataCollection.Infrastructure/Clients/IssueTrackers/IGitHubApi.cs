@@ -34,7 +34,7 @@ public interface IGitHubApi
     /// Fetch issue comments to avoid SDK integer overflow bug
     /// </summary>
     [Get("/repos/{owner}/{repoName}/issues/{issueNumber}/comments")]
-    Task<List<IssueComment>?> GetIssueCommentsAsync(
+    Task<List<GitHubIssueComment>?> GetIssueCommentsAsync(
         string owner,
         string repoName,
         long issueNumber,

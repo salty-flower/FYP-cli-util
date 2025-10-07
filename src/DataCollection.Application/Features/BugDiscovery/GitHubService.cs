@@ -159,12 +159,13 @@ public class GitHubService(
             cancellationToken
         );
 
-        var timelineEvents = await gitHubClient.GetIssueTimelineAsync(
-            owner,
-            repoName,
-            issueNumber,
-            cancellationToken
-        ) ?? [];
+        var timelineEvents =
+            await gitHubClient.GetIssueTimelineAsync(
+                owner,
+                repoName,
+                issueNumber,
+                cancellationToken
+            ) ?? [];
 
         var (labelEvents, otherEvents) = await ProcessEventsAsync(
             issueEvents,
@@ -243,7 +244,11 @@ public class GitHubService(
                     )
                     : authorProfile;
 
-            if (evt.Event?.ToLowerInvariant() is "labeled" or "unlabeled" && evt.Label != null)
+            if (
+                evt is not null
+                && evt.Event?.ToLowerInvariant() is "labeled" or "unlabeled"
+                && evt.Label != null
+            )
             {
                 labelEvents.Add(
                     new LabelEventProfile
@@ -291,21 +296,12 @@ public class GitHubService(
 
         foreach (var evt in timelineEvents)
         {
-            if (evt == null)
-            {
-                continue;
-            }
-
-            if (!string.Equals(evt.Event, "cross-referenced", StringComparison.OrdinalIgnoreCase))
+            if (evt is null)
             {
                 continue;
             }
 
             var pullRequest = evt.Source?.Issue?.PullRequest;
-            if (pullRequest?.MergedAt is null)
-            {
-                continue;
-            }
 
             var actorProfile = authorProfile;
             if (!string.IsNullOrWhiteSpace(evt.Actor?.Login))
@@ -330,8 +326,8 @@ public class GitHubService(
                     ),
                     CommitId = string.IsNullOrWhiteSpace(evt.CommitId) ? null : evt.CommitId,
                     CommitUrl = string.IsNullOrWhiteSpace(evt.CommitUrl) ? null : evt.CommitUrl,
-                    PullRequestUrl = pullRequest.HtmlUrl,
-                    PullRequestMergedAt = pullRequest.MergedAt,
+                    PullRequestUrl = pullRequest?.HtmlUrl,
+                    PullRequestMergedAt = pullRequest?.MergedAt,
                 }
             );
         }
@@ -340,7 +336,7 @@ public class GitHubService(
     }
 
     private async Task<List<CommentEventProfile>> ProcessCommentsAsync(
-        IEnumerable<IssueComment> comments,
+        IEnumerable<GitHubIssueComment> comments,
         FullRepository repository,
         CancellationToken cancellationToken = default
     )
