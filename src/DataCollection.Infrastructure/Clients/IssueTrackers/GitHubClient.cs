@@ -421,6 +421,49 @@ public class GitHubClient(
         }
     }
 
+    public async Task<List<GitHubTimelineEvent>?> GetIssueTimelineAsync(
+        string owner,
+        string repoName,
+        long issueNumber,
+        CancellationToken cancellationToken = default
+    )
+    {
+        try
+        {
+            return await gitHubApi.GetIssueTimelineAsync(
+                owner,
+                repoName,
+                issueNumber,
+                cancellationToken: cancellationToken
+            );
+        }
+        catch (ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            logger.LogInformation(
+                "Timeline not found for {Owner}/{RepoName}#{IssueNumber}: {StatusCode} {Message}",
+                owner,
+                repoName,
+                issueNumber,
+                ex.StatusCode,
+                ex.Content
+            );
+            return null;
+        }
+        catch (ApiException ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to get timeline for {Owner}/{RepoName}#{IssueNumber}: {StatusCode} {Message}",
+                owner,
+                repoName,
+                issueNumber,
+                ex.StatusCode,
+                ex.Content
+            );
+            return null;
+        }
+    }
+
     public async Task<string?> GetRepositoryReadmeAsync(string owner, string repoName)
     {
         var readmeResponse = await gitHubClient.Repos[owner][repoName].Readme.GetAsync();

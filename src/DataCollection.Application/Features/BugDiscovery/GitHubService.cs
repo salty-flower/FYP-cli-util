@@ -159,12 +159,30 @@ public class GitHubService(
             cancellationToken
         );
 
+        var timelineEvents = await gitHubClient.GetIssueTimelineAsync(
+            owner,
+            repoName,
+            issueNumber,
+            cancellationToken
+        ) ?? [];
+
         var (labelEvents, otherEvents) = await ProcessEventsAsync(
             issueEvents,
             authorProfile,
             repository,
             cancellationToken
         );
+
+        if (timelineEvents.Count > 0)
+        {
+            var timelineProfiles = await ProcessTimelineEventsAsync(
+                timelineEvents,
+                authorProfile,
+                repository,
+                cancellationToken
+            );
+            otherEvents.AddRange(timelineProfiles);
+        }
         var commentEvents = await ProcessCommentsAsync(comments, repository, cancellationToken);
 
         var commitBriefings = await BuildCommitBriefingsAsync(
@@ -260,6 +278,65 @@ public class GitHubService(
         }
 
         return (labelEvents, otherEvents);
+    }
+
+    private async Task<List<OtherEventProfile>> ProcessTimelineEventsAsync(
+        IEnumerable<GitHubTimelineEvent> timelineEvents,
+        UserProfile authorProfile,
+        FullRepository repository,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var otherEvents = new List<OtherEventProfile>();
+
+        foreach (var evt in timelineEvents)
+        {
+            if (evt == null)
+            {
+                continue;
+            }
+
+            if (!string.Equals(evt.Event, "cross-referenced", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var pullRequest = evt.Source?.Issue?.PullRequest;
+            if (pullRequest?.MergedAt is null)
+            {
+                continue;
+            }
+
+            var actorProfile = authorProfile;
+            if (!string.IsNullOrWhiteSpace(evt.Actor?.Login))
+            {
+                actorProfile = await GetUserProfileAsync(
+                    evt.Actor.Login,
+                    evt.Actor,
+                    repository,
+                    cancellationToken
+                );
+            }
+
+            otherEvents.Add(
+                new OtherEventProfile
+                {
+                    EventType = evt.Event ?? "unknown",
+                    By = actorProfile,
+                    OccurredAt = evt.CreatedAt.ToUniversalTime(),
+                    EventDescription = JsonSerializer.Serialize(
+                        evt.ExtractDetails(),
+                        GitHubAPIJsonContext.Default.GitHubTimelineEventDetails
+                    ),
+                    CommitId = string.IsNullOrWhiteSpace(evt.CommitId) ? null : evt.CommitId,
+                    CommitUrl = string.IsNullOrWhiteSpace(evt.CommitUrl) ? null : evt.CommitUrl,
+                    PullRequestUrl = pullRequest.HtmlUrl,
+                    PullRequestMergedAt = pullRequest.MergedAt,
+                }
+            );
+        }
+
+        return otherEvents;
     }
 
     private async Task<List<CommentEventProfile>> ProcessCommentsAsync(
@@ -442,14 +519,14 @@ public class GitHubService(
 
     private static bool IsLikelyFixingCommitEvent(OtherEventProfile evt)
     {
-        if (string.IsNullOrWhiteSpace(evt.CommitId))
+        if (evt.EventType is null)
         {
             return false;
         }
 
-        if (evt.EventType is null)
+        if (string.Equals(evt.EventType, "cross-referenced", StringComparison.OrdinalIgnoreCase))
         {
-            return false;
+            return evt.PullRequestMergedAt.HasValue;
         }
 
         static bool IsCommitEventType(string eventType) =>
@@ -462,7 +539,18 @@ public class GitHubService(
             return false;
         }
 
-        return true;
+        if (!string.IsNullOrWhiteSpace(evt.CommitId))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(evt.CommitUrl))
+        {
+            return false;
+        }
+
+        return evt.CommitUrl.Contains("/commit/", StringComparison.OrdinalIgnoreCase)
+            || evt.CommitUrl.Contains("/pull/", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<IReadOnlyList<CommitBriefing>> BuildCommitBriefingsAsync(
