@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using DataCollection.Infrastructure.Options;
-using GitHub.Models;
+using DataCollection.Infrastructure.Options;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 
@@ -8,10 +8,10 @@ namespace DataCollection.Infrastructure.Clients.IssueTrackers;
 
 public class IssueCommentsCache(IOptions<PathsOptions> pathsOptions) : IIssueCommentsCache
 {
-    private readonly ConcurrentDictionary<string, List<IssueComment>?> commentsCache = [];
+    private readonly ConcurrentDictionary<string, List<GitHubIssueComment>?> commentsCache = [];
     private readonly string issueProfileDir = pathsOptions.Value.IssueProfileDir;
 
-    public async Task<List<IssueComment>?> TryGetAsync(
+    public async Task<List<GitHubIssueComment>?> TryGetAsync(
         string owner,
         string repoName,
         long issueNumber
@@ -30,7 +30,7 @@ public class IssueCommentsCache(IOptions<PathsOptions> pathsOptions) : IIssueCom
         }
 
         var json = await File.ReadAllTextAsync(commentsFile);
-        var comments = JsonConvert.DeserializeObject<List<IssueComment>?>(json);
+        var comments = JsonConvert.DeserializeObject<List<GitHubIssueComment>?>(json);
 
         commentsCache[cacheKey] = comments;
         return comments;
@@ -40,7 +40,7 @@ public class IssueCommentsCache(IOptions<PathsOptions> pathsOptions) : IIssueCom
         string owner,
         string repoName,
         long issueNumber,
-        List<IssueComment>? comments
+        List<GitHubIssueComment>? comments
     )
     {
         var cacheKey = $"{owner}/{repoName}#{issueNumber}:comments";

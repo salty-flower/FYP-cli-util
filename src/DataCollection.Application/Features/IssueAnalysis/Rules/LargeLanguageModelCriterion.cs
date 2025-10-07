@@ -153,7 +153,9 @@ public abstract class LargeLanguageModelCriterion<TProfile, TOutcome>(
         return results.ToDictionary(kvp => kvp.Key, kvp => ParseOutcome(kvp.Value));
     }
 
-    protected virtual List<BatchRequest> CreateBatchRequests(Dictionary<string, TProfile> profiles) =>
+    protected virtual List<BatchRequest> CreateBatchRequests(
+        Dictionary<string, TProfile> profiles
+    ) =>
         [
             .. profiles.Select(p => new BatchRequest
             {

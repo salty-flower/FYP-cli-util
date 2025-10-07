@@ -25,7 +25,7 @@ public interface IGitHubClient
         long issueNumber,
         CancellationToken cancellationToken = default
     );
-    Task<List<IssueComment>?> GetIssueCommentsAsync(
+    Task<List<GitHubIssueComment>?> GetIssueCommentsAsync(
         string owner,
         string repoName,
         long issueNumber,

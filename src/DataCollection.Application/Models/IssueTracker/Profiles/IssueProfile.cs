@@ -1,12 +1,13 @@
 using DataCollection.Core.Models.IssueTracker;
 using DataCollection.Infrastructure.Models.GitHub;
+using DataCollection.Infrastructure.Models.GitHub;
 using GitHub.Models;
 
 namespace DataCollection.Application.Models.IssueTracker.Profiles;
 
 public record CommentEventProfile
 {
-    public required IssueComment SdkComment { get; init; }
+    public required GitHubIssueComment SdkComment { get; init; }
     public required UserProfile By { get; init; }
 }
 

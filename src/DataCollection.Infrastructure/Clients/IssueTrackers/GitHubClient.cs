@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net;
+using System.Net.Http;
+using System.Text.Json;
 using DataCollection.Infrastructure.Models.GitHub;
 using DataCollection.Infrastructure.Serialization;
 using GitHub.Models;
@@ -17,7 +19,8 @@ public class GitHubClient(
     IIssueCommentsCache issueCommentsCache,
     IIssueEventsCache issueEventsCache,
     ISearchResultsCache searchResultsCache,
-    ILogger<GitHubClient> logger
+    ILogger<GitHubClient> logger,
+    IHttpClientFactory httpClientFactory
 ) : IGitHubClient
 {
     private readonly ConcurrentDictionary<long, IReadOnlyList<Contributor>> repoContributorsCache =
@@ -219,7 +222,7 @@ public class GitHubClient(
         }
     }
 
-    public async Task<List<IssueComment>?> GetIssueCommentsAsync(
+    public async Task<List<GitHubIssueComment>?> GetIssueCommentsAsync(
         string owner,
         string repoName,
         long issueNumber,
@@ -232,88 +235,64 @@ public class GitHubClient(
             return cachedComments;
         }
 
+        // Manual HTTP GET and parse
+        var client = httpClientFactory.CreateClient("github-api");
+        var requestUri = $"repos/{owner}/{repoName}/issues/{issueNumber}/comments";
         try
         {
-            var comments = await gitHubApi.GetIssueCommentsAsync(
-                owner,
-                repoName,
-                issueNumber,
-                cancellationToken
+            using var response = await client.GetAsync(requestUri, cancellationToken);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                // Try redirected location via issue JSON
+                var redirectedLocation = await GetRedirectedIssueLocationAsync(
+                    owner,
+                    repoName,
+                    issueNumber
+                );
+                if (redirectedLocation.HasValue)
+                {
+                    var (newOwner, newRepoName, newIssueNumber) = redirectedLocation.Value;
+                    var altUri = $"repos/{newOwner}/{newRepoName}/issues/{newIssueNumber}/comments";
+                    using var altResp = await client.GetAsync(altUri, cancellationToken);
+                    if (!altResp.IsSuccessStatusCode)
+                    {
+                        logger.LogWarning(
+                            "Failed to get comments from redirected location {Uri}: {Status}",
+                            altUri,
+                            altResp.StatusCode
+                        );
+                        await issueCommentsCache.SetAsync(owner, repoName, issueNumber, null);
+                        return null;
+                    }
+                    var altJson = await altResp.Content.ReadAsStringAsync(cancellationToken);
+                    var altComments = System.Text.Json.JsonSerializer.Deserialize<
+                        List<GitHubIssueComment>
+                    >(altJson, GitHubAPIJsonContext.Default.GitHubIssueComment.ListTypeInfo);
+                    await issueCommentsCache.SetAsync(owner, repoName, issueNumber, altComments);
+                    return altComments;
+                }
+
+                await issueCommentsCache.SetAsync(owner, repoName, issueNumber, null);
+                return null;
+            }
+
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            var comments = System.Text.Json.JsonSerializer.Deserialize<List<GitHubIssueComment>>(
+                json,
+                GitHubAPIJsonContext.Default.GitHubIssueComment.ListTypeInfo
             );
             await issueCommentsCache.SetAsync(owner, repoName, issueNumber, comments);
             return comments;
         }
-        catch (ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
-        {
-            logger.LogInformation(
-                "Issue comments not found at {Owner}/{RepoName}#{IssueNumber}, checking for redirected location",
-                owner,
-                repoName,
-                issueNumber
-            );
-
-            var redirectedLocation = await GetRedirectedIssueLocationAsync(
-                owner,
-                repoName,
-                issueNumber
-            );
-            if (redirectedLocation.HasValue)
-            {
-                var (newOwner, newRepoName, newIssueNumber) = redirectedLocation.Value;
-                logger.LogInformation(
-                    "Found redirected issue location: {NewOwner}/{NewRepoName}#{NewIssueNumber}",
-                    newOwner,
-                    newRepoName,
-                    newIssueNumber
-                );
-
-                try
-                {
-                    var comments = await gitHubApi.GetIssueCommentsAsync(
-                        newOwner,
-                        newRepoName,
-                        newIssueNumber,
-                        cancellationToken
-                    );
-                    await issueCommentsCache.SetAsync(owner, repoName, issueNumber, comments);
-                    return comments;
-                }
-                catch (ApiException redirectEx)
-                {
-                    logger.LogWarning(
-                        redirectEx,
-                        "Failed to get issue comments from redirected location {NewOwner}/{NewRepoName}#{NewIssueNumber}: {StatusCode} {Message}",
-                        newOwner,
-                        newRepoName,
-                        newIssueNumber,
-                        redirectEx.StatusCode,
-                        redirectEx.Content
-                    );
-                }
-            }
-
-            logger.LogWarning(
-                ex,
-                "Failed to get issue comments for {Owner}/{RepoName}#{IssueNumber}: {StatusCode} {Message}",
-                owner,
-                repoName,
-                issueNumber,
-                ex.StatusCode,
-                ex.Content
-            );
-            await issueCommentsCache.SetAsync(owner, repoName, issueNumber, null);
-            return null;
-        }
-        catch (ApiException ex)
+        catch (Exception ex)
         {
             logger.LogWarning(
                 ex,
-                "Failed to get issue comments for {Owner}/{RepoName}#{IssueNumber}: {StatusCode} {Message}",
+                "Failed to get issue comments for {Owner}/{RepoName}#{IssueNumber}",
                 owner,
                 repoName,
-                issueNumber,
-                ex.StatusCode,
-                ex.Content
+                issueNumber
             );
             await issueCommentsCache.SetAsync(owner, repoName, issueNumber, null);
             return null;
