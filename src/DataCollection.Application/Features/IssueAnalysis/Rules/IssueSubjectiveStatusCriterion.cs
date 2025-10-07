@@ -1,7 +1,9 @@
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using DataCollection.Application.Models.IssueTracker.Profiles;
+using DataCollection.Application.Serialization;
 using DataCollection.Core.Models.IssueTracker.Responses;
 using DataCollection.Infrastructure.Models.GitHub;
 using DataCollection.Infrastructure.Options;
@@ -128,6 +130,17 @@ public class IssueSubjectiveStatusCriterion(
                 ? $" merged at {profile.SdkIssue.PullRequest.MergedAt:s}"
                 : string.Empty;
             prInfo = $"#{profile.SdkIssue.PullRequest.HtmlUrl}{mergedAtString}";
+        }
+        else if (profile.OtherEvents.Any(e => e.EventType == "cross-referenced"))
+        {
+            var allCrossReferencedEvents = profile.OtherEvents.Where(e =>
+                e.EventType == "cross-referenced"
+            );
+
+            prInfo = JsonSerializer.Serialize(
+                allCrossReferencedEvents.ToArray(),
+                PromptSynthesizingJsonContext.Default.OtherEventProfile
+            );
         }
 
         var prompt = $""""
