@@ -14,11 +14,11 @@ public static class GitHubRetryPolicyHandler
     public static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy(ILogger? logger = null) =>
         HttpPolicyExtensions
             .HandleTransientHttpError() // Handle HttpRequestException and 5xx responses
-            .OrResult(response => IsRateLimitResponse(response))
+            .OrResult(IsRateLimitResponse)
             .WaitAndRetryAsync(
                 retryCount: 6, // Up to 6 retry attempts
                 sleepDurationProvider: CalculateRetryDelay,
-                onRetry: (outcome, timespan, retryCount, context) =>
+                onRetryAsync: (outcome, timespan, retryCount, context) =>
                 {
                     var response = outcome.Result;
                     var statusCode = response?.StatusCode.ToString() ?? "Unknown";
@@ -34,6 +34,7 @@ public static class GitHubRetryPolicyHandler
                         rateLimitRemaining ?? "N/A",
                         rateLimitReset?.ToString("yyyy-MM-dd HH:mm:ss UTC") ?? "N/A"
                     );
+                    return Task.CompletedTask;
                 }
             );
 
