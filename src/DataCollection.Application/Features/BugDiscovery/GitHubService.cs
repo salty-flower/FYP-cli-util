@@ -244,7 +244,11 @@ public class GitHubService(
                     )
                     : authorProfile;
 
-            if (evt.Event?.ToLowerInvariant() is "labeled" or "unlabeled" && evt.Label != null)
+            if (
+                evt is not null
+                && evt.Event?.ToLowerInvariant() is "labeled" or "unlabeled"
+                && evt.Label != null
+            )
             {
                 labelEvents.Add(
                     new LabelEventProfile

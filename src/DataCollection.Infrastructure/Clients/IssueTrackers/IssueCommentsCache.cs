@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using DataCollection.Infrastructure.Options;
+using DataCollection.Infrastructure.Models.GitHub;
 using DataCollection.Infrastructure.Options;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;

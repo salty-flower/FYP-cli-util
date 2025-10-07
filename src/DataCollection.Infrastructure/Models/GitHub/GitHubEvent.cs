@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace DataCollection.Infrastructure.Models.GitHub;
 
 public class GitHubEvent
@@ -13,6 +15,7 @@ public class GitHubEvent
 
     public string? CommitUrl { get; set; }
 
+    [JsonPropertyName("created_at")]
     public DateTimeOffset CreatedAt { get; set; }
     public GitHubLabel? Label { get; set; }
     public GitHubUser? Assignee { get; set; }

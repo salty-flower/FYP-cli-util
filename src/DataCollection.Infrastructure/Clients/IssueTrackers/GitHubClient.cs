@@ -158,30 +158,34 @@ public class GitHubClient(
     {
         try
         {
-            return await gitHubApi.GetIssueAsync(owner, repoName, issueNumber, cancellationToken);
-        }
-        catch (ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
-        {
-            logger.LogWarning(
-                "Issue {IssueNumber} not found at {Owner}/{RepoName}: {StatusCode} {Message}",
-                issueNumber,
-                owner,
-                repoName,
-                ex.StatusCode,
-                ex.Content
+            var client = httpClientFactory.CreateClient("github-api");
+            var uri = $"repos/{owner}/{repoName}/issues/{issueNumber}";
+            using var response = await client.GetAsync(uri, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning(
+                    "Failed to get issue {IssueNumber} at {Owner}/{RepoName}: {Status}",
+                    issueNumber,
+                    owner,
+                    repoName,
+                    response.StatusCode
+                );
+                return null;
+            }
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            return System.Text.Json.JsonSerializer.Deserialize<GitHubIssue>(
+                json,
+                GitHubAPIJsonContext.Default.GitHubIssue
             );
-            return null;
         }
-        catch (ApiException ex)
+        catch (Exception ex)
         {
             logger.LogWarning(
                 ex,
-                "Failed to get issue {IssueNumber} at {Owner}/{RepoName}: {StatusCode} {Message}",
+                "Failed to get issue {IssueNumber} at {Owner}/{RepoName}",
                 issueNumber,
                 owner,
-                repoName,
-                ex.StatusCode,
-                ex.Content
+                repoName
             );
             return null;
         }
@@ -205,8 +209,8 @@ public class GitHubClient(
                 return null;
             }
 
-            // Use our working Refit client instead of the failing GitHub SDK
-            return await gitHubApi.GetIssueByRepositoryIdAsync(repositoryId, issueNumber);
+            // Fallback to GitHub SDK path to get the rich issue type for downstream use
+            return await gitHubClient.Repos[owner][repoName].Issues[(int)issueNumber].GetAsync();
         }
         catch (Exception ex)
         {
@@ -267,7 +271,7 @@ public class GitHubClient(
                     var altJson = await altResp.Content.ReadAsStringAsync(cancellationToken);
                     var altComments = System.Text.Json.JsonSerializer.Deserialize<
                         List<GitHubIssueComment>
-                    >(altJson, GitHubAPIJsonContext.Default.GitHubIssueComment.ListTypeInfo);
+                    >(altJson, GitHubAPIJsonContext.Default.ListGitHubIssueComment);
                     await issueCommentsCache.SetAsync(owner, repoName, issueNumber, altComments);
                     return altComments;
                 }
@@ -280,7 +284,7 @@ public class GitHubClient(
             var json = await response.Content.ReadAsStringAsync(cancellationToken);
             var comments = System.Text.Json.JsonSerializer.Deserialize<List<GitHubIssueComment>>(
                 json,
-                GitHubAPIJsonContext.Default.GitHubIssueComment.ListTypeInfo
+                GitHubAPIJsonContext.Default.ListGitHubIssueComment
             );
             await issueCommentsCache.SetAsync(owner, repoName, issueNumber, comments);
             return comments;
@@ -312,88 +316,39 @@ public class GitHubClient(
             return cachedEvents;
         }
 
+        var client = httpClientFactory.CreateClient("github-api");
+        var requestUri = $"repos/{owner}/{repoName}/issues/{issueNumber}/events";
         try
         {
-            var events = await gitHubApi.GetIssueEventsAsync(
-                owner,
-                repoName,
-                issueNumber,
-                cancellationToken
+            using var response = await client.GetAsync(requestUri, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning(
+                    "Failed to get issue events for {Owner}/{RepoName}#{IssueNumber}: {Status}",
+                    owner,
+                    repoName,
+                    issueNumber,
+                    response.StatusCode
+                );
+                await issueEventsCache.SetAsync(owner, repoName, issueNumber, null);
+                return null;
+            }
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            var events = System.Text.Json.JsonSerializer.Deserialize<List<GitHubEvent>>(
+                json,
+                GitHubAPIJsonContext.Default.ListGitHubEvent
             );
             await issueEventsCache.SetAsync(owner, repoName, issueNumber, events);
             return events;
         }
-        catch (ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
-        {
-            logger.LogInformation(
-                "Issue events not found at {Owner}/{RepoName}#{IssueNumber}, checking for redirected location",
-                owner,
-                repoName,
-                issueNumber
-            );
-
-            var redirectedLocation = await GetRedirectedIssueLocationAsync(
-                owner,
-                repoName,
-                issueNumber
-            );
-            if (redirectedLocation.HasValue)
-            {
-                var (newOwner, newRepoName, newIssueNumber) = redirectedLocation.Value;
-                logger.LogInformation(
-                    "Found redirected issue location: {NewOwner}/{NewRepoName}#{NewIssueNumber}",
-                    newOwner,
-                    newRepoName,
-                    newIssueNumber
-                );
-
-                try
-                {
-                    var events = await gitHubApi.GetIssueEventsAsync(
-                        newOwner,
-                        newRepoName,
-                        newIssueNumber,
-                        cancellationToken
-                    );
-                    await issueEventsCache.SetAsync(owner, repoName, issueNumber, events);
-                    return events;
-                }
-                catch (ApiException redirectEx)
-                {
-                    logger.LogWarning(
-                        redirectEx,
-                        "Failed to get issue events from redirected location {NewOwner}/{NewRepoName}#{NewIssueNumber}: {StatusCode} {Message}",
-                        newOwner,
-                        newRepoName,
-                        newIssueNumber,
-                        redirectEx.StatusCode,
-                        redirectEx.Content
-                    );
-                }
-            }
-
-            logger.LogWarning(
-                ex,
-                "Failed to get issue events for {Owner}/{RepoName}#{IssueNumber}: {StatusCode} {Message}",
-                owner,
-                repoName,
-                issueNumber,
-                ex.StatusCode,
-                ex.Content
-            );
-            await issueEventsCache.SetAsync(owner, repoName, issueNumber, null);
-            return null;
-        }
-        catch (ApiException ex)
+        catch (Exception ex)
         {
             logger.LogWarning(
                 ex,
-                "Failed to get issue events for {Owner}/{RepoName}#{IssueNumber}: {StatusCode} {Message}",
+                "Failed to get issue events for {Owner}/{RepoName}#{IssueNumber}",
                 owner,
                 repoName,
-                issueNumber,
-                ex.StatusCode,
-                ex.Content
+                issueNumber
             );
             await issueEventsCache.SetAsync(owner, repoName, issueNumber, null);
             return null;
@@ -407,37 +362,37 @@ public class GitHubClient(
         CancellationToken cancellationToken = default
     )
     {
+        // Manual HTTP GET to timeline API
+        var client = httpClientFactory.CreateClient("github-api");
+        var requestUri = $"repos/{owner}/{repoName}/issues/{issueNumber}/timeline?per_page=100";
         try
         {
-            return await gitHubApi.GetIssueTimelineAsync(
-                owner,
-                repoName,
-                issueNumber,
-                cancellationToken: cancellationToken
+            using var response = await client.GetAsync(requestUri, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning(
+                    "Failed to get timeline for {Owner}/{RepoName}#{IssueNumber}: {Status}",
+                    owner,
+                    repoName,
+                    issueNumber,
+                    response.StatusCode
+                );
+                return null;
+            }
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            return System.Text.Json.JsonSerializer.Deserialize<List<GitHubTimelineEvent>>(
+                json,
+                GitHubAPIJsonContext.Default.ListGitHubTimelineEvent
             );
         }
-        catch (ApiException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
-        {
-            logger.LogInformation(
-                "Timeline not found for {Owner}/{RepoName}#{IssueNumber}: {StatusCode} {Message}",
-                owner,
-                repoName,
-                issueNumber,
-                ex.StatusCode,
-                ex.Content
-            );
-            return null;
-        }
-        catch (ApiException ex)
+        catch (Exception ex)
         {
             logger.LogWarning(
                 ex,
-                "Failed to get timeline for {Owner}/{RepoName}#{IssueNumber}: {StatusCode} {Message}",
+                "Failed to get timeline for {Owner}/{RepoName}#{IssueNumber}",
                 owner,
                 repoName,
-                issueNumber,
-                ex.StatusCode,
-                ex.Content
+                issueNumber
             );
             return null;
         }

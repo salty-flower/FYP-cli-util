@@ -1,10 +1,13 @@
 using System;
+using System.Text.Json.Serialization;
 
 namespace DataCollection.Infrastructure.Models.GitHub;
 
 public class GitHubTimelineEvent
 {
     public string? Event { get; set; }
+
+    [JsonPropertyName("created_at")]
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? UpdatedAt { get; set; }
     public GitHubUser? Actor { get; set; }
