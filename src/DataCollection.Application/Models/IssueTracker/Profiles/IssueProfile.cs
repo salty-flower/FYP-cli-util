@@ -30,6 +30,9 @@ public record OtherEventProfile
     public required UserProfile By { get; init; }
     public string? CommitId { get; init; }
     public string? CommitUrl { get; init; }
+    public string? PullRequestUrl { get; init; }
+    public DateTimeOffset? PullRequestMergedAt { get; init; }
+    public int? PullRequestNumber { get; init; }
 }
 
 public record CommitAuthorBriefing

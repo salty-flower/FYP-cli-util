@@ -159,12 +159,37 @@ public class GitHubService(
             cancellationToken
         );
 
+        var timelineEvents = await gitHubClient.GetIssueTimelineAsync(
+            owner,
+            repoName,
+            issueNumber,
+            cancellationToken
+        ) ?? [];
+        PullRequestBriefing? timelinePullRequest = null;
+
         var (labelEvents, otherEvents) = await ProcessEventsAsync(
             issueEvents,
             authorProfile,
             repository,
             cancellationToken
         );
+
+        if (timelineEvents.Count > 0)
+        {
+            var timelineProfiles = await ProcessTimelineEventsAsync(
+                timelineEvents,
+                authorProfile,
+                repository,
+                cancellationToken
+            );
+            otherEvents.AddRange(timelineProfiles);
+            timelinePullRequest = await BuildCrossReferencedPullRequestBriefingAsync(
+                owner,
+                repoName,
+                timelineEvents,
+                cancellationToken
+            );
+        }
         var commentEvents = await ProcessCommentsAsync(comments, repository, cancellationToken);
 
         var commitBriefings = await BuildCommitBriefingsAsync(
@@ -179,6 +204,10 @@ public class GitHubService(
             repoName,
             issue,
             cancellationToken
+        );
+        pullRequestBriefing = ChoosePreferredPullRequestBriefing(
+            pullRequestBriefing,
+            timelinePullRequest
         );
 
         return new IssueProfile
@@ -254,12 +283,75 @@ public class GitHubService(
                         ),
                         CommitId = string.IsNullOrWhiteSpace(evt.CommitId) ? null : evt.CommitId,
                         CommitUrl = string.IsNullOrWhiteSpace(evt.CommitUrl) ? null : evt.CommitUrl,
+                        PullRequestUrl = null,
+                        PullRequestMergedAt = null,
+                        PullRequestNumber = null,
                     }
                 );
             }
         }
 
         return (labelEvents, otherEvents);
+    }
+
+    private async Task<List<OtherEventProfile>> ProcessTimelineEventsAsync(
+        IEnumerable<GitHubTimelineEvent> timelineEvents,
+        UserProfile authorProfile,
+        FullRepository repository,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var otherEvents = new List<OtherEventProfile>();
+
+        foreach (var evt in timelineEvents)
+        {
+            if (evt == null)
+            {
+                continue;
+            }
+
+            if (!string.Equals(evt.Event, "cross-referenced", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var pullRequest = evt.Source?.Issue?.PullRequest;
+            if (pullRequest?.MergedAt is null)
+            {
+                continue;
+            }
+
+            var actorProfile = authorProfile;
+            if (!string.IsNullOrWhiteSpace(evt.Actor?.Login))
+            {
+                actorProfile = await GetUserProfileAsync(
+                    evt.Actor.Login,
+                    evt.Actor,
+                    repository,
+                    cancellationToken
+                );
+            }
+
+            otherEvents.Add(
+                new OtherEventProfile
+                {
+                    EventType = evt.Event ?? "unknown",
+                    By = actorProfile,
+                    OccurredAt = evt.CreatedAt.ToUniversalTime(),
+                    EventDescription = JsonSerializer.Serialize(
+                        evt.ExtractDetails(),
+                        GitHubAPIJsonContext.Default.GitHubTimelineEventDetails
+                    ),
+                    CommitId = string.IsNullOrWhiteSpace(evt.CommitId) ? null : evt.CommitId,
+                    CommitUrl = string.IsNullOrWhiteSpace(evt.CommitUrl) ? null : evt.CommitUrl,
+                    PullRequestUrl = pullRequest.HtmlUrl ?? evt.Source?.Issue?.HtmlUrl,
+                    PullRequestMergedAt = pullRequest.MergedAt,
+                    PullRequestNumber = evt.Source?.Issue?.Number,
+                }
+            );
+        }
+
+        return otherEvents;
     }
 
     private async Task<List<CommentEventProfile>> ProcessCommentsAsync(
@@ -442,14 +534,14 @@ public class GitHubService(
 
     private static bool IsLikelyFixingCommitEvent(OtherEventProfile evt)
     {
-        if (string.IsNullOrWhiteSpace(evt.CommitId))
+        if (evt.EventType is null)
         {
             return false;
         }
 
-        if (evt.EventType is null)
+        if (string.Equals(evt.EventType, "cross-referenced", StringComparison.OrdinalIgnoreCase))
         {
-            return false;
+            return evt.PullRequestMergedAt.HasValue;
         }
 
         static bool IsCommitEventType(string eventType) =>
@@ -462,7 +554,18 @@ public class GitHubService(
             return false;
         }
 
-        return true;
+        if (!string.IsNullOrWhiteSpace(evt.CommitId))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(evt.CommitUrl))
+        {
+            return false;
+        }
+
+        return evt.CommitUrl.Contains("/commit/", StringComparison.OrdinalIgnoreCase)
+            || evt.CommitUrl.Contains("/pull/", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<IReadOnlyList<CommitBriefing>> BuildCommitBriefingsAsync(
@@ -600,6 +703,25 @@ public class GitHubService(
             return null;
         }
 
+        return await BuildPullRequestBriefingAsync(
+            owner,
+            repoName,
+            pullNumber,
+            cancellationToken,
+            issue.PullRequest.MergedAt,
+            issue.PullRequest.HtmlUrl
+        );
+    }
+
+    private async Task<PullRequestBriefing?> BuildPullRequestBriefingAsync(
+        string owner,
+        string repoName,
+        int pullNumber,
+        CancellationToken cancellationToken,
+        DateTimeOffset? fallbackMergedAt = null,
+        string? fallbackHtmlUrl = null
+    )
+    {
         var pullRequest = await gitHubClient.GetPullRequestAsync(
             owner,
             repoName,
@@ -638,17 +760,180 @@ public class GitHubService(
             Title = pullRequest.Title,
             Body = pullRequest.Body,
             State = pullRequest.State,
-            HtmlUrl = pullRequest.HtmlUrl ?? issue.PullRequest.HtmlUrl,
+            HtmlUrl = pullRequest.HtmlUrl ?? fallbackHtmlUrl,
             AuthorLogin = pullRequest.User?.Login,
             AuthorName = pullRequest.User?.Login,
             CreatedAt = pullRequest.CreatedAt,
-            MergedAt = pullRequest.MergedAt ?? issue.PullRequest.MergedAt,
+            MergedAt = pullRequest.MergedAt ?? fallbackMergedAt,
             ClosedAt = pullRequest.ClosedAt,
             Additions = pullRequest.Additions,
             Deletions = pullRequest.Deletions,
             ChangedFiles = pullRequest.ChangedFiles ?? fileBriefings.Length,
             Files = fileBriefings,
         };
+    }
+
+    private async Task<PullRequestBriefing?> BuildCrossReferencedPullRequestBriefingAsync(
+        string owner,
+        string repoName,
+        IReadOnlyCollection<GitHubTimelineEvent> timelineEvents,
+        CancellationToken cancellationToken
+    )
+    {
+        if (timelineEvents.Count == 0)
+        {
+            return null;
+        }
+
+        var candidates = new List<(
+            string Owner,
+            string Repo,
+            int Number,
+            DateTimeOffset? MergedAt,
+            string? HtmlUrl,
+            DateTimeOffset CreatedAt
+        )>();
+
+        foreach (var evt in timelineEvents)
+        {
+            if (!string.Equals(evt.Event, "cross-referenced", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var sourceIssue = evt.Source?.Issue;
+            if (sourceIssue?.Number is not int number)
+            {
+                continue;
+            }
+
+            var candidateOwner = owner;
+            var candidateRepo = repoName;
+            if (
+                TryParseRepositoryFromApiUrl(
+                    sourceIssue.RepositoryUrl,
+                    out var referencedOwner,
+                    out var referencedRepo
+                )
+            )
+            {
+                candidateOwner = referencedOwner;
+                candidateRepo = referencedRepo;
+            }
+
+            candidates.Add(
+                (
+                    candidateOwner,
+                    candidateRepo,
+                    number,
+                    sourceIssue.PullRequest?.MergedAt,
+                    sourceIssue.PullRequest?.HtmlUrl ?? sourceIssue.HtmlUrl,
+                    evt.CreatedAt
+                )
+            );
+        }
+
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        var seen = new HashSet<(string Owner, string Repo, int Number)>();
+
+        foreach (
+            var candidate in candidates
+                .OrderByDescending(c => c.MergedAt.HasValue)
+                .ThenByDescending(c => c.MergedAt ?? DateTimeOffset.MinValue)
+                .ThenByDescending(c => c.CreatedAt)
+        )
+        {
+            if (!seen.Add((candidate.Owner, candidate.Repo, candidate.Number)))
+            {
+                continue;
+            }
+
+            var briefing = await BuildPullRequestBriefingAsync(
+                candidate.Owner,
+                candidate.Repo,
+                candidate.Number,
+                cancellationToken,
+                candidate.MergedAt,
+                candidate.HtmlUrl
+            );
+
+            if (briefing != null)
+            {
+                return briefing;
+            }
+        }
+
+        return null;
+    }
+
+    private static PullRequestBriefing? ChoosePreferredPullRequestBriefing(
+        PullRequestBriefing? primary,
+        PullRequestBriefing? secondary
+    )
+    {
+        if (primary is null)
+        {
+            return secondary;
+        }
+
+        if (secondary is null)
+        {
+            return primary;
+        }
+
+        if (primary.MergedAt is null && secondary.MergedAt is not null)
+        {
+            return secondary;
+        }
+
+        if (primary.MergedAt is not null && secondary.MergedAt is null)
+        {
+            return primary;
+        }
+
+        if (primary.MergedAt is { } primaryMerged && secondary.MergedAt is { } secondaryMerged)
+        {
+            return primaryMerged >= secondaryMerged ? primary : secondary;
+        }
+
+        return primary;
+    }
+
+    private static bool TryParseRepositoryFromApiUrl(
+        string? repositoryUrl,
+        out string owner,
+        out string repoName
+    )
+    {
+        owner = string.Empty;
+        repoName = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(repositoryUrl))
+        {
+            return false;
+        }
+
+        if (!Uri.TryCreate(repositoryUrl, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (
+            segments.Length >= 3
+            && string.Equals(segments[0], "repos", StringComparison.OrdinalIgnoreCase)
+        )
+        {
+            owner = segments[1];
+            repoName = segments[2];
+            return true;
+        }
+
+        return false;
     }
 
     private static bool TryExtractPullRequestNumber(string htmlUrl, out int pullNumber)

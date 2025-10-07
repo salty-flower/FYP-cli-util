@@ -122,12 +122,14 @@ public class IssueBatchProcessingService(
 
             var deterministic = gitHubService.SynthesizeDeterministicIssueAnalysis(profile);
 
+            var (owner, repo, number) = metadata;
+
             records.Add(
                 new IssueBatchPreparationRecord(
                     customId,
-                    metadata.Owner,
-                    metadata.Repo,
-                    metadata.Number,
+                    owner,
+                    repo,
+                    number,
                     deterministic,
                     chatRequest
                 )
