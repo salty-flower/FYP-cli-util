@@ -1,6 +1,5 @@
 using DataCollection.Core.Models.IssueTracker;
 using DataCollection.Infrastructure.Models.GitHub;
-using DataCollection.Infrastructure.Models.GitHub;
 using GitHub.Models;
 
 namespace DataCollection.Application.Models.IssueTracker.Profiles;

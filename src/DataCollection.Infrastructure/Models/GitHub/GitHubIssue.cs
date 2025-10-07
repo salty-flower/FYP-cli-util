@@ -14,6 +14,7 @@ public class GitHubIssue
     public string? StateReasonString { get; set; }
 
     // Property to match SDK interface - maps string to enum-like behavior
+    [JsonIgnore]
     public object? StateReason =>
         StateReasonString != null ? new StateReasonWrapper(StateReasonString) : null;
     public bool Locked { get; set; }

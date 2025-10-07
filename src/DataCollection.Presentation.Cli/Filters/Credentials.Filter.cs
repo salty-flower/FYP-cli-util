@@ -1,5 +1,5 @@
+using System.Net.Http;
 using ConsoleAppFramework;
-using DataCollection.Infrastructure.Clients.IssueTrackers;
 using DataCollection.Infrastructure.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -9,7 +9,7 @@ namespace DataCollection.Presentation.Cli.Filters;
 internal class CredentialOptionsFilter(
     ConsoleAppFilter next,
     IOptionsSnapshot<CredentialOptions> credentials,
-    IGitHubApi gitHubApi,
+    IHttpClientFactory httpClientFactory,
     ILogger<CredentialOptionsFilter> logger
 ) : ConsoleAppFilter(next)
 {
@@ -34,7 +34,9 @@ internal class CredentialOptionsFilter(
         try
         {
             logger.LogInformation("Verifying GitHub authentication...");
-            var userResponse = await gitHubApi.GetUserAsync();
+            var client = httpClientFactory.CreateClient("github-api");
+            using var response = await client.GetAsync("user", cancellationToken);
+            response.EnsureSuccessStatusCode();
             logger.LogInformation("GitHub authentication successful");
         }
         catch (Exception ex)
