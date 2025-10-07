@@ -18,6 +18,8 @@ namespace DataCollection.Infrastructure.Serialization;
 [JsonSerializable(typeof(GitHubDismissedReview))]
 [JsonSerializable(typeof(GitHubEvent))]
 [JsonSerializable(typeof(GitHubEventDetails))]
+[JsonSerializable(typeof(GitHubTimelineEvent))]
+[JsonSerializable(typeof(GitHubTimelineEventDetails))]
 [JsonSerializable(typeof(FullRepository))]
 [JsonSerializable(typeof(WithUsernameItemRequestBuilder.WithUsernameGetResponse))]
 [JsonSerializable(typeof(RepositoryTree))]

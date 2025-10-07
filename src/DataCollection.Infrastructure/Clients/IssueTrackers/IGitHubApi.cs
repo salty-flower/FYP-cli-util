@@ -21,6 +21,15 @@ public interface IGitHubApi
         CancellationToken cancellationToken = default
     );
 
+    [Get("/repos/{owner}/{repoName}/issues/{issueNumber}/timeline")]
+    Task<List<GitHubTimelineEvent>?> GetIssueTimelineAsync(
+        string owner,
+        string repoName,
+        long issueNumber,
+        [AliasAs("per_page")] int perPage = 100,
+        CancellationToken cancellationToken = default
+    );
+
     /// <summary>
     /// Fetch issue comments to avoid SDK integer overflow bug
     /// </summary>
