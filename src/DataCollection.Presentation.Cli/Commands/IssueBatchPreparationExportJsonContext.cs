@@ -8,9 +8,10 @@ namespace DataCollection.Presentation.Cli.Commands;
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower
 )]
 [JsonSerializable(typeof(IssueBatchPreparationRecord))]
+[JsonSerializable(typeof(IssueBatchPreparationMetadata))]
 [JsonSerializable(typeof(DeterministicIssueAnalysis))]
 [JsonSerializable(typeof(ChatCompletionRequest))]
 [JsonSerializable(typeof(ChatMessageModel))]
