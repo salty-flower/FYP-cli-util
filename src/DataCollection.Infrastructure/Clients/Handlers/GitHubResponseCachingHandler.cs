@@ -178,8 +178,9 @@ public class GitHubResponseCachingHandler : DelegatingHandler
             }
         }
 
-        var (mediaType, parsedContentType) =
-            ParseContentType(TryGetHeaderValue(mergedHeaders, "Content-Type"));
+        var (mediaType, parsedContentType) = ParseContentType(
+            TryGetHeaderValue(mergedHeaders, "Content-Type")
+        );
         var etagString = revalidationResponse.Headers.ETag?.ToString() ?? cachedResponse.ETag;
         var requestMessage = revalidationResponse.RequestMessage;
         if (requestMessage is null)
@@ -307,8 +308,9 @@ public class GitHubResponseCachingHandler : DelegatingHandler
         HttpRequestMessage request
     )
     {
-        var (mediaType, parsedContentType) =
-            ParseContentType(TryGetHeaderValue(cachedResponse.Headers, "Content-Type"));
+        var (mediaType, parsedContentType) = ParseContentType(
+            TryGetHeaderValue(cachedResponse.Headers, "Content-Type")
+        );
         var response = new HttpResponseMessage((HttpStatusCode)cachedResponse.StatusCode)
         {
             RequestMessage = request,
@@ -380,7 +382,9 @@ public class GitHubResponseCachingHandler : DelegatingHandler
         return null;
     }
 
-    private static (string MediaType, MediaTypeHeaderValue? ParsedHeader) ParseContentType(string? contentType)
+    private static (string MediaType, MediaTypeHeaderValue? ParsedHeader) ParseContentType(
+        string? contentType
+    )
     {
         if (
             !string.IsNullOrWhiteSpace(contentType)
