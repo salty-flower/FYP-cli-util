@@ -12,7 +12,7 @@ namespace DataCollection.Application.Features.IssueProcessing;
 
 public class IssueBatchProcessingService(
     ILogger<IssueBatchProcessingService> logger,
-    GitHubService gitHubService,
+    IGitHubService gitHubService,
     IssueSubjectiveStatusCriterion statusCriterion,
     SingleIssueProcessingService singleIssueService,
     DatabaseIssueAnalysisStorageService storageService,

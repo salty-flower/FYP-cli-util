@@ -130,7 +130,7 @@ public static class ServiceRegistrationExtensions
                     var logger = sp.GetRequiredService<ILogger<GitHubService>>();
                     logger.LogInformation(
                         "Using GitHub token: {githubToken} for {name}",
-                        credentialOptions.GitHubToken,
+                        MaskToken(credentialOptions.GitHubToken),
                         nameof(GitHubService)
                     );
                     client.BaseAddress = new Uri("https://api.github.com/");
@@ -164,7 +164,7 @@ public static class ServiceRegistrationExtensions
                     var logger = sp.GetRequiredService<ILogger<IGitHubApi>>();
                     logger.LogDebug(
                         "Using GitHub token: {githubToken} for {name}",
-                        credentialOptions.GitHubToken,
+                        MaskToken(credentialOptions.GitHubToken),
                         nameof(IGitHubApi)
                     );
                     client.BaseAddress = new Uri("https://api.github.com/");
@@ -229,7 +229,7 @@ public static class ServiceRegistrationExtensions
         services.AddScoped<DatabaseDataLoadingService>();
         services.AddScoped<DatabaseIssueAnalysisStorageService>();
         services.AddScoped<DatabaseBugListDiscoveryStorageService>();
-        services.AddSingleton<GitHubService>();
+        services.AddSingleton<IGitHubService, GitHubService>();
         services.AddSingleton<SingleIssueProcessingService>();
         services.AddSingleton<IssueBatchProcessingService>();
         services.AddSingleton<IsDeveloperCriterion>();
@@ -326,5 +326,23 @@ public static class ServiceRegistrationExtensions
         );
 
         return services;
+    }
+
+    private static string MaskToken(string? token)
+    {
+        if (string.IsNullOrEmpty(token))
+        {
+            return "<empty>";
+        }
+
+        const int visibleChars = 4;
+        if (token.Length <= visibleChars * 2)
+        {
+            return new string('*', token.Length);
+        }
+
+        var prefix = token.Substring(0, visibleChars);
+        var suffix = token.Substring(token.Length - visibleChars, visibleChars);
+        return $"{prefix}...{suffix}";
     }
 }

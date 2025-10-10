@@ -22,7 +22,7 @@ public class GitHubService(
     ILogger<GitHubService> logger,
     IsDeveloperCriterion isDeveloperCriterion,
     IUserProfileCache userProfileCache
-)
+) : IGitHubService
 {
     public async Task<UserProfile> GetUserProfileAsync(
         string login,

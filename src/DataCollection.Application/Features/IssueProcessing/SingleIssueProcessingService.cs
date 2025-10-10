@@ -15,7 +15,7 @@ namespace DataCollection.Application.Features.IssueProcessing;
 
 public class SingleIssueProcessingService(
     ILogger<SingleIssueProcessingService> logger,
-    GitHubService gitHubService,
+    IGitHubService gitHubService,
     IGitHubClient gitHubClient,
     IssueSubjectiveStatusCriterion statusCriterion,
     DatabaseIssueAnalysisStorageService storageService,
