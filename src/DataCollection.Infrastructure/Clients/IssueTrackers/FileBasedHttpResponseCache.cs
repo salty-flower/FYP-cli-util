@@ -57,11 +57,9 @@ public class FileBasedHttpResponseCache : IHttpResponseCache
         try
         {
             await using var metaStream = File.OpenRead(metaPath);
-            var metadata = await JsonSerializer.DeserializeAsync<CacheMetadata>(
-                metaStream,
-                jsonOptions,
-                ct
-            ).ConfigureAwait(false);
+            var metadata = await JsonSerializer
+                .DeserializeAsync<CacheMetadata>(metaStream, jsonOptions, ct)
+                .ConfigureAwait(false);
 
             if (metadata is null)
             {
@@ -147,7 +145,8 @@ public class FileBasedHttpResponseCache : IHttpResponseCache
             );
 
             await using var metaStream = File.Create(metaPath);
-            await JsonSerializer.SerializeAsync(metaStream, metadata, jsonOptions, ct)
+            await JsonSerializer
+                .SerializeAsync(metaStream, metadata, jsonOptions, ct)
                 .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -262,7 +261,8 @@ public class FileBasedHttpResponseCache : IHttpResponseCache
 
     private static string GetBodyPath(string cacheDir) => Path.Combine(cacheDir, "body");
 
-    private SemaphoreSlim GetLock(string cacheKey) => entryLocks.GetOrAdd(cacheKey, _ => new SemaphoreSlim(1, 1));
+    private SemaphoreSlim GetLock(string cacheKey) =>
+        entryLocks.GetOrAdd(cacheKey, _ => new SemaphoreSlim(1, 1));
 
     private static void TryDeleteDirectory(string cacheDir)
     {

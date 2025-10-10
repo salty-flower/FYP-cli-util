@@ -50,7 +50,9 @@ public class GitHubResponseCachingHandler : DelegatingHandler
             return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
         }
 
-        var cachedResponse = await cache.GetAsync(requestUrl, cancellationToken).ConfigureAwait(false);
+        var cachedResponse = await cache
+            .GetAsync(requestUrl, cancellationToken)
+            .ConfigureAwait(false);
         if (cachedResponse is not null && IsCacheEntryValid(cachedResponse))
         {
             logger.LogDebug("GitHub cache hit for {Url}", requestUrl);
@@ -100,10 +102,7 @@ public class GitHubResponseCachingHandler : DelegatingHandler
             return false;
         }
 
-        return !request.RequestUri.AbsolutePath.Equals(
-            "/user",
-            StringComparison.OrdinalIgnoreCase
-        );
+        return !request.RequestUri.AbsolutePath.Equals("/user", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ShouldCacheResponse(HttpResponseMessage response) =>
@@ -167,7 +166,10 @@ public class GitHubResponseCachingHandler : DelegatingHandler
             return cachedResponse;
         }
 
-        var mergedHeaders = new Dictionary<string, string[]>(cachedResponse.Headers, StringComparer.OrdinalIgnoreCase);
+        var mergedHeaders = new Dictionary<string, string[]>(
+            cachedResponse.Headers,
+            StringComparer.OrdinalIgnoreCase
+        );
 
         foreach (var header in revalidationResponse.Headers)
         {
@@ -197,21 +199,30 @@ public class GitHubResponseCachingHandler : DelegatingHandler
 
             if (!refreshedResponse.Headers.TryAddWithoutValidation(header.Key, header.Value))
             {
-                refreshedResponse.Content?.Headers.TryAddWithoutValidation(header.Key, header.Value);
+                refreshedResponse.Content?.Headers.TryAddWithoutValidation(
+                    header.Key,
+                    header.Value
+                );
             }
         }
 
         var etagString = revalidationResponse.Headers.ETag?.ToString() ?? cachedResponse.ETag;
-        if (!string.IsNullOrEmpty(etagString)
-            && EntityTagHeaderValue.TryParse(etagString, out var newEtag))
+        if (
+            !string.IsNullOrEmpty(etagString)
+            && EntityTagHeaderValue.TryParse(etagString, out var newEtag)
+        )
         {
             refreshedResponse.Headers.ETag = newEtag;
         }
 
-        await cache.SetAsync(refreshedResponse, cacheDuration, cancellationToken).ConfigureAwait(false);
+        await cache
+            .SetAsync(refreshedResponse, cacheDuration, cancellationToken)
+            .ConfigureAwait(false);
 
         var cachedAt = DateTimeOffset.UtcNow;
-        var expiresAt = cacheDuration.HasValue ? cachedAt.Add(cacheDuration.Value) : cachedResponse.ExpiresAt;
+        var expiresAt = cacheDuration.HasValue
+            ? cachedAt.Add(cacheDuration.Value)
+            : cachedResponse.ExpiresAt;
 
         return new CachedHttpResponse(
             cachedResponse.Url,
@@ -242,10 +253,14 @@ public class GitHubResponseCachingHandler : DelegatingHandler
             return cacheOptions.CommitsTtl;
         }
 
-        if (requestPath.Contains("/repos/", StringComparison.OrdinalIgnoreCase)
-            && (requestPath.Contains("/issues/", StringComparison.OrdinalIgnoreCase)
+        if (
+            requestPath.Contains("/repos/", StringComparison.OrdinalIgnoreCase)
+            && (
+                requestPath.Contains("/issues/", StringComparison.OrdinalIgnoreCase)
                 || requestPath.Contains("/events", StringComparison.OrdinalIgnoreCase)
-                || requestPath.Contains("/comments", StringComparison.OrdinalIgnoreCase)))
+                || requestPath.Contains("/comments", StringComparison.OrdinalIgnoreCase)
+            )
+        )
         {
             return cacheOptions.DefaultTtl;
         }
@@ -263,7 +278,8 @@ public class GitHubResponseCachingHandler : DelegatingHandler
         HttpRequestMessage request
     )
     {
-        var mediaType = TryGetHeaderValue(cachedResponse.Headers, "Content-Type") ?? "application/json";
+        var mediaType =
+            TryGetHeaderValue(cachedResponse.Headers, "Content-Type") ?? "application/json";
         var response = new HttpResponseMessage((HttpStatusCode)cachedResponse.StatusCode)
         {
             RequestMessage = request,
@@ -283,8 +299,10 @@ public class GitHubResponseCachingHandler : DelegatingHandler
             }
         }
 
-        if (!string.IsNullOrEmpty(cachedResponse.ETag)
-            && EntityTagHeaderValue.TryParse(cachedResponse.ETag, out var etagValue))
+        if (
+            !string.IsNullOrEmpty(cachedResponse.ETag)
+            && EntityTagHeaderValue.TryParse(cachedResponse.ETag, out var etagValue)
+        )
         {
             response.Headers.ETag = etagValue;
         }
