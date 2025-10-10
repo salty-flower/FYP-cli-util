@@ -3,7 +3,6 @@ using DataCollection.Application.Features.BugDiscovery;
 using DataCollection.Application.Features.IssueAnalysis.Rules;
 using DataCollection.Application.Models.IssueTracker.Profiles;
 using DataCollection.Core.Models.IssueTracker.Responses;
-using DataCollection.Infrastructure.Models.OpenAI;
 using DataCollection.Infrastructure.Options;
 using EnumsNET;
 using Microsoft.Extensions.Logging;
@@ -110,30 +109,17 @@ public class IssueBatchProcessingService(
                 continue;
             }
 
-            if (request.Body is not ChatCompletionRequest chatRequest)
-            {
-                logger.LogWarning(
-                    "Unexpected batch request body type {BodyType} for {CustomId}",
-                    request.Body.GetType().Name,
-                    customId
-                );
-                continue;
-            }
-
             var deterministic = gitHubService.SynthesizeDeterministicIssueAnalysis(profile);
 
             var (owner, repo, number) = metadata;
-
-            records.Add(
-                new IssueBatchPreparationRecord(
-                    customId,
-                    owner,
-                    repo,
-                    number,
-                    deterministic,
-                    chatRequest
-                )
+            var metadataRecord = new IssueBatchPreparationMetadata(
+                owner,
+                repo,
+                number,
+                deterministic
             );
+
+            records.Add(new IssueBatchPreparationRecord(request, metadataRecord));
         }
 
         logger.LogInformation(
