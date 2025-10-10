@@ -182,8 +182,17 @@ public class GitHubResponseCachingHandler : DelegatingHandler
         }
 
         var mediaType = TryGetHeaderValue(mergedHeaders, "Content-Type") ?? "application/json";
+        var requestMessage = revalidationResponse.RequestMessage;
+        if (requestMessage is null
+            && Uri.TryCreate(cachedResponse.Url, UriKind.Absolute, out var cachedRequestUri)
+        )
+        {
+            requestMessage = new HttpRequestMessage(HttpMethod.Get, cachedRequestUri);
+        }
+
         var refreshedResponse = new HttpResponseMessage((HttpStatusCode)cachedResponse.StatusCode)
         {
+            RequestMessage = requestMessage,
             Content = new StringContent(cachedResponse.ResponseBody, Encoding.UTF8, mediaType),
         };
 
