@@ -119,9 +119,7 @@ public class IssueBatchProcessingService(
                 deterministic
             );
 
-            records.Add(
-                new IssueBatchPreparationRecord(request, metadataRecord)
-            );
+            records.Add(new IssueBatchPreparationRecord(request, metadataRecord));
         }
 
         logger.LogInformation(

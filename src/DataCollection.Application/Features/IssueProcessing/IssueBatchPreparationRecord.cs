@@ -12,17 +12,14 @@ public record IssueBatchPreparationRecord : BatchRequestModel
         string Url,
         object Body,
         IssueBatchPreparationMetadata Metadata
-    ) : base(CustomId, Method, Url, Body)
+    )
+        : base(CustomId, Method, Url, Body)
     {
         this.Metadata = Metadata;
     }
 
-    public IssueBatchPreparationRecord(
-        BatchRequest Request,
-        IssueBatchPreparationMetadata Metadata
-    ) : this(Request.CustomId, Request.Method, Request.Url, Request.Body, Metadata)
-    {
-    }
+    public IssueBatchPreparationRecord(BatchRequest Request, IssueBatchPreparationMetadata Metadata)
+        : this(Request.CustomId, Request.Method, Request.Url, Request.Body, Metadata) { }
 
     public IssueBatchPreparationMetadata Metadata { get; init; }
 }
