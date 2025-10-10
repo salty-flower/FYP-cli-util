@@ -127,12 +127,6 @@ public static class ServiceRegistrationExtensions
                 (sp, client) =>
                 {
                     var credentialOptions = sp.GetOptions<CredentialOptions>();
-                    var logger = sp.GetRequiredService<ILogger<GitHubService>>();
-                    logger.LogInformation(
-                        "Using GitHub token: {githubToken} for {name}",
-                        credentialOptions.GitHubToken,
-                        nameof(GitHubService)
-                    );
                     client.BaseAddress = new Uri("https://api.github.com/");
                     client.DefaultRequestHeaders.Accept.Add(
                         new MediaTypeWithQualityHeaderValue("application/vnd.github+json")
@@ -161,12 +155,6 @@ public static class ServiceRegistrationExtensions
                 (sp, client) =>
                 {
                     var credentialOptions = sp.GetOptions<CredentialOptions>();
-                    var logger = sp.GetRequiredService<ILogger<IGitHubApi>>();
-                    logger.LogDebug(
-                        "Using GitHub token: {githubToken} for {name}",
-                        credentialOptions.GitHubToken,
-                        nameof(IGitHubApi)
-                    );
                     client.BaseAddress = new Uri("https://api.github.com/");
                     client.DefaultRequestHeaders.Accept.Add(
                         new MediaTypeWithQualityHeaderValue("application/vnd.github+json")
