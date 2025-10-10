@@ -147,6 +147,31 @@ public static class ServiceRegistrationExtensions
                 }
             );
 
+        services
+            .AddHttpClient(
+                "github-graphql",
+                (sp, client) =>
+                {
+                    var credentialOptions = sp.GetOptions<CredentialOptions>();
+                    client.BaseAddress = new Uri("https://api.github.com/");
+                    client.DefaultRequestHeaders.Accept.Add(
+                        new MediaTypeWithQualityHeaderValue("application/json")
+                    );
+                    client.DefaultRequestHeaders.Add("User-Agent", "GitHub-GraphQL/1.0");
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+                        "Bearer",
+                        credentialOptions.GitHubToken
+                    );
+                }
+            )
+            .ConfigurePrimaryHttpMessageHandler(() =>
+                new HttpClientHandler
+                {
+                    AutomaticDecompression =
+                        DecompressionMethods.GZip | DecompressionMethods.Deflate,
+                }
+            );
+
         services.AddTransient<GitHubDebugLoggingHandler>();
         services.AddTransient<GitHubRedirectHandler>();
         services.AddTransient<GitHubResponseCachingHandler>();

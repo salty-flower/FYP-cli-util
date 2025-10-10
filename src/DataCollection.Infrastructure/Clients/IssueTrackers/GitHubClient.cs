@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Http.Json;
 using DataCollection.Infrastructure.Models.GitHub;
 using DataCollection.Infrastructure.Serialization;
 using GitHub.Models;
@@ -652,5 +653,180 @@ public class GitHubClient(
 
         var bytes = Convert.FromBase64String(content);
         return System.Text.Encoding.UTF8.GetString(bytes);
+    }
+
+    public async Task<ClosingPullRequest?> GetIssueClosingPullRequestAsync(
+        string owner,
+        string repoName,
+        long issueNumber,
+        CancellationToken cancellationToken = default
+    )
+    {
+        try
+        {
+            var client = httpClientFactory.CreateClient("github-graphql");
+            var query =
+                @"query ($owner: String!, $name: String!, $issueNumber: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $issueNumber) {
+      timelineItems(itemTypes: CLOSED_EVENT, last: 10) {
+        nodes {
+          ... on ClosedEvent {
+            closer {
+              __typename
+              ... on PullRequest {
+                number
+                title
+                url
+                merged
+                mergedAt
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}";
+            var payload = new
+            {
+                query,
+                variables = new
+                {
+                    owner,
+                    name = repoName,
+                    issueNumber = (int)issueNumber,
+                },
+            };
+
+            using var response = await client.PostAsJsonAsync(
+                "graphql",
+                payload,
+                cancellationToken
+            );
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning(
+                    "GraphQL request failed for {Owner}/{RepoName}#{IssueNumber}: {Status}",
+                    owner,
+                    repoName,
+                    issueNumber,
+                    response.StatusCode
+                );
+                return null;
+            }
+
+            using var content = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var doc = await System.Text.Json.JsonDocument.ParseAsync(
+                content,
+                cancellationToken: cancellationToken
+            );
+
+            var root = doc.RootElement;
+            if (root.ValueKind != System.Text.Json.JsonValueKind.Object)
+                return null;
+            if (
+                !root.TryGetProperty("data", out var data)
+                || data.ValueKind != System.Text.Json.JsonValueKind.Object
+            )
+                return null;
+            if (
+                !data.TryGetProperty("repository", out var repo)
+                || repo.ValueKind != System.Text.Json.JsonValueKind.Object
+            )
+                return null;
+            if (
+                !repo.TryGetProperty("issue", out var issue)
+                || issue.ValueKind == System.Text.Json.JsonValueKind.Null
+                || issue.ValueKind != System.Text.Json.JsonValueKind.Object
+            )
+                return null;
+            if (
+                !issue.TryGetProperty("timelineItems", out var timelineItems)
+                || timelineItems.ValueKind != System.Text.Json.JsonValueKind.Object
+            )
+                return null;
+            if (
+                !timelineItems.TryGetProperty("nodes", out var nodes)
+                || nodes.ValueKind != System.Text.Json.JsonValueKind.Array
+            )
+                return null;
+
+            for (var i = nodes.GetArrayLength() - 1; i >= 0; i--)
+            {
+                var node = nodes[i];
+                if (node.ValueKind != System.Text.Json.JsonValueKind.Object)
+                    continue;
+                if (
+                    !node.TryGetProperty("closer", out var closer)
+                    || closer.ValueKind != System.Text.Json.JsonValueKind.Object
+                )
+                    continue;
+                if (
+                    !closer.TryGetProperty("__typename", out var typeName)
+                    || typeName.ValueKind != System.Text.Json.JsonValueKind.String
+                )
+                    continue;
+                if (!string.Equals(typeName.GetString(), "PullRequest", StringComparison.Ordinal))
+                    continue;
+
+                var number =
+                    closer.TryGetProperty("number", out var numEl)
+                    && numEl.ValueKind == System.Text.Json.JsonValueKind.Number
+                        ? numEl.GetInt32()
+                        : (int?)null;
+                if (number is null)
+                    continue;
+                var title =
+                    closer.TryGetProperty("title", out var titleEl)
+                    && titleEl.ValueKind == System.Text.Json.JsonValueKind.String
+                        ? titleEl.GetString()
+                        : null;
+                var url =
+                    closer.TryGetProperty("url", out var urlEl)
+                    && urlEl.ValueKind == System.Text.Json.JsonValueKind.String
+                        ? urlEl.GetString()
+                        : null;
+                bool? merged =
+                    closer.TryGetProperty("merged", out var mergedEl)
+                    && (
+                        mergedEl.ValueKind == System.Text.Json.JsonValueKind.True
+                        || mergedEl.ValueKind == System.Text.Json.JsonValueKind.False
+                    )
+                        ? mergedEl.GetBoolean()
+                        : null;
+                DateTimeOffset? mergedAt = null;
+                if (
+                    closer.TryGetProperty("mergedAt", out var mergedAtEl)
+                    && mergedAtEl.ValueKind == System.Text.Json.JsonValueKind.String
+                )
+                {
+                    if (DateTimeOffset.TryParse(mergedAtEl.GetString(), out var parsed))
+                        mergedAt = parsed;
+                }
+
+                return new ClosingPullRequest
+                {
+                    Number = number.Value,
+                    Title = title,
+                    Url = url,
+                    Merged = merged,
+                    MergedAt = mergedAt,
+                };
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to get closing PR via GraphQL for {Owner}/{RepoName}#{IssueNumber}",
+                owner,
+                repoName,
+                issueNumber
+            );
+            return null;
+        }
     }
 }

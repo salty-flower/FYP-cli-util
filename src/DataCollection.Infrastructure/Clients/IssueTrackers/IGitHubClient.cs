@@ -68,4 +68,10 @@ public interface IGitHubClient
         int pullNumber,
         CancellationToken cancellationToken = default
     );
+    Task<ClosingPullRequest?> GetIssueClosingPullRequestAsync(
+        string owner,
+        string repoName,
+        long issueNumber,
+        CancellationToken cancellationToken = default
+    );
 }
