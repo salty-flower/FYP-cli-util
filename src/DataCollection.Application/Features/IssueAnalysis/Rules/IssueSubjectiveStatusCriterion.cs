@@ -139,7 +139,7 @@ public class IssueSubjectiveStatusCriterion(
 
             prInfo = JsonSerializer.Serialize(
                 allCrossReferencedEvents.ToArray(),
-                PromptSynthesizingJsonContext.Default.OtherEventProfile
+                PromptSynthesizingJsonContext.Default.OtherEventProfileArray
             );
         }
 
