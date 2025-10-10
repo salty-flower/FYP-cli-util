@@ -121,6 +121,7 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<GitHub.GitHubClient>(sp => new GitHub.GitHubClient(
             RequestAdapter.Create(new TokenAuthProvider(sp.GetRequiredService<TokenProvider>()))
         ));
+        services.AddSingleton<IHttpResponseCache, FileBasedHttpResponseCache>();
         services
             .AddHttpClient(
                 "github-api",
@@ -148,6 +149,7 @@ public static class ServiceRegistrationExtensions
 
         services.AddTransient<GitHubDebugLoggingHandler>();
         services.AddTransient<GitHubRedirectHandler>();
+        services.AddTransient<GitHubResponseCachingHandler>();
 
         services
             .AddRefitClient<IGitHubApi>()
@@ -180,6 +182,7 @@ public static class ServiceRegistrationExtensions
                     )
                 )
             )
+            .AddHttpMessageHandler<GitHubResponseCachingHandler>()
             .AddHttpMessageHandler<GitHubRedirectHandler>()
             .AddPolicyHandler(
                 (sp, _) =>
@@ -261,6 +264,10 @@ public static class ServiceRegistrationExtensions
             allowDefault: true
         );
         services.AddOptionsFromOwnSectionAndValidateOnStart<LLMOptions>(config, allowDefault: true);
+        services.AddOptionsFromOwnSectionAndValidateOnStart<HttpCacheOptions>(
+            config,
+            allowDefault: true
+        );
 
         // Configure discovery-specific options
         services.AddOptionsFromOwnSectionAndValidateOnStart<ThresholdOptions>(

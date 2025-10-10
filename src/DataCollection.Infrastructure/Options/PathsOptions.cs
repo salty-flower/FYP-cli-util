@@ -17,6 +17,12 @@ public class PathsOptions
         init;
     } = "paper-bin";
 
+    public string HttpCacheDir
+    {
+        get => CombineWithBase(field);
+        init;
+    } = "http-cache";
+
     public string IssueTrackerDir
     {
         get => CombineWithBase(field);
@@ -43,5 +49,9 @@ public class PathsOptions
     private string CombineWithBase(string fieldValue) =>
         Path.Combine(BuildConstants.SolutionDirectory, BaseDir, fieldValue);
 
-    public void EnsureDirectoriesExist() => Directory.CreateDirectory(PaperBinDir);
+    public void EnsureDirectoriesExist()
+    {
+        Directory.CreateDirectory(PaperBinDir);
+        Directory.CreateDirectory(HttpCacheDir);
+    }
 }

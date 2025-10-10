@@ -1,4 +1,3 @@
-using System.Net.Http;
 using ConsoleAppFramework;
 using DataCollection.Infrastructure.Options;
 using Microsoft.Extensions.Logging;

@@ -1,5 +1,3 @@
-using System;
-using System.Linq;
 using DataCollection.Application.Models.IssueTracker.Profiles;
 
 namespace DataCollection.Application.Features.IssueAnalysis.Rules;

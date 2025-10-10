@@ -1,8 +1,5 @@
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Net;
-using System.Net.Http;
-using System.Text.Json;
 using DataCollection.Infrastructure.Models.GitHub;
 using DataCollection.Infrastructure.Serialization;
 using GitHub.Models;

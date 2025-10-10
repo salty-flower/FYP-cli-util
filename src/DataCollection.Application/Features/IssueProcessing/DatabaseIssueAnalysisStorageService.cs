@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using DataCollection.Core.Models.IssueTracker;
 using DataCollection.Core.Models.IssueTracker.Responses;
 using DataCollection.Infrastructure.Extensions;
