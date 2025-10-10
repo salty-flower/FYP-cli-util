@@ -5,7 +5,7 @@ namespace DataCollection.Infrastructure.Models.GitHub;
 public record CachedHttpResponse(
     string Url,
     int StatusCode,
-    Dictionary<string, string[]> Headers,
+    CachedResponseHeaders Headers,
     string ResponseBody,
     string? ETag,
     DateTimeOffset CachedAt,
@@ -13,10 +13,16 @@ public record CachedHttpResponse(
 );
 
 [SuppressMessage("Usage", "CA2227:Collection properties should be read only")]
+public record CachedResponseHeaders(
+    Dictionary<string, string[]> Response,
+    Dictionary<string, string[]> Content
+);
+
+[SuppressMessage("Usage", "CA2227:Collection properties should be read only")]
 public record CacheMetadata(
     string Url,
     int StatusCode,
-    Dictionary<string, string[]> Headers,
+    CachedResponseHeaders Headers,
     string? ETag,
     DateTimeOffset CachedAt,
     DateTimeOffset? ExpiresAt,

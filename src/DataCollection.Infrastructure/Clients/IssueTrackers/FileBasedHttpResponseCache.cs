@@ -1,4 +1,7 @@
+using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -17,6 +20,7 @@ public partial class FileBasedHttpResponseCache(
 ) : IHttpResponseCache
 {
     [JsonSerializable(typeof(CacheMetadata))]
+    [JsonSerializable(typeof(CachedResponseHeaders))]
     [JsonSourceGenerationOptions(WriteIndented = true, PropertyNameCaseInsensitive = true)]
     private partial class CacheJsonContext : JsonSerializerContext;
 
@@ -24,12 +28,13 @@ public partial class FileBasedHttpResponseCache(
 
     private readonly string cacheRoot = pathsOptions.CurrentValue.HttpCacheDir;
 
-    public async Task<CachedHttpResponse?> GetAsync(string url, CancellationToken ct)
+    public async Task<CachedHttpResponse?> GetAsync(HttpRequestMessage request, CancellationToken ct)
     {
-        if (!cacheOptions.CurrentValue.Enabled)
+        if (!cacheOptions.CurrentValue.Enabled || request.RequestUri is null)
             return null;
 
-        var cacheKey = GetCacheKey(url);
+        var url = request.RequestUri.ToString();
+        var cacheKey = GetCacheKey(request);
         var cacheDir = GetCacheDirectory(cacheKey);
         var metaPath = GetMetadataPath(cacheDir);
         var bodyPath = GetBodyPath(cacheDir);
@@ -84,8 +89,9 @@ public partial class FileBasedHttpResponseCache(
         if (response.RequestMessage?.RequestUri is null)
             return;
 
-        var url = response.RequestMessage.RequestUri.ToString();
-        var cacheKey = GetCacheKey(url);
+        var request = response.RequestMessage;
+        var url = request.RequestUri.ToString();
+        var cacheKey = GetCacheKey(request);
         var cacheDir = GetCacheDirectory(cacheKey);
         var metaPath = GetMetadataPath(cacheDir);
         var bodyPath = GetBodyPath(cacheDir);
@@ -142,20 +148,23 @@ public partial class FileBasedHttpResponseCache(
         }
     }
 
-    public Task<bool> ExistsAsync(string url, CancellationToken ct)
+    public Task<bool> ExistsAsync(HttpRequestMessage request, CancellationToken ct)
     {
-        if (!cacheOptions.CurrentValue.Enabled)
+        if (!cacheOptions.CurrentValue.Enabled || request.RequestUri is null)
             return Task.FromResult(false);
 
-        var cacheKey = GetCacheKey(url);
+        var cacheKey = GetCacheKey(request);
         var cacheDir = GetCacheDirectory(cacheKey);
         var exists = File.Exists(GetMetadataPath(cacheDir)) && File.Exists(GetBodyPath(cacheDir));
         return Task.FromResult(exists);
     }
 
-    public async Task InvalidateAsync(string url, CancellationToken ct)
+    public async Task InvalidateAsync(HttpRequestMessage request, CancellationToken ct)
     {
-        var cacheKey = GetCacheKey(url);
+        if (request.RequestUri is null)
+            return;
+
+        var cacheKey = GetCacheKey(request);
         var cacheDir = GetCacheDirectory(cacheKey);
         var cacheLock = GetLock(cacheKey);
         await cacheLock.WaitAsync(ct).ConfigureAwait(false);
@@ -203,22 +212,78 @@ public partial class FileBasedHttpResponseCache(
         return totalSize;
     }
 
-    private static Dictionary<string, string[]> CollectHeaders(HttpResponseMessage response)
+    private static CachedResponseHeaders CollectHeaders(HttpResponseMessage response)
     {
-        var headers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        var responseHeaders = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var header in response.Headers)
-            headers[header.Key] = [.. header.Value];
+            responseHeaders[header.Key] = header.Value.ToArray();
 
+        var contentHeaders = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
         if (response.Content is not null)
+        {
             foreach (var header in response.Content.Headers)
-                headers[header.Key] = header.Value.ToArray();
+                contentHeaders[header.Key] = header.Value.ToArray();
+        }
 
-        return headers;
+        return new CachedResponseHeaders(responseHeaders, contentHeaders);
     }
 
-    private static string GetCacheKey(string url) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(url))).ToLowerInvariant();
+    private static readonly string[] CacheKeyHeaderNames =
+    {
+        "Authorization",
+        "Accept",
+        "X-GitHub-Api-Version",
+    };
+
+    private static string GetCacheKey(HttpRequestMessage request)
+    {
+        var seed = BuildCacheKeySeed(request);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(seed))).ToLowerInvariant();
+    }
+
+    private static string BuildCacheKeySeed(HttpRequestMessage request)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine(request.RequestUri!.ToString());
+
+        foreach (var headerName in CacheKeyHeaderNames)
+        {
+            builder.Append(headerName).Append(':');
+            if (TryGetHeaderValues(request, headerName, out var values))
+            {
+                builder.AppendLine(string.Join(',', values));
+            }
+            else
+            {
+                builder.AppendLine();
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static bool TryGetHeaderValues(
+        HttpRequestMessage request,
+        string headerName,
+        out IEnumerable<string> values
+    )
+    {
+        if (request.Headers.TryGetValues(headerName, out var headerValues))
+        {
+            values = headerValues;
+            return true;
+        }
+
+        if (request.Content?.Headers.TryGetValues(headerName, out var contentHeaderValues) ?? false)
+        {
+            values = contentHeaderValues;
+            return true;
+        }
+
+        values = Array.Empty<string>();
+        return false;
+    }
 
     private string GetCacheDirectory(string cacheKey) => Path.Combine(cacheRoot, cacheKey);
 

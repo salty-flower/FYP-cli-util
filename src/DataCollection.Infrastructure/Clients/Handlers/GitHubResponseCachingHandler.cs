@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -48,7 +50,7 @@ public class GitHubResponseCachingHandler : DelegatingHandler
         }
 
         var cachedResponse = await cache
-            .GetAsync(requestUrl, cancellationToken)
+            .GetAsync(request, cancellationToken)
             .ConfigureAwait(false);
         if (cachedResponse is not null && IsCacheEntryValid(cachedResponse))
         {
@@ -163,31 +165,45 @@ public class GitHubResponseCachingHandler : DelegatingHandler
             return cachedResponse;
         }
 
-        var mergedHeaders = new Dictionary<string, string[]>(
-            cachedResponse.Headers,
-            StringComparer.OrdinalIgnoreCase
-        );
+        var mergedHeaders = CloneHeaders(cachedResponse.Headers);
 
         foreach (var header in revalidationResponse.Headers)
         {
-            mergedHeaders[header.Key] = header.Value.ToArray();
+            mergedHeaders.Response[header.Key] = header.Value.ToArray();
         }
 
         if (revalidationResponse.Content is not null)
         {
             foreach (var header in revalidationResponse.Content.Headers)
             {
-                mergedHeaders[header.Key] = header.Value.ToArray();
+                mergedHeaders.Content[header.Key] = header.Value.ToArray();
             }
         }
 
         var mediaType = TryGetHeaderValue(mergedHeaders, "Content-Type") ?? "application/json";
+        var etagString = revalidationResponse.Headers.ETag?.ToString() ?? cachedResponse.ETag;
         var requestMessage = revalidationResponse.RequestMessage;
-        if (requestMessage is null
-            && Uri.TryCreate(cachedResponse.Url, UriKind.Absolute, out var cachedRequestUri)
-        )
+        if (requestMessage is null)
         {
-            requestMessage = new HttpRequestMessage(HttpMethod.Get, cachedRequestUri);
+            logger.LogDebug(
+                "Skipping cache refresh for {Url} because the revalidation response had no request",
+                cachedResponse.Url
+            );
+
+            var cachedAtFallback = DateTimeOffset.UtcNow;
+            var expiresAtFallback = cacheDuration.HasValue
+                ? cachedAtFallback.Add(cacheDuration.Value)
+                : cachedResponse.ExpiresAt;
+
+            return new CachedHttpResponse(
+                cachedResponse.Url,
+                cachedResponse.StatusCode,
+                mergedHeaders,
+                cachedResponse.ResponseBody,
+                etagString,
+                cachedAtFallback,
+                expiresAtFallback
+            );
         }
 
         var refreshedResponse = new HttpResponseMessage((HttpStatusCode)cachedResponse.StatusCode)
@@ -196,25 +212,27 @@ public class GitHubResponseCachingHandler : DelegatingHandler
             Content = new StringContent(cachedResponse.ResponseBody, Encoding.UTF8, mediaType),
         };
 
-        foreach (var header in mergedHeaders)
+        foreach (var header in mergedHeaders.Response)
         {
             if (header.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            if (!refreshedResponse.Headers.TryAddWithoutValidation(header.Key, header.Value))
-            {
-                refreshedResponse.Content?.Headers.TryAddWithoutValidation(
-                    header.Key,
-                    header.Value
-                );
-            }
+            refreshedResponse.Headers.TryAddWithoutValidation(header.Key, header.Value);
         }
 
-        var etagString = revalidationResponse.Headers.ETag?.ToString() ?? cachedResponse.ETag;
-        if (
-            !string.IsNullOrEmpty(etagString)
+        foreach (var header in mergedHeaders.Content)
+        {
+            if (header.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            refreshedResponse.Content?.Headers.TryAddWithoutValidation(header.Key, header.Value);
+        }
+
+        if (!string.IsNullOrEmpty(etagString)
             && EntityTagHeaderValue.TryParse(etagString, out var newEtag)
         )
         {
@@ -292,17 +310,24 @@ public class GitHubResponseCachingHandler : DelegatingHandler
             Content = new StringContent(cachedResponse.ResponseBody, Encoding.UTF8, mediaType),
         };
 
-        foreach (var header in cachedResponse.Headers)
+        foreach (var header in cachedResponse.Headers.Response)
         {
             if (header.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            if (!response.Headers.TryAddWithoutValidation(header.Key, header.Value))
+            response.Headers.TryAddWithoutValidation(header.Key, header.Value);
+        }
+
+        foreach (var header in cachedResponse.Headers.Content)
+        {
+            if (header.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
             {
-                response.Content?.Headers.TryAddWithoutValidation(header.Key, header.Value);
+                continue;
             }
+
+            response.Content?.Headers.TryAddWithoutValidation(header.Key, header.Value);
         }
 
         if (
@@ -316,14 +341,28 @@ public class GitHubResponseCachingHandler : DelegatingHandler
         return response;
     }
 
-    private static string? TryGetHeaderValue(
-        IReadOnlyDictionary<string, string[]> headers,
-        string headerName
-    )
+    private static CachedResponseHeaders CloneHeaders(CachedResponseHeaders headers)
     {
-        if (headers.TryGetValue(headerName, out var values) && values.Length > 0)
+        return new CachedResponseHeaders(
+            new Dictionary<string, string[]>(headers.Response, StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, string[]>(headers.Content, StringComparer.OrdinalIgnoreCase)
+        );
+    }
+
+    private static string? TryGetHeaderValue(CachedResponseHeaders headers, string headerName)
+    {
+        if (headers.Content.TryGetValue(headerName, out var contentValues)
+            && contentValues.Length > 0
+        )
         {
-            return values[0];
+            return contentValues[0];
+        }
+
+        if (headers.Response.TryGetValue(headerName, out var responseValues)
+            && responseValues.Length > 0
+        )
+        {
+            return responseValues[0];
         }
 
         return null;
