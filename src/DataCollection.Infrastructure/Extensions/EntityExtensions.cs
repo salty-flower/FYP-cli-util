@@ -4,8 +4,6 @@ using DataCollection.Core.Models.Database;
 using DataCollection.Core.Models.IssueTracker;
 using DataCollection.Infrastructure.Options;
 using DataCollection.Infrastructure.Serialization;
-using Microsoft.Build.Utilities;
-using Serilog;
 
 namespace DataCollection.Infrastructure.Extensions;
 

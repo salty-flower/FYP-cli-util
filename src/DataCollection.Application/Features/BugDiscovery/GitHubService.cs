@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using DataCollection.Application.Features.BugDiscovery.Caching;
 using DataCollection.Application.Features.IssueAnalysis.Rules;
 using DataCollection.Application.Models.IssueTracker.Profiles;

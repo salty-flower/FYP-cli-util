@@ -1,9 +1,6 @@
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
-using System.Threading;
 using DataCollection.Infrastructure.Clients.IssueTrackers;
 using DataCollection.Infrastructure.Models.GitHub;
 using DataCollection.Infrastructure.Options;

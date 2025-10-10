@@ -1,5 +1,3 @@
-using System;
-
 namespace DataCollection.Infrastructure.Options;
 
 public class HttpCacheOptions

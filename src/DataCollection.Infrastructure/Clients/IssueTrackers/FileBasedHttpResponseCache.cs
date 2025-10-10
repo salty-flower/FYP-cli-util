@@ -1,9 +1,8 @@
 using System.Collections.Concurrent;
-using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Threading;
+using System.Text.Json.Serialization;
 using DataCollection.Infrastructure.Models.GitHub;
 using DataCollection.Infrastructure.Options;
 using Microsoft.Extensions.Logging;
@@ -11,36 +10,24 @@ using Microsoft.Extensions.Options;
 
 namespace DataCollection.Infrastructure.Clients.IssueTrackers;
 
-public class FileBasedHttpResponseCache : IHttpResponseCache
+public partial class FileBasedHttpResponseCache(
+    IOptionsMonitor<PathsOptions> pathsOptions,
+    IOptionsMonitor<HttpCacheOptions> cacheOptions,
+    ILogger<FileBasedHttpResponseCache> logger
+) : IHttpResponseCache
 {
-    private readonly string cacheRoot;
-    private readonly ILogger<FileBasedHttpResponseCache> logger;
-    private readonly HttpCacheOptions cacheOptions;
-    private readonly JsonSerializerOptions jsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true,
-    };
+    [JsonSerializable(typeof(CacheMetadata))]
+    [JsonSourceGenerationOptions(WriteIndented = true, PropertyNameCaseInsensitive = true)]
+    private partial class CacheJsonContext : JsonSerializerContext;
 
     private readonly ConcurrentDictionary<string, SemaphoreSlim> entryLocks = new();
 
-    public FileBasedHttpResponseCache(
-        IOptions<PathsOptions> pathsOptions,
-        IOptions<HttpCacheOptions> cacheOptions,
-        ILogger<FileBasedHttpResponseCache> logger
-    )
-    {
-        this.logger = logger;
-        this.cacheOptions = cacheOptions.Value;
-        cacheRoot = pathsOptions.Value.HttpCacheDir;
-        Directory.CreateDirectory(cacheRoot);
-    }
+    private readonly string cacheRoot = pathsOptions.CurrentValue.HttpCacheDir;
 
     public async Task<CachedHttpResponse?> GetAsync(string url, CancellationToken ct)
     {
-        if (!cacheOptions.Enabled)
-        {
+        if (!cacheOptions.CurrentValue.Enabled)
             return null;
-        }
 
         var cacheKey = GetCacheKey(url);
         var cacheDir = GetCacheDirectory(cacheKey);
@@ -48,9 +35,7 @@ public class FileBasedHttpResponseCache : IHttpResponseCache
         var bodyPath = GetBodyPath(cacheDir);
 
         if (!File.Exists(metaPath) || !File.Exists(bodyPath))
-        {
             return null;
-        }
 
         var cacheLock = GetLock(cacheKey);
         await cacheLock.WaitAsync(ct).ConfigureAwait(false);
@@ -58,13 +43,15 @@ public class FileBasedHttpResponseCache : IHttpResponseCache
         {
             await using var metaStream = File.OpenRead(metaPath);
             var metadata = await JsonSerializer
-                .DeserializeAsync<CacheMetadata>(metaStream, jsonOptions, ct)
+                .DeserializeAsync<CacheMetadata>(
+                    metaStream,
+                    CacheJsonContext.Default.CacheMetadata,
+                    ct
+                )
                 .ConfigureAwait(false);
 
             if (metadata is null)
-            {
                 return null;
-            }
 
             var body = await File.ReadAllTextAsync(bodyPath, ct).ConfigureAwait(false);
             return new CachedHttpResponse(
@@ -91,15 +78,11 @@ public class FileBasedHttpResponseCache : IHttpResponseCache
 
     public async Task SetAsync(HttpResponseMessage response, TimeSpan? ttl, CancellationToken ct)
     {
-        if (!cacheOptions.Enabled || ttl is null)
-        {
+        if (!cacheOptions.CurrentValue.Enabled || ttl is null)
             return;
-        }
 
         if (response.RequestMessage?.RequestUri is null)
-        {
             return;
-        }
 
         var url = response.RequestMessage.RequestUri.ToString();
         var cacheKey = GetCacheKey(url);
@@ -117,15 +100,15 @@ public class FileBasedHttpResponseCache : IHttpResponseCache
                 : string.Empty;
 
             var bodySize = Encoding.UTF8.GetByteCount(body);
-            if (cacheOptions.MaxCacheSizeBytes > 0)
+            if (cacheOptions.CurrentValue.MaxCacheSizeBytes > 0)
             {
                 var currentSize = await GetCacheSizeAsync(ct).ConfigureAwait(false);
-                if (currentSize + bodySize > cacheOptions.MaxCacheSizeBytes)
+                if (currentSize + bodySize > cacheOptions.CurrentValue.MaxCacheSizeBytes)
                 {
                     logger.LogDebug(
                         "Skipping cache write for {Url} because it would exceed max size {MaxSizeBytes} bytes",
                         url,
-                        cacheOptions.MaxCacheSizeBytes
+                        cacheOptions.CurrentValue.MaxCacheSizeBytes
                     );
                     return;
                 }
@@ -146,7 +129,7 @@ public class FileBasedHttpResponseCache : IHttpResponseCache
 
             await using var metaStream = File.Create(metaPath);
             await JsonSerializer
-                .SerializeAsync(metaStream, metadata, jsonOptions, ct)
+                .SerializeAsync(metaStream, metadata, CacheJsonContext.Default.CacheMetadata, ct)
                 .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -161,10 +144,8 @@ public class FileBasedHttpResponseCache : IHttpResponseCache
 
     public Task<bool> ExistsAsync(string url, CancellationToken ct)
     {
-        if (!cacheOptions.Enabled)
-        {
+        if (!cacheOptions.CurrentValue.Enabled)
             return Task.FromResult(false);
-        }
 
         var cacheKey = GetCacheKey(url);
         var cacheDir = GetCacheDirectory(cacheKey);
@@ -188,36 +169,30 @@ public class FileBasedHttpResponseCache : IHttpResponseCache
         }
     }
 
-    public Task<long> GetCacheSizeAsync(CancellationToken ct)
+    public async Task<long> GetCacheSizeAsync(CancellationToken ct)
     {
-        if (!cacheOptions.Enabled)
-        {
-            return Task.FromResult(0L);
-        }
+        if (!cacheOptions.CurrentValue.Enabled || !Directory.Exists(cacheRoot))
+            return 0L;
 
         long totalSize = 0;
-        if (!Directory.Exists(cacheRoot))
-        {
-            return Task.FromResult(totalSize);
-        }
 
         foreach (var directory in Directory.EnumerateDirectories(cacheRoot))
         {
             ct.ThrowIfCancellationRequested();
             var metaPath = GetMetadataPath(directory);
             if (!File.Exists(metaPath))
-            {
                 continue;
-            }
 
             try
             {
                 using var stream = File.OpenRead(metaPath);
-                var metadata = JsonSerializer.Deserialize<CacheMetadata>(stream, jsonOptions);
+                var metadata = await JsonSerializer.DeserializeAsync(
+                    stream,
+                    CacheJsonContext.Default.CacheMetadata,
+                    ct
+                );
                 if (metadata != null)
-                {
                     totalSize += metadata.BodySizeBytes;
-                }
             }
             catch (Exception ex) when (ex is IOException or JsonException)
             {
@@ -225,7 +200,7 @@ public class FileBasedHttpResponseCache : IHttpResponseCache
             }
         }
 
-        return Task.FromResult(totalSize);
+        return totalSize;
     }
 
     private static Dictionary<string, string[]> CollectHeaders(HttpResponseMessage response)
@@ -233,27 +208,17 @@ public class FileBasedHttpResponseCache : IHttpResponseCache
         var headers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var header in response.Headers)
-        {
-            headers[header.Key] = header.Value.ToArray();
-        }
+            headers[header.Key] = [.. header.Value];
 
         if (response.Content is not null)
-        {
             foreach (var header in response.Content.Headers)
-            {
                 headers[header.Key] = header.Value.ToArray();
-            }
-        }
 
         return headers;
     }
 
-    private static string GetCacheKey(string url)
-    {
-        using var sha = SHA256.Create();
-        var hashBytes = sha.ComputeHash(Encoding.UTF8.GetBytes(url));
-        return Convert.ToHexString(hashBytes).ToLowerInvariant();
-    }
+    private static string GetCacheKey(string url) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(url))).ToLowerInvariant();
 
     private string GetCacheDirectory(string cacheKey) => Path.Combine(cacheRoot, cacheKey);
 
@@ -269,9 +234,7 @@ public class FileBasedHttpResponseCache : IHttpResponseCache
         try
         {
             if (Directory.Exists(cacheDir))
-            {
                 Directory.Delete(cacheDir, recursive: true);
-            }
         }
         catch (IOException)
         {
