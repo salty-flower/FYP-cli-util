@@ -28,7 +28,10 @@ public partial class FileBasedHttpResponseCache(
 
     private readonly string cacheRoot = pathsOptions.CurrentValue.HttpCacheDir;
 
-    public async Task<CachedHttpResponse?> GetAsync(HttpRequestMessage request, CancellationToken ct)
+    public async Task<CachedHttpResponse?> GetAsync(
+        HttpRequestMessage request,
+        CancellationToken ct
+    )
     {
         if (!cacheOptions.CurrentValue.Enabled || request.RequestUri is null)
             return null;
@@ -239,7 +242,9 @@ public partial class FileBasedHttpResponseCache(
     private static string GetCacheKey(HttpRequestMessage request)
     {
         var seed = BuildCacheKeySeed(request);
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(seed))).ToLowerInvariant();
+        return Convert
+            .ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(seed)))
+            .ToLowerInvariant();
     }
 
     private static string BuildCacheKeySeed(HttpRequestMessage request)

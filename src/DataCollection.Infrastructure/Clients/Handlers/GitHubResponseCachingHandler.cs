@@ -49,9 +49,7 @@ public class GitHubResponseCachingHandler : DelegatingHandler
             return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
         }
 
-        var cachedResponse = await cache
-            .GetAsync(request, cancellationToken)
-            .ConfigureAwait(false);
+        var cachedResponse = await cache.GetAsync(request, cancellationToken).ConfigureAwait(false);
         if (cachedResponse is not null && IsCacheEntryValid(cachedResponse))
         {
             logger.LogDebug("GitHub cache hit for {Url}", requestUrl);
@@ -232,7 +230,8 @@ public class GitHubResponseCachingHandler : DelegatingHandler
             refreshedResponse.Content?.Headers.TryAddWithoutValidation(header.Key, header.Value);
         }
 
-        if (!string.IsNullOrEmpty(etagString)
+        if (
+            !string.IsNullOrEmpty(etagString)
             && EntityTagHeaderValue.TryParse(etagString, out var newEtag)
         )
         {
@@ -351,14 +350,16 @@ public class GitHubResponseCachingHandler : DelegatingHandler
 
     private static string? TryGetHeaderValue(CachedResponseHeaders headers, string headerName)
     {
-        if (headers.Content.TryGetValue(headerName, out var contentValues)
+        if (
+            headers.Content.TryGetValue(headerName, out var contentValues)
             && contentValues.Length > 0
         )
         {
             return contentValues[0];
         }
 
-        if (headers.Response.TryGetValue(headerName, out var responseValues)
+        if (
+            headers.Response.TryGetValue(headerName, out var responseValues)
             && responseValues.Length > 0
         )
         {
