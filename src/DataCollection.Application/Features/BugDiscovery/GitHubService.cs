@@ -163,6 +163,22 @@ public class GitHubService(
                 cancellationToken
             ) ?? [];
 
+        // Prefer GraphQL closing PR if available
+        ClosingPullRequest? closingPr = null;
+        try
+        {
+            closingPr = await gitHubClient.GetIssueClosingPullRequestAsync(
+                owner,
+                repoName,
+                issueNumber,
+                cancellationToken
+            );
+        }
+        catch
+        {
+            // handled by inner logging; ignore
+        }
+
         var (labelEvents, otherEvents) = await ProcessEventsAsync(
             issueEvents,
             authorProfile,
@@ -189,12 +205,28 @@ public class GitHubService(
             cancellationToken
         );
 
-        var pullRequestBriefing = await BuildPullRequestBriefingAsync(
-            owner,
-            repoName,
-            issue,
-            cancellationToken
-        );
+        PullRequestBriefing? pullRequestBriefing = null;
+        if (issue.PullRequest?.HtmlUrl is not null)
+        {
+            pullRequestBriefing = await BuildPullRequestBriefingAsync(
+                owner,
+                repoName,
+                issue,
+                cancellationToken
+            );
+        }
+        else if (closingPr is not null)
+        {
+            // Build a minimal PR briefing from GraphQL closer
+            pullRequestBriefing = new PullRequestBriefing
+            {
+                Number = closingPr.Number,
+                Title = closingPr.Title,
+                HtmlUrl = closingPr.Url,
+                MergedAt = closingPr.MergedAt,
+                Files = Array.Empty<PullRequestFileBriefing>(),
+            };
+        }
 
         return new IssueProfile
         {
@@ -203,7 +235,7 @@ public class GitHubService(
             AuthorProfile = authorProfile,
             RepositoryFullName = repository.FullName ?? $"{owner}/{repoName}",
             IsClosed = issue.State == "closed",
-            HasAssociatedPullRequest = issue.PullRequest != null,
+            HasAssociatedPullRequest = issue.PullRequest != null || closingPr != null,
             LabelEvents = [.. labelEvents],
             CommentEvents = [.. commentEvents],
             OtherEvents = [.. otherEvents],
@@ -455,6 +487,13 @@ public class GitHubService(
         {
             isFixed = true;
             var mergedAt = profile.SdkIssue.PullRequest.MergedAt.Value;
+            isFixedBefore = mergedAt < profile.SdkIssue.CreatedAt;
+        }
+        else if (profile.AssociatedPullRequest?.MergedAt is not null)
+        {
+            // Check GraphQL-discovered closing PR
+            isFixed = true;
+            var mergedAt = profile.AssociatedPullRequest.MergedAt.Value;
             isFixedBefore = mergedAt < profile.SdkIssue.CreatedAt;
         }
         else if (profile.IsClosed)

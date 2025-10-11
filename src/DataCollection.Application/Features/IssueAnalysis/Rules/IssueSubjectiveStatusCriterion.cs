@@ -130,6 +130,13 @@ public class IssueSubjectiveStatusCriterion(
                 : string.Empty;
             prInfo = $"#{profile.SdkIssue.PullRequest.HtmlUrl}{mergedAtString}";
         }
+        else if (profile.AssociatedPullRequest is not null)
+        {
+            var mergedAtString = profile.AssociatedPullRequest.MergedAt is not null
+                ? $" merged at {profile.AssociatedPullRequest.MergedAt:s}"
+                : string.Empty;
+            prInfo = $"#{profile.AssociatedPullRequest.Number}{mergedAtString}";
+        }
         else if (profile.OtherEvents.Any(e => e.EventType == "cross-referenced"))
         {
             var allCrossReferencedEvents = profile.OtherEvents.Where(e =>
@@ -140,6 +147,22 @@ public class IssueSubjectiveStatusCriterion(
                 allCrossReferencedEvents.ToArray(),
                 PromptSynthesizingJsonContext.Default.OtherEventProfileArray
             );
+        }
+
+        var commitsInfo = "none";
+        if (profile.AssociatedCommitBriefings.Length > 0)
+        {
+            var commitSummaries = profile.AssociatedCommitBriefings
+                .Select(c =>
+                {
+                    var sha = c.Sha.Length > 7 ? c.Sha[..7] : c.Sha;
+                    var authorLogin = c.Author?.Login;
+                    var authorDisplay = !string.IsNullOrWhiteSpace(authorLogin)
+                        ? $"@{authorLogin}"
+                        : c.Author?.Name ?? "unknown";
+                    return $"{sha} by {authorDisplay}";
+                });
+            commitsInfo = string.Join(", ", commitSummaries);
         }
 
         var prompt = $""""
@@ -160,6 +183,7 @@ public class IssueSubjectiveStatusCriterion(
                     : string.Empty)
             }
             - associated PR: {prInfo}
+            - associated commits: {commitsInfo}
             </issue_metadata>
 
             <fix_context>
