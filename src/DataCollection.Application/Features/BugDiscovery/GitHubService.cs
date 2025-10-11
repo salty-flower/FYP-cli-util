@@ -489,6 +489,13 @@ public class GitHubService(
             var mergedAt = profile.SdkIssue.PullRequest.MergedAt.Value;
             isFixedBefore = mergedAt < profile.SdkIssue.CreatedAt;
         }
+        else if (profile.AssociatedPullRequest?.MergedAt is not null)
+        {
+            // Check GraphQL-discovered closing PR
+            isFixed = true;
+            var mergedAt = profile.AssociatedPullRequest.MergedAt.Value;
+            isFixedBefore = mergedAt < profile.SdkIssue.CreatedAt;
+        }
         else if (profile.IsClosed)
         {
             var fixReferenceEvents =
