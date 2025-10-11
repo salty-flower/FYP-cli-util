@@ -178,7 +178,9 @@ public class GitHubResponseCachingHandler : DelegatingHandler
             }
         }
 
-        var mediaType = TryGetHeaderValue(mergedHeaders, "Content-Type") ?? "application/json";
+        var (mediaType, parsedContentType) = ParseContentType(
+            TryGetHeaderValue(mergedHeaders, "Content-Type")
+        );
         var etagString = revalidationResponse.Headers.ETag?.ToString() ?? cachedResponse.ETag;
         var requestMessage = revalidationResponse.RequestMessage;
         if (requestMessage is null)
@@ -209,6 +211,11 @@ public class GitHubResponseCachingHandler : DelegatingHandler
             RequestMessage = requestMessage,
             Content = new StringContent(cachedResponse.ResponseBody, Encoding.UTF8, mediaType),
         };
+
+        if (parsedContentType is not null)
+        {
+            refreshedResponse.Content!.Headers.ContentType = parsedContentType;
+        }
 
         foreach (var header in mergedHeaders.Response)
         {
@@ -301,13 +308,19 @@ public class GitHubResponseCachingHandler : DelegatingHandler
         HttpRequestMessage request
     )
     {
-        var mediaType =
-            TryGetHeaderValue(cachedResponse.Headers, "Content-Type") ?? "application/json";
+        var (mediaType, parsedContentType) = ParseContentType(
+            TryGetHeaderValue(cachedResponse.Headers, "Content-Type")
+        );
         var response = new HttpResponseMessage((HttpStatusCode)cachedResponse.StatusCode)
         {
             RequestMessage = request,
             Content = new StringContent(cachedResponse.ResponseBody, Encoding.UTF8, mediaType),
         };
+
+        if (parsedContentType is not null)
+        {
+            response.Content!.Headers.ContentType = parsedContentType;
+        }
 
         foreach (var header in cachedResponse.Headers.Response)
         {
@@ -367,6 +380,22 @@ public class GitHubResponseCachingHandler : DelegatingHandler
         }
 
         return null;
+    }
+
+    private static (string MediaType, MediaTypeHeaderValue? ParsedHeader) ParseContentType(
+        string? contentType
+    )
+    {
+        if (
+            !string.IsNullOrWhiteSpace(contentType)
+            && MediaTypeHeaderValue.TryParse(contentType, out var parsed)
+            && !string.IsNullOrWhiteSpace(parsed.MediaType)
+        )
+        {
+            return (parsed.MediaType!, parsed);
+        }
+
+        return ("application/json", null);
     }
 
     private static void TrySetIfNoneMatchHeader(HttpRequestMessage request, string etag)
