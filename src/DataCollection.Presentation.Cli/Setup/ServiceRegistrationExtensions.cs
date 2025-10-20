@@ -250,6 +250,7 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<IssueBatchProcessingService>();
         services.AddSingleton<IsDeveloperCriterion>();
         services.AddSingleton<IssueSubjectiveStatusCriterion>();
+        services.AddSingleton<IssueSubjectiveStatusNaiveBaseline>();
         services.AddScoped<BatchFileHandler>();
         services.AddScoped<BatchJobPoller>();
         services.AddScoped<IUserProfileCache, UserProfileCache>();

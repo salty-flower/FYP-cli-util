@@ -8,4 +8,5 @@ public record LLMOptions
     public string AgentPlanningModel { get; init; } = "o4-mini";
     public string AgentExecutionModel { get; init; } = "o4-mini";
     public string AgentReflectionModel { get; init; } = "o4-mini";
+    public bool UseNaivePromptForIssueAnalysis { get; init; } = false;
 }

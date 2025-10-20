@@ -106,3 +106,22 @@ Key configuration sections include credentials, LLM options, parallelism setting
 - **Dependency injection** throughout the application layers
 - **Async/await** patterns for I/O operations
 - **Structured logging** with contextual information
+
+## Ablation Study Mode
+
+The `issue process-batch` command accepts a `--use-naive-prompt` flag to toggle a raw HTML baseline for the subjective status
+analysis. When enabled, the CLI routes requests through `IssueSubjectiveStatusNaiveBaseline`, which fetches the GitHub issue HTML
+directly and applies a minimal system prompt. The default structured prompt remains active when the flag is omitted unless
+`LLMOptions.UseNaivePromptForIssueAnalysis` is set to `true` in configuration.
+
+Examples:
+
+```bash
+# Structured prompt (default)
+dotnet run --project src/DataCollection.Presentation.Cli -- issue process-batch \
+  --input-file issues.txt --output-path structured.jsonl
+
+# Naive baseline prompt
+dotnet run --project src/DataCollection.Presentation.Cli -- issue process-batch \
+  --input-file issues.txt --output-path naive.jsonl --use-naive-prompt true
+```
