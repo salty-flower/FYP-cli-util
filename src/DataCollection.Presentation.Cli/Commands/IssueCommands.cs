@@ -100,6 +100,9 @@ public class IssueCommands(
     /// <param name="useBatchApi">Whether to use OpenAI Batch API for processing (default true for cost savings)</param>
     /// <param name="batchJobId">Optional existing OpenAI batch job ID to resume/check status instead of creating new batch</param>
     /// <param name="outputPath">Optional path to export results as JSONL (one IssueAnalysisResponse per line)</param>
+    /// <param name="useNaivePrompt">
+    /// If true, use the naive baseline prompt (raw HTML + minimal instructions) instead of the structured prompt.
+    /// </param>
     public async Task ProcessBatch(
         string inputFile,
         bool saveResults = true,
@@ -107,6 +110,7 @@ public class IssueCommands(
         bool useBatchApi = true,
         string? batchJobId = null,
         string? outputPath = null,
+        bool useNaivePrompt = false,
         CancellationToken cancellation = default
     )
     {
@@ -143,6 +147,7 @@ public class IssueCommands(
                 saveResults,
                 useCache,
                 batchJobId,
+                useNaivePrompt,
                 cancellation
             );
         else
@@ -156,6 +161,7 @@ public class IssueCommands(
                 issueTasks,
                 saveResults,
                 useCache,
+                useNaivePrompt,
                 cancellation
             );
         }
@@ -178,10 +184,14 @@ public class IssueCommands(
     /// <param name="inputFile">Path to a file containing issue URLs or owner/repo/issue combinations.</param>
     /// <param name="outputPath">Destination JSONL file to store the batch request payloads.</param>
     /// <param name="useCache">Whether to skip issues that already have cached objective data.</param>
+    /// <param name="useNaivePrompt">
+    /// If true, export requests using the naive baseline prompt instead of the structured prompt.
+    /// </param>
     public async Task PrepareBatchRequests(
         string inputFile,
         string outputPath,
         bool useCache = false,
+        bool useNaivePrompt = false,
         CancellationToken cancellation = default
     )
     {
@@ -215,11 +225,12 @@ public class IssueCommands(
 
         try
         {
-            var records = await batchProcessingService.PrepareBatchRequestsAsync(
-                issueTasks,
-                useCache,
-                cancellation
-            );
+        var records = await batchProcessingService.PrepareBatchRequestsAsync(
+            issueTasks,
+            useCache,
+            useNaivePrompt,
+            cancellation
+        );
 
             if (records.Count == 0)
             {

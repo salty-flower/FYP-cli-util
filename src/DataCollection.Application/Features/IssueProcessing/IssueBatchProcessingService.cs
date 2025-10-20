@@ -14,8 +14,10 @@ public class IssueBatchProcessingService(
     ILogger<IssueBatchProcessingService> logger,
     GitHubService gitHubService,
     IssueSubjectiveStatusCriterion statusCriterion,
+    IssueSubjectiveStatusNaiveBaseline naiveStatusCriterion,
     SingleIssueProcessingService singleIssueService,
     DatabaseIssueAnalysisStorageService storageService,
+    IOptionsSnapshot<LLMOptions> llmOptions,
     IOptions<ParallelismOptions> parallelismOptions
 )
 {
@@ -27,6 +29,7 @@ public class IssueBatchProcessingService(
         bool saveResults,
         bool useCache,
         string? batchJobId = null,
+        bool useNaivePrompt = false,
         CancellationToken cancellationToken = default
     )
     {
@@ -35,6 +38,8 @@ public class IssueBatchProcessingService(
             issueTasks.Count
         );
 
+        var criterion = ResolveCriterion(useNaivePrompt);
+
         if (!string.IsNullOrEmpty(batchJobId))
         {
             return await ProcessExistingBatchJobAsync(
@@ -42,6 +47,7 @@ public class IssueBatchProcessingService(
                 issueTasks,
                 saveResults,
                 useCache,
+                criterion,
                 cancellationToken
             );
         }
@@ -51,7 +57,11 @@ public class IssueBatchProcessingService(
             useCache,
             cancellationToken
         );
-        var batchResults = await ExecuteBatchProcessing(issueProfiles, cancellationToken);
+        var batchResults = await ExecuteBatchProcessing(
+            issueProfiles,
+            criterion,
+            cancellationToken
+        );
         var results = await ProcessBatchResultsAsync(
             batchResults,
             issueMetadata,
@@ -70,6 +80,7 @@ public class IssueBatchProcessingService(
     public async Task<List<IssueBatchPreparationRecord>> PrepareBatchRequestsAsync(
         List<(string? Url, string? Owner, string? Repo, long? Number)> issueTasks,
         bool useCache,
+        bool useNaivePrompt = false,
         CancellationToken cancellationToken = default
     )
     {
@@ -85,7 +96,9 @@ public class IssueBatchProcessingService(
             return [];
         }
 
-        var batchRequests = statusCriterion.BuildBatchRequests(issueProfiles);
+        var batchRequests = ResolveCriterion(useNaivePrompt).BuildBatchRequests(
+            issueProfiles
+        );
         var requestLookup = batchRequests.ToDictionary(request => request.CustomId);
 
         var records = new List<IssueBatchPreparationRecord>();
@@ -137,6 +150,7 @@ public class IssueBatchProcessingService(
         List<(string? Url, string? Owner, string? Repo, long? Number)> issueTasks,
         bool saveResults,
         bool useCache,
+        bool useNaivePrompt = false,
         CancellationToken cancellationToken = default
     )
     {
@@ -153,6 +167,7 @@ public class IssueBatchProcessingService(
                 issue,
                 saveResults,
                 useCache,
+                useNaivePrompt,
                 semaphore,
                 cancellationToken
             )
@@ -171,6 +186,7 @@ public class IssueBatchProcessingService(
         (string? Url, string? Owner, string? Repo, long? Number) issue,
         bool saveResults,
         bool useCache,
+        bool useNaivePrompt,
         SemaphoreSlim semaphore,
         CancellationToken cancellationToken
     )
@@ -187,7 +203,8 @@ public class IssueBatchProcessingService(
                     repoName,
                     issueNumber.Value,
                     useCache: useCache,
-                    saveResults: saveResults
+                    saveResults: saveResults,
+                    useNaivePrompt: useNaivePrompt
                 );
 
                 if (result.HasValue)
@@ -219,6 +236,7 @@ public class IssueBatchProcessingService(
         List<(string? Url, string? Owner, string? Repo, long? Number)> issueTasks,
         bool saveResults,
         bool useCache,
+        LargeLanguageModelCriterion<IssueProfile, SubjectiveIssueAnalysis> criterion,
         CancellationToken cancellationToken
     )
     {
@@ -226,7 +244,7 @@ public class IssueBatchProcessingService(
 
         try
         {
-            var subjectiveResults = await statusCriterion.ResumeBatchAsync(
+            var subjectiveResults = await criterion.ResumeBatchAsync(
                 batchJobId,
                 cancellationToken
             );
@@ -248,7 +266,10 @@ public class IssueBatchProcessingService(
                 cancellationToken
             );
 
-            var mergedResults = MergeSubjectiveWithDeterministic(subjectiveResults, issueProfiles);
+            var mergedResults = MergeSubjectiveWithDeterministic(
+                subjectiveResults,
+                issueProfiles
+            );
 
             var results = await ProcessBatchResultsAsync(
                 mergedResults,
@@ -491,12 +512,13 @@ public class IssueBatchProcessingService(
 
     private async Task<Dictionary<string, IssueAnalysisResponse>> ExecuteBatchProcessing(
         Dictionary<string, IssueProfile> issueProfiles,
+        LargeLanguageModelCriterion<IssueProfile, SubjectiveIssueAnalysis> criterion,
         CancellationToken cancellationToken
     )
     {
         logger.LogInformation("Submitting {Count} issues to OpenAI Batch API", issueProfiles.Count);
 
-        var subjectiveResults = await statusCriterion.EvaluateBatchAsync(
+        var subjectiveResults = await criterion.EvaluateBatchAsync(
             issueProfiles,
             cancellationToken
         );
@@ -508,6 +530,13 @@ public class IssueBatchProcessingService(
 
         return MergeSubjectiveWithDeterministic(subjectiveResults, issueProfiles);
     }
+
+    private LargeLanguageModelCriterion<IssueProfile, SubjectiveIssueAnalysis> ResolveCriterion(
+        bool useNaivePrompt
+    ) =>
+        useNaivePrompt || llmOptions.Value.UseNaivePromptForIssueAnalysis
+            ? naiveStatusCriterion
+            : statusCriterion;
 
     private Dictionary<string, IssueAnalysisResponse> MergeSubjectiveWithDeterministic(
         Dictionary<string, SubjectiveIssueAnalysis> subjectiveResults,

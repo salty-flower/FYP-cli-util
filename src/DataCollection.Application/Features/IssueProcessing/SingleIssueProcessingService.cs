@@ -18,7 +18,9 @@ public class SingleIssueProcessingService(
     GitHubService gitHubService,
     IGitHubClient gitHubClient,
     IssueSubjectiveStatusCriterion statusCriterion,
+    IssueSubjectiveStatusNaiveBaseline naiveStatusCriterion,
     DatabaseIssueAnalysisStorageService storageService,
+    IOptionsSnapshot<LLMOptions> llmOptions,
     IOptions<PathsOptions> pathsOptions
 )
 {
@@ -32,6 +34,7 @@ public class SingleIssueProcessingService(
         long issueNumber,
         bool useCache = true,
         bool saveResults = false,
+        bool useNaivePrompt = false,
         CancellationToken cancellationToken = default
     )
     {
@@ -89,7 +92,10 @@ public class SingleIssueProcessingService(
 
         // Deterministic synthesis + LLM subjective evaluation
         var deterministic = gitHubService.SynthesizeDeterministicIssueAnalysis(profile);
-        var subjective = await statusCriterion.EvaluateAsync(profile);
+        var useNaiveMode = useNaivePrompt || llmOptions.Value.UseNaivePromptForIssueAnalysis;
+        LargeLanguageModelCriterion<IssueProfile, SubjectiveIssueAnalysis> criterion =
+            useNaiveMode ? naiveStatusCriterion : statusCriterion;
+        var subjective = await criterion.EvaluateAsync(profile);
         var analysisResult = new IssueAnalysisResponse
         {
             Deterministic = deterministic,
