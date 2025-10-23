@@ -21,7 +21,8 @@ public class IssueSubjectiveStatusNaiveBaseline(
     IHttpClientFactory httpClientFactory,
     BatchFileHandler batchFileHandler,
     BatchJobPoller batchJobPoller
-) : LargeLanguageModelCriterion<IssueProfile, SubjectiveIssueAnalysis>(
+)
+    : LargeLanguageModelCriterion<IssueProfile, SubjectiveIssueAnalysis>(
         llmOptions.Value.IssueOverallStatusModel,
         logger,
         client,
@@ -30,7 +31,6 @@ public class IssueSubjectiveStatusNaiveBaseline(
         batchJobPoller
     )
 {
-
     protected override JsonTypeInfo<SubjectiveIssueAnalysis> OutcomeJsonTypeInfo =>
         AppJsonContext.Default.SubjectiveIssueAnalysis;
 
@@ -38,19 +38,15 @@ public class IssueSubjectiveStatusNaiveBaseline(
     {
         const string systemPrompt = IssueSubjectiveStatusCriterion.TwoFieldSystemPrompt;
 
-        var owner = profile.SdkRepository.Owner?.Login
-            ?? throw new InvalidOperationException(
-                "Issue profile missing repository owner login."
-            );
-        var repo = profile.SdkRepository.Name
-            ?? throw new InvalidOperationException(
-                "Issue profile missing repository name."
-            );
+        var owner =
+            profile.SdkRepository.Owner?.Login
+            ?? throw new InvalidOperationException("Issue profile missing repository owner login.");
+        var repo =
+            profile.SdkRepository.Name
+            ?? throw new InvalidOperationException("Issue profile missing repository name.");
         var issueNumber = profile.SdkIssue.Number;
 
-        var issueText = FetchIssuePlainTextAsync(owner, repo, issueNumber)
-            .GetAwaiter()
-            .GetResult();
+        var issueText = FetchIssuePlainTextAsync(owner, repo, issueNumber).GetAwaiter().GetResult();
 
         var userPrompt = new StringBuilder()
             .AppendLine("GitHub issue page plain text:")
@@ -58,11 +54,7 @@ public class IssueSubjectiveStatusNaiveBaseline(
             .AppendLine(issueText)
             .ToString();
 
-        return
-        [
-            new SystemChatMessage(systemPrompt),
-            new UserChatMessage(userPrompt),
-        ];
+        return [new SystemChatMessage(systemPrompt), new UserChatMessage(userPrompt)];
     }
 
     private async Task<string> FetchIssuePlainTextAsync(string owner, string repo, long issueNumber)

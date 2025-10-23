@@ -93,8 +93,9 @@ public class SingleIssueProcessingService(
         // Deterministic synthesis + LLM subjective evaluation
         var deterministic = gitHubService.SynthesizeDeterministicIssueAnalysis(profile);
         var useNaiveMode = useNaivePrompt || llmOptions.Value.UseNaivePromptForIssueAnalysis;
-        LargeLanguageModelCriterion<IssueProfile, SubjectiveIssueAnalysis> criterion =
-            useNaiveMode ? naiveStatusCriterion : statusCriterion;
+        LargeLanguageModelCriterion<IssueProfile, SubjectiveIssueAnalysis> criterion = useNaiveMode
+            ? naiveStatusCriterion
+            : statusCriterion;
         var subjective = await criterion.EvaluateAsync(profile);
         var analysisResult = new IssueAnalysisResponse
         {

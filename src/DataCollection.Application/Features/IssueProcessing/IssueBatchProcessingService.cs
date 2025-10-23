@@ -96,9 +96,7 @@ public class IssueBatchProcessingService(
             return [];
         }
 
-        var batchRequests = ResolveCriterion(useNaivePrompt).BuildBatchRequests(
-            issueProfiles
-        );
+        var batchRequests = ResolveCriterion(useNaivePrompt).BuildBatchRequests(issueProfiles);
         var requestLookup = batchRequests.ToDictionary(request => request.CustomId);
 
         var records = new List<IssueBatchPreparationRecord>();
@@ -244,10 +242,7 @@ public class IssueBatchProcessingService(
 
         try
         {
-            var subjectiveResults = await criterion.ResumeBatchAsync(
-                batchJobId,
-                cancellationToken
-            );
+            var subjectiveResults = await criterion.ResumeBatchAsync(batchJobId, cancellationToken);
             logger.LogInformation(
                 "Received {Count} subjective results from existing batch job",
                 subjectiveResults.Count
@@ -266,10 +261,7 @@ public class IssueBatchProcessingService(
                 cancellationToken
             );
 
-            var mergedResults = MergeSubjectiveWithDeterministic(
-                subjectiveResults,
-                issueProfiles
-            );
+            var mergedResults = MergeSubjectiveWithDeterministic(subjectiveResults, issueProfiles);
 
             var results = await ProcessBatchResultsAsync(
                 mergedResults,
