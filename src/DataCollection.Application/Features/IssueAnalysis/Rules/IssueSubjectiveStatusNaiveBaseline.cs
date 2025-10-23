@@ -1,14 +1,11 @@
-using System.Linq;
-using System.Text.Encodings.Web;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using System.Net.Http;
+using System.Text;
 using System.Text.Json.Serialization.Metadata;
-using System.Text.RegularExpressions;
 using DataCollection.Application.Models.IssueTracker.Profiles;
-using DataCollection.Application.Serialization;
 using DataCollection.Core.Models.IssueTracker.Responses;
 using DataCollection.Infrastructure.Options;
 using DataCollection.Infrastructure.Serialization;
+using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAI;
@@ -40,63 +37,96 @@ public class IssueSubjectiveStatusNaiveBaseline(
     {
         const string systemPrompt = IssueSubjectiveStatusCriterion.TwoFieldSystemPrompt;
 
-        var issueBody = MinifyMarkdown(profile.SdkIssue.Body);
-        var issueTitle = MinifyMarkdown(profile.SdkIssue.Title);
+        var owner = profile.SdkRepository.Owner?.Login
+            ?? throw new InvalidOperationException(
+                "Issue profile missing repository owner login."
+            );
+        var repo = profile.SdkRepository.Name
+            ?? throw new InvalidOperationException(
+                "Issue profile missing repository name."
+            );
+        var issueNumber = profile.SdkIssue.Number;
 
-        var commentBodies = profile.CommentEvents
-            .Select(static comment => MinifyMarkdown(comment.SdkComment.Body))
-            .Where(static body => !string.IsNullOrEmpty(body))
-            .Select(static body => body!)
-            .ToArray();
+        var issueText = FetchIssuePlainTextAsync(owner, repo, issueNumber)
+            .GetAwaiter()
+            .GetResult();
 
-        var labelNames = profile.SdkIssue.Labels?
-            .Select(static label => label?.Name)
-            .Where(static name => !string.IsNullOrWhiteSpace(name))
-            .Select(static name => name!.Trim())
-            .ToArray();
-
-        var promptPayload = new IssueSubjectiveStatusNaiveBaselinePayload(
-            issueTitle,
-            issueBody,
-            commentBodies.Length > 0 ? commentBodies : null,
-            labelNames is { Length: > 0 } ? labelNames : null
-        );
-
-        var userPrompt = JsonSerializer.Serialize(
-            promptPayload,
-            PromptJsonContext.IssueSubjectiveStatusNaiveBaselinePayload
-        );
+        var userPrompt = new StringBuilder()
+            .AppendLine("GitHub issue page plain text:")
+            .AppendLine()
+            .AppendLine(issueText)
+            .ToString();
 
         return
         [
             new SystemChatMessage(systemPrompt),
-            new UserChatMessage(userPrompt)
+            new UserChatMessage(userPrompt),
         ];
     }
 
-    private static string? MinifyMarkdown(string? text)
+    private async Task<string> FetchIssuePlainTextAsync(string owner, string repo, long issueNumber)
     {
-        if (string.IsNullOrWhiteSpace(text))
+        var requestUri = $"https://github.com/{owner}/{repo}/issues/{issueNumber}";
+        try
         {
-            return null;
-        }
+            using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+            request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (compatible; DataCollection/1.0)");
+            request.Headers.Accept.ParseAdd("text/html");
 
-        return Regex.Replace(text, "\\s+", " ").Trim();
+            var httpClient = HttpClientFactory.CreateClient("github-api");
+            using var response = await httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead
+            );
+
+            response.EnsureSuccessStatusCode();
+            var html = await response.Content.ReadAsStringAsync();
+
+            if (string.IsNullOrWhiteSpace(html))
+            {
+                Logger.LogWarning(
+                    "Received empty HTML content for {Owner}/{Repo}#{IssueNumber}",
+                    owner,
+                    repo,
+                    issueNumber
+                );
+                return string.Empty;
+            }
+
+            var document = new HtmlDocument();
+            document.LoadHtml(html);
+            var innerText = HtmlEntity.DeEntitize(document.DocumentNode.InnerText ?? string.Empty);
+            innerText = innerText.Trim();
+
+            if (innerText.Length <= MaxPlainTextCharacters)
+            {
+                return innerText;
+            }
+
+            Logger.LogWarning(
+                "Plain text content for {Owner}/{Repo}#{IssueNumber} was {Length} characters. Truncating to {Limit} characters.",
+                owner,
+                repo,
+                issueNumber,
+                innerText.Length,
+                MaxPlainTextCharacters
+            );
+
+            return innerText[..MaxPlainTextCharacters] + "\n\n[... truncated ...]";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(
+                ex,
+                "Failed to fetch issue HTML for {Owner}/{Repo}#{IssueNumber} from {Url}",
+                owner,
+                repo,
+                issueNumber,
+                requestUri
+            );
+            throw;
+        }
     }
 
-    private static readonly JsonSerializerOptions PromptSerializerOptions = new()
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        WriteIndented = false
-    };
-
-    private static readonly IssueAnalysisJsonContext PromptJsonContext = new(PromptSerializerOptions);
+    private const int MaxPlainTextCharacters = 50_000;
 }
-
-public sealed record IssueSubjectiveStatusNaiveBaselinePayload(
-    string? Title,
-    string? Body,
-    string[]? Comments,
-    string[]? Labels
-);
