@@ -1,3 +1,4 @@
+using System;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json.Serialization.Metadata;
@@ -128,5 +129,5 @@ public class IssueSubjectiveStatusNaiveBaseline(
         }
     }
 
-    private const int MaxPlainTextCharacters = 50_000;
+    private const int MaxPlainTextCharacters = Int32.MaxValue;
 }
