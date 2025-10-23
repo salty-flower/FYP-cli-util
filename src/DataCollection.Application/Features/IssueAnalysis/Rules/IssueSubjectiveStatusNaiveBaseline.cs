@@ -1,6 +1,9 @@
-using System.Net.Http;
-using System.Text;
+using System.Linq;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using System.Text.RegularExpressions;
 using DataCollection.Application.Models.IssueTracker.Profiles;
 using DataCollection.Application.Serialization;
 using DataCollection.Core.Models.IssueTracker.Responses;
@@ -29,96 +32,71 @@ public class IssueSubjectiveStatusNaiveBaseline(
         batchJobPoller
     )
 {
-    private const string MinimalSystemPrompt = """
-        You are analyzing a GitHub issue using raw HTML content. Determine two booleans:
-        1. IsRealBug - true if the issue represents a genuine software bug report, false otherwise.
-        2. IsDuplicate - true if the issue is marked or discussed as a duplicate, false otherwise.
-
-        Base your decision solely on the provided HTML snippet and respond with JSON that matches the expected schema.
-        """;
-
-    private const int MaxHtmlCharacters = 50_000;
-
-    private readonly ILogger<IssueSubjectiveStatusNaiveBaseline> _logger = logger;
 
     protected override JsonTypeInfo<SubjectiveIssueAnalysis> OutcomeJsonTypeInfo =>
         AppJsonContext.Default.SubjectiveIssueAnalysis;
 
     protected override IEnumerable<ChatMessage> BuildMessages(IssueProfile profile)
     {
-        var owner = profile.SdkRepository.Owner?.Login
-            ?? throw new InvalidOperationException("Issue profile missing repository owner login.");
-        var repo = profile.SdkRepository.Name
-            ?? throw new InvalidOperationException("Issue profile missing repository name.");
-        var issueNumber = profile.SdkIssue.Number;
+        const string systemPrompt = IssueSubjectiveStatusCriterion.TwoFieldSystemPrompt;
 
-        var rawHtml = FetchRawIssueHtmlAsync(owner, repo, issueNumber).GetAwaiter().GetResult();
-        var truncatedHtml = TruncateIfNeeded(rawHtml, owner, repo, issueNumber);
+        var issueBody = MinifyMarkdown(profile.SdkIssue.Body);
+        var issueTitle = MinifyMarkdown(profile.SdkIssue.Title);
 
-        var userPrompt = new StringBuilder()
-            .AppendLine("Raw GitHub issue page HTML:")
-            .AppendLine()
-            .AppendLine(truncatedHtml)
-            .ToString();
+        var commentBodies = profile.CommentEvents
+            .Select(static comment => MinifyMarkdown(comment.SdkComment.Body))
+            .Where(static body => !string.IsNullOrEmpty(body))
+            .Select(static body => body!)
+            .ToArray();
+
+        var labelNames = profile.SdkIssue.Labels?
+            .Select(static label => label?.Name)
+            .Where(static name => !string.IsNullOrWhiteSpace(name))
+            .Select(static name => name!.Trim())
+            .ToArray();
+
+        var promptPayload = new IssueSubjectiveStatusNaiveBaselinePayload(
+            issueTitle,
+            issueBody,
+            commentBodies.Length > 0 ? commentBodies : null,
+            labelNames is { Length: > 0 } ? labelNames : null
+        );
+
+        var userPrompt = JsonSerializer.Serialize(
+            promptPayload,
+            PromptJsonContext.IssueSubjectiveStatusNaiveBaselinePayload
+        );
 
         return
         [
-            new SystemChatMessage(MinimalSystemPrompt),
-            new UserChatMessage(userPrompt),
+            new SystemChatMessage(systemPrompt),
+            new UserChatMessage(userPrompt)
         ];
     }
 
-    private async Task<string> FetchRawIssueHtmlAsync(string owner, string repo, long issueNumber)
+    private static string? MinifyMarkdown(string? text)
     {
-        var issueUrl = $"https://github.com/{owner}/{repo}/issues/{issueNumber}";
-        try
+        if (string.IsNullOrWhiteSpace(text))
         {
-            var httpClient = HttpClientFactory.CreateClient();
-            using var request = new HttpRequestMessage(HttpMethod.Get, issueUrl);
-            request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (compatible; DataCollection/1.0)");
-
-            using var response = await httpClient.SendAsync(
-                request,
-                HttpCompletionOption.ResponseHeadersRead
-            );
-            response.EnsureSuccessStatusCode();
-
-            return await response.Content.ReadAsStringAsync();
+            return null;
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to fetch raw HTML for {Owner}/{Repo}#{IssueNumber} from {Url}", owner, repo, issueNumber, issueUrl);
-            throw;
-        }
+
+        return Regex.Replace(text, "\\s+", " ").Trim();
     }
 
-    private string TruncateIfNeeded(string html, string owner, string repo, long issueNumber)
+    private static readonly JsonSerializerOptions PromptSerializerOptions = new()
     {
-        if (string.IsNullOrEmpty(html))
-        {
-            _logger.LogWarning(
-                "Received empty HTML content for {Owner}/{Repo}#{IssueNumber}",
-                owner,
-                repo,
-                issueNumber
-            );
-            return string.Empty;
-        }
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        WriteIndented = false
+    };
 
-        if (html.Length <= MaxHtmlCharacters)
-        {
-            return html;
-        }
-
-        _logger.LogWarning(
-            "HTML content for {Owner}/{Repo}#{IssueNumber} was {Length} characters. Truncating to {Limit} characters.",
-            owner,
-            repo,
-            issueNumber,
-            html.Length,
-            MaxHtmlCharacters
-        );
-
-        return html[..MaxHtmlCharacters] + "\n\n[... truncated ...]";
-    }
+    private static readonly IssueAnalysisJsonContext PromptJsonContext = new(PromptSerializerOptions);
 }
+
+public sealed record IssueSubjectiveStatusNaiveBaselinePayload(
+    string? Title,
+    string? Body,
+    string[]? Comments,
+    string[]? Labels
+);

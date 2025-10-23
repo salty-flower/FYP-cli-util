@@ -37,7 +37,7 @@ public class IssueSubjectiveStatusCriterion(
     protected override JsonTypeInfo<SubjectiveIssueAnalysis> OutcomeJsonTypeInfo =>
         AppJsonContext.Default.SubjectiveIssueAnalysis;
 
-    private const string TwoFieldSystemPrompt = """
+    internal const string TwoFieldSystemPrompt = """
         You are an experienced software engineer helping researchers. For the provided issue,
         evaluate ONLY two subjective questions based strictly on the developer comments,
         label events, and PR metadata supplied in the user message:
