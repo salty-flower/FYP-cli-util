@@ -225,12 +225,12 @@ public class IssueCommands(
 
         try
         {
-        var records = await batchProcessingService.PrepareBatchRequestsAsync(
-            issueTasks,
-            useCache,
-            useNaivePrompt,
-            cancellation
-        );
+            var records = await batchProcessingService.PrepareBatchRequestsAsync(
+                issueTasks,
+                useCache,
+                useNaivePrompt,
+                cancellation
+            );
 
             if (records.Count == 0)
             {

@@ -152,16 +152,15 @@ public class IssueSubjectiveStatusCriterion(
         var commitsInfo = "none";
         if (profile.AssociatedCommitBriefings.Length > 0)
         {
-            var commitSummaries = profile.AssociatedCommitBriefings
-                .Select(c =>
-                {
-                    var sha = c.Sha.Length > 7 ? c.Sha[..7] : c.Sha;
-                    var authorLogin = c.Author?.Login;
-                    var authorDisplay = !string.IsNullOrWhiteSpace(authorLogin)
-                        ? $"@{authorLogin}"
-                        : c.Author?.Name ?? "unknown";
-                    return $"{sha} by {authorDisplay}";
-                });
+            var commitSummaries = profile.AssociatedCommitBriefings.Select(c =>
+            {
+                var sha = c.Sha.Length > 7 ? c.Sha[..7] : c.Sha;
+                var authorLogin = c.Author?.Login;
+                var authorDisplay = !string.IsNullOrWhiteSpace(authorLogin)
+                    ? $"@{authorLogin}"
+                    : c.Author?.Name ?? "unknown";
+                return $"{sha} by {authorDisplay}";
+            });
             commitsInfo = string.Join(", ", commitSummaries);
         }
 
